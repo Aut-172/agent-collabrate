@@ -3,10 +3,14 @@ package com.example.agentcollab.controller;
 import com.example.agentcollab.domain.DocumentType;
 import com.example.agentcollab.domain.AgentRunType;
 import com.example.agentcollab.dto.AgentRunDtos;
+import com.example.agentcollab.dto.PlanDtos;
+import com.example.agentcollab.dto.TaskDtos;
 import com.example.agentcollab.dto.WorkflowDtos;
 import com.example.agentcollab.security.CurrentUser;
 import com.example.agentcollab.service.DocumentService;
 import com.example.agentcollab.service.AgentRunService;
+import com.example.agentcollab.service.PlanService;
+import com.example.agentcollab.service.TaskService;
 import com.example.agentcollab.service.UserService;
 import com.example.agentcollab.service.WorkflowService;
 import jakarta.validation.Valid;
@@ -21,13 +25,18 @@ public class WorkflowController {
     private final DocumentService documentService;
     private final UserService userService;
     private final AgentRunService agentRunService;
+    private final PlanService planService;
+    private final TaskService taskService;
 
     public WorkflowController(WorkflowService workflowService, DocumentService documentService,
-                              UserService userService, AgentRunService agentRunService) {
+                              UserService userService, AgentRunService agentRunService,
+                              PlanService planService, TaskService taskService) {
         this.workflowService = workflowService;
         this.documentService = documentService;
         this.userService = userService;
         this.agentRunService = agentRunService;
+        this.planService = planService;
+        this.taskService = taskService;
     }
 
     @PostMapping("/workflows/{workflowId}/generate-design")
@@ -49,6 +58,32 @@ public class WorkflowController {
     public AgentRunDtos.EnqueuedRunResponse generateBuildPlan(@PathVariable Long workflowId) {
         return AgentRunDtos.EnqueuedRunResponse.from(agentRunService.request(
                 currentUserId(), workflowId, AgentRunType.GENERATE_BUILD_PLAN));
+    }
+
+    @PutMapping("/workflows/{workflowId}/plan-drafts")
+    public WorkflowDtos.DocumentResponse savePlanDraft(
+            @PathVariable Long workflowId,
+            @Valid @RequestBody WorkflowDtos.SaveDocumentRequest request) {
+        return WorkflowDtos.DocumentResponse.from(
+                planService.saveDraft(currentUserId(), workflowId, request.content()));
+    }
+
+    @PostMapping("/workflows/{workflowId}/approve-plan")
+    public WorkflowDtos.DocumentResponse approvePlan(
+            @PathVariable Long workflowId,
+            @Valid @RequestBody WorkflowDtos.ConfirmDocumentRequest request) {
+        return WorkflowDtos.DocumentResponse.from(
+                planService.approve(currentUserId(), workflowId, request.versionNo()));
+    }
+
+    @PostMapping("/workflows/{workflowId}/create-tasks")
+    public PlanDtos.CreationResponse createTasks(@PathVariable Long workflowId) {
+        return taskService.createFromApprovedPlan(currentUserId(), workflowId);
+    }
+
+    @GetMapping("/workflows/{workflowId}/tasks")
+    public List<TaskDtos.TaskResponse> tasks(@PathVariable Long workflowId) {
+        return taskService.list(currentUserId(), workflowId);
     }
 
     @PostMapping("/projects/{projectId}/workflows")

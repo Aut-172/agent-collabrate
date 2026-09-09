@@ -21,11 +21,13 @@ public class WorkflowService {
     private final ProjectAccessService access;
     private final WorkflowStateMachine stateMachine;
     private final AgentRunCancellationService runCancellation;
+    private final TaskCancellationService taskCancellation;
 
     public WorkflowService(WorkflowRepository workflows, WorkflowMemberRepository workflowMembers,
                            ProjectRepository projects, ProjectMemberRepository projectMembers,
                            ProjectAccessService access, WorkflowStateMachine stateMachine,
-                           AgentRunCancellationService runCancellation) {
+                           AgentRunCancellationService runCancellation,
+                           TaskCancellationService taskCancellation) {
         this.workflows = workflows;
         this.workflowMembers = workflowMembers;
         this.projects = projects;
@@ -33,6 +35,7 @@ public class WorkflowService {
         this.access = access;
         this.stateMachine = stateMachine;
         this.runCancellation = runCancellation;
+        this.taskCancellation = taskCancellation;
     }
 
     @Transactional
@@ -71,6 +74,7 @@ public class WorkflowService {
         access.requireLeader(workflow.getProjectId(), actorId);
         stateMachine.cancel(workflow);
         runCancellation.cancelForWorkflow(workflowId);
+        taskCancellation.cancelForWorkflow(workflowId);
         return workflows.save(workflow);
     }
 

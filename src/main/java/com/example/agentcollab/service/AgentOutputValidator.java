@@ -6,20 +6,14 @@ import com.example.agentcollab.client.AgentProviderResult;
 import com.example.agentcollab.domain.AgentRunType;
 import com.example.agentcollab.domain.DocumentFormat;
 import com.example.agentcollab.domain.IntentLevel;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
-import java.util.List;
 
 @Component
 public class AgentOutputValidator {
-    private static final List<String> ARCHITECTURE_FORBIDDEN_FIELDS = List.of(
-            "suggestedAssignee", "teamSize", "taskAssignments", "staffingRecommendation", "assignments");
-    private final ObjectMapper json;
+    private final BuildPlanValidator buildPlans;
 
-    public AgentOutputValidator(ObjectMapper json) {
-        this.json = json;
+    public AgentOutputValidator(BuildPlanValidator buildPlans) {
+        this.buildPlans = buildPlans;
     }
 
     public void validate(AgentGenerationRequest request, AgentProviderResult result) {
@@ -35,29 +29,10 @@ public class AgentOutputValidator {
 
     private void validateBuildPlan(IntentLevel level, AgentProviderResult result) {
         if (result.format() != DocumentFormat.JSON) throw invalid("Build Plan 必须使用 JSON 格式");
-        JsonNode root;
         try {
-            root = json.readTree(result.content());
-        } catch (JsonProcessingException ex) {
-            throw invalid("Build Plan 不是有效 JSON");
-        }
-        if (!root.isObject() || !level.name().equals(root.path("intentLevel").asText())) {
-            throw invalid("Build Plan 的 Intent 层级不匹配");
-        }
-        if (level == IntentLevel.ARCHITECTURE) {
-            if (ARCHITECTURE_FORBIDDEN_FIELDS.stream().anyMatch(root::has)) {
-                throw invalid("Architecture Build Plan 包含开发分工字段");
-            }
-            return;
-        }
-        JsonNode staffing = root.path("staffingRecommendation");
-        if (!staffing.isObject()
-                || staffing.path("mode").asText().isBlank()
-                || staffing.path("recommendedTeamSize").asInt(0) < 1
-                || staffing.path("reason").asText().isBlank()
-                || !root.path("assignments").isArray()
-                || !root.path("warnings").isArray()) {
-            throw invalid("Feature/Change Build Plan 缺少完整分工建议");
+            buildPlans.validate(result.content(), level);
+        } catch (BuildPlanValidationException ex) {
+            throw invalid(ex.getMessage());
         }
     }
 

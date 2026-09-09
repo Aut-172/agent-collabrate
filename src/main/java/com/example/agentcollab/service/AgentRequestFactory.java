@@ -8,6 +8,7 @@ import com.example.agentcollab.repository.AgentRunRepository;
 import com.example.agentcollab.repository.ProjectMemberRepository;
 import com.example.agentcollab.repository.UserRepository;
 import com.example.agentcollab.repository.WorkflowRepository;
+import com.example.agentcollab.repository.TaskRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
@@ -19,15 +20,18 @@ public class AgentRequestFactory {
     private final DocumentVersionRepository documents;
     private final ProjectMemberRepository members;
     private final UserRepository users;
+    private final TaskRepository tasks;
 
     public AgentRequestFactory(WorkflowRepository workflows, AgentRunRepository runs,
                                DocumentVersionRepository documents,
-                               ProjectMemberRepository members, UserRepository users) {
+                               ProjectMemberRepository members, UserRepository users,
+                               TaskRepository tasks) {
         this.workflows = workflows;
         this.runs = runs;
         this.documents = documents;
         this.members = members;
         this.users = users;
+        this.tasks = tasks;
     }
 
     @Transactional(readOnly = true)
@@ -60,7 +64,9 @@ public class AgentRequestFactory {
                 .filter(member -> users.findById(member.getUserId()).map(User::isEnabled).orElse(false))
                 .map(member -> new AgentGenerationRequest.MemberContext(
                         member.getUserId(), member.getProjectRole(), member.getProfileVersion(),
-                        member.getCapabilityProfile().deepCopy(), 0, member.getWeeklyCapacityPoints(),
+                        member.getCapabilityProfile().deepCopy(),
+                        tasks.sumOpenEffortPoints(projectId, member.getUserId()),
+                        member.getWeeklyCapacityPoints(),
                         member.getAvailability()))
                 .toList();
     }

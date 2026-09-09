@@ -68,6 +68,8 @@ class WorkflowDocumentIntegrationTest {
     @Autowired UserRepository users;
     @Autowired OutboxJobRepository outboxJobs;
     @Autowired AgentRunRepository agentRuns;
+    @Autowired TaskAssignmentRepository taskAssignments;
+    @Autowired TaskRepository tasks;
     @Autowired JdbcTemplate jdbc;
     @Autowired AgentRunWorker worker;
     @Autowired AgentRunExecutionService executions;
@@ -77,6 +79,8 @@ class WorkflowDocumentIntegrationTest {
         documents.deleteAll();
         outboxJobs.deleteAll();
         agentRuns.deleteAll();
+        taskAssignments.deleteAll();
+        tasks.deleteAll();
         workflowMembers.deleteAll();
         jdbc.update("UPDATE workflows SET parent_workflow_id = NULL");
         workflows.deleteAll();
@@ -408,6 +412,185 @@ class WorkflowDocumentIntegrationTest {
                 .isEqualTo(OutboxJobStatus.FAILED);
     }
 
+    @Test
+    void leaderEditsAndApprovesLatestPlanThenCreatesTasksWithAssignmentSnapshots() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "core");
+        updateProfile(leaderToken, projectId, 13);
+        long memberId = createUser(leaderToken, "member");
+        addMember(leaderToken, projectId, memberId);
+        String memberToken = login("member");
+        updateProfile(memberToken, projectId, 8);
+        long workflowId = createWorkflow(leaderToken, projectId, "assignable change", "CHANGE", null);
+
+        requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isConflict());
+
+        var generated = documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                workflowId, DocumentType.BUILD_PLAN).get(0);
+        var edited = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(generated.getContent());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) edited.path("tasks").get(0))
+                .put("title", "Leader reviewed task");
+        var assignment = (com.fasterxml.jackson.databind.node.ObjectNode) edited.path("assignments").get(0);
+        assignment.put("userId", memberId);
+        assignment.put("projectRole", "MEMBER");
+        assignment.put("profileVersion", 1);
+        assignment.put("fitReason", "Leader selected the member for the task");
+        assignment.withObject("workloadSnapshot").put("weeklyCapacityPoints", 8);
+
+        mvc.perform(put("/api/workflows/{id}/plan-drafts", workflowId)
+                        .header("Authorization", bearer(memberToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("content", edited.toString()))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("LEADER_REQUIRED"));
+        mvc.perform(put("/api/workflows/{id}/plan-drafts", workflowId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("content", edited.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versionNo").value(2));
+        confirm(leaderToken, workflowId, "approve-plan", 1)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DOCUMENT_VERSION_STALE"));
+        confirm(leaderToken, workflowId, "approve-plan", 2)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.confirmed").value(true));
+
+        updateProfile(memberToken, projectId, 20);
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.taskCount").value(1))
+                .andExpect(jsonPath("$.workflowStatus").value("TASKS_READY"));
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.taskCount").value(1));
+        assertThat(tasks.count()).isEqualTo(1);
+
+        var task = tasks.findByWorkflowIdOrderById(workflowId).get(0);
+        var initialAssignment = taskAssignments.findByTaskIdAndCurrentTrue(task.getId()).orElseThrow();
+        assertThat(task.getStatus().name()).isEqualTo("ASSIGNED");
+        assertThat(task.getSourcePlanVersion()).isEqualTo(2);
+        assertThat(task.getSourceSpecVersion()).isNull();
+        assertThat(initialAssignment.getAssigneeUserId()).isEqualTo(memberId);
+        assertThat(initialAssignment.getProfileVersion()).isEqualTo(2);
+        assertThat(initialAssignment.getWorkloadSnapshot().path("weeklyCapacityPoints").asInt()).isEqualTo(20);
+        mvc.perform(delete("/api/projects/{id}/members/{userId}", projectId, memberId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MEMBER_HAS_OPEN_TASKS"));
+
+        updateProfile(memberToken, projectId, 25);
+        assertThat(taskAssignments.findById(initialAssignment.getId()).orElseThrow().getProfileVersion()).isEqualTo(2);
+        mvc.perform(put("/api/tasks/{id}/assignee", task.getId())
+                        .header("Authorization", bearer(memberToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "assigneeUserId", memberId,
+                                "reason", "Unauthorized reassignment"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("LEADER_REQUIRED"));
+        mvc.perform(put("/api/tasks/{id}/assignee", task.getId())
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "assigneeUserId", users.findByUsername("leader").orElseThrow().getId(),
+                                "reason", "Leader takes ownership",
+                                "assignmentScore", 0.75))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentAssignment.assigneeUserId")
+                        .value(users.findByUsername("leader").orElseThrow().getId()))
+                .andExpect(jsonPath("$.currentAssignment.profileVersion").value(1))
+                .andExpect(jsonPath("$.planDetails.acceptanceCriteria[0]").isNotEmpty());
+        assertThat(taskAssignments.findByTaskIdOrderByAssignmentVersionDesc(task.getId())).hasSize(2);
+        assertThat(taskAssignments.findById(initialAssignment.getId()).orElseThrow().isCurrent()).isFalse();
+        mvc.perform(delete("/api/projects/{id}/members/{userId}", projectId, memberId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/workflows/{id}/cancel", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+        assertThat(tasks.findById(task.getId()).orElseThrow().getStatus().name()).isEqualTo("CANCELLED");
+    }
+
+    @Test
+    void rejectsInvalidPlanAndPlanWithOutdatedMemberProfile() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "core");
+        updateProfile(leaderToken, projectId, 13);
+        long workflowId = createWorkflow(leaderToken, projectId, "stale plan", "CHANGE", null);
+        requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
+
+        var generated = documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                workflowId, DocumentType.BUILD_PLAN).get(0);
+        var invalid = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(generated.getContent());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) invalid.path("tasks").get(0))
+                .remove("acceptanceCriteria");
+        mvc.perform(put("/api/workflows/{id}/plan-drafts", workflowId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("content", invalid.toString()))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_BUILD_PLAN"));
+
+        var falseWorkload = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(generated.getContent());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) falseWorkload.path("assignments").get(0)
+                .path("workloadSnapshot")).put("openEffortPoints", 7);
+        mvc.perform(put("/api/workflows/{id}/plan-drafts", workflowId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("content", falseWorkload.toString()))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ASSIGNEE_WORKLOAD_STALE"));
+
+        updateProfile(leaderToken, projectId, 21);
+        confirm(leaderToken, workflowId, "approve-plan", 1)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ASSIGNEE_PROFILE_STALE"));
+        requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
+        confirm(leaderToken, workflowId, "approve-plan", 2).andExpect(status().isOk());
+    }
+
+    @Test
+    void architecturePlanCreatesOnlyChildIntentsAndNoDevelopmentAssignments() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "architecture");
+        long workflowId = createWorkflow(leaderToken, projectId, "platform architecture", "ARCHITECTURE", null);
+        advanceToBuildPlan(leaderToken, workflowId);
+
+        var generated = documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                workflowId, DocumentType.BUILD_PLAN).get(0);
+        var edited = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(generated.getContent());
+        edited.withArray("childIntents").addObject()
+                .put("title", "Authentication feature")
+                .put("description", "Implement project authentication")
+                .put("intentLevel", "FEATURE");
+        mvc.perform(put("/api/workflows/{id}/plan-drafts", workflowId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("content", edited.toString()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.versionNo").value(2));
+        confirm(leaderToken, workflowId, "approve-plan", 2).andExpect(status().isOk());
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.taskCount").value(0))
+                .andExpect(jsonPath("$.childIntentCount").value(1))
+                .andExpect(jsonPath("$.workflowStatus").value("READY_TO_CLOSE"));
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.childIntentCount").value(1));
+        assertThat(tasks.count()).isZero();
+        assertThat(taskAssignments.count()).isZero();
+        var children = workflows.findByParentWorkflowIdOrderById(workflowId);
+        assertThat(children).singleElement().satisfies(child -> {
+            assertThat(child.getIntentLevel().name()).isEqualTo("FEATURE");
+            assertThat(child.getProjectId()).isEqualTo(projectId);
+        });
+    }
+
     private org.springframework.test.web.servlet.ResultActions confirm(
             String token, long workflowId, String action, int version) throws Exception {
         return mvc.perform(post("/api/workflows/{id}/{action}", workflowId, action)
@@ -502,6 +685,17 @@ class WorkflowDocumentIntegrationTest {
                                 "weeklyCapacityPoints", weeklyCapacityPoints,
                                 "notes", "test profile"))))
                 .andExpect(status().isOk());
+    }
+
+    private void advanceToBuildPlan(String token, long workflowId) throws Exception {
+        requestRun(token, workflowId, "generate-design");
+        assertThat(worker.processNext()).isTrue();
+        confirm(token, workflowId, "confirm-design", 1).andExpect(status().isOk());
+        requestRun(token, workflowId, "generate-spec");
+        assertThat(worker.processNext()).isTrue();
+        confirm(token, workflowId, "confirm-spec", 1).andExpect(status().isOk());
+        requestRun(token, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
     }
 
     private String bearer(String token) { return "Bearer " + token; }

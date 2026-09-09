@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-collab.local/schema/build-plan-v1.schema.json",
+  "title": "Intent-aware build plan",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intentLevel",
+        "architectureGoals",
+        "systemBoundaries",
+        "constraints",
+        "nonFunctionalRequirements",
+        "childIntents",
+        "risks"
+      ],
+      "properties": {
+        "intentLevel": { "const": "ARCHITECTURE" },
+        "architectureGoals": { "$ref": "#/$defs/stringList" },
+        "systemBoundaries": { "$ref": "#/$defs/stringList" },
+        "constraints": { "$ref": "#/$defs/stringList" },
+        "nonFunctionalRequirements": { "$ref": "#/$defs/stringList" },
+        "childIntents": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/childIntent" }
+        },
+        "risks": { "$ref": "#/$defs/stringList" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intentLevel",
+        "staffingRecommendation",
+        "tasks",
+        "assignments",
+        "alternatives",
+        "warnings"
+      ],
+      "properties": {
+        "intentLevel": { "enum": ["FEATURE", "CHANGE"] },
+        "staffingRecommendation": { "$ref": "#/$defs/staffingRecommendation" },
+        "tasks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/task" }
+        },
+        "assignments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/assignment" }
+        },
+        "alternatives": { "$ref": "#/$defs/stringList" },
+        "warnings": { "$ref": "#/$defs/stringList" }
+      }
+    }
+  ],
+  "$defs": {
+    "stringList": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "type": "string", "minLength": 1, "maxLength": 2000 }
+    },
+    "childIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "description", "intentLevel"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 10000 },
+        "intentLevel": { "enum": ["ARCHITECTURE", "FEATURE", "CHANGE"] }
+      }
+    },
+    "staffingRecommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "recommendedTeamSize", "reason", "confidence"],
+      "properties": {
+        "mode": { "enum": ["SINGLE_OWNER", "PAIR", "TEAM"] },
+        "recommendedTeamSize": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskKey",
+        "title",
+        "description",
+        "effortPoints",
+        "priority",
+        "scope",
+        "nonGoals",
+        "acceptanceCriteria",
+        "verificationCommands",
+        "dependencies",
+        "branchName"
+      ],
+      "properties": {
+        "taskKey": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 10000 },
+        "effortPoints": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "priority": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "dueAt": { "type": "string", "format": "date-time" },
+        "scope": { "$ref": "#/$defs/nonEmptyStringList" },
+        "nonGoals": { "$ref": "#/$defs/stringList" },
+        "acceptanceCriteria": { "$ref": "#/$defs/nonEmptyStringList" },
+        "verificationCommands": { "$ref": "#/$defs/nonEmptyStringList" },
+        "dependencies": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 100,
+          "items": { "type": "string", "minLength": 1, "maxLength": 50 }
+        },
+        "branchName": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "nonEmptyStringList": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": { "type": "string", "minLength": 1, "maxLength": 2000 }
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskKey",
+        "userId",
+        "projectRole",
+        "profileVersion",
+        "workloadSnapshot",
+        "fitReason",
+        "assignmentScore"
+      ],
+      "properties": {
+        "taskKey": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "userId": { "type": "integer", "minimum": 1 },
+        "projectRole": { "enum": ["LEADER", "MEMBER"] },
+        "profileVersion": { "type": "integer", "minimum": 1 },
+        "workloadSnapshot": { "$ref": "#/$defs/workloadSnapshot" },
+        "fitReason": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "assignmentScore": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "workloadSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["openEffortPoints", "weeklyCapacityPoints"],
+      "properties": {
+        "openEffortPoints": { "type": "integer", "minimum": 0 },
+        "weeklyCapacityPoints": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "availability": { "type": "string", "minLength": 1, "maxLength": 30 }
+      }
+    }
+  }
+}

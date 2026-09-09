@@ -12,6 +12,7 @@ import java.util.Optional;
 
 public interface WorkflowRepository extends JpaRepository<Workflow, Long> {
     List<Workflow> findByProjectIdInOrderByUpdatedAtDesc(Collection<Long> projectIds);
+    List<Workflow> findByParentWorkflowIdOrderById(Long parentWorkflowId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select w from Workflow w where w.id = :id")

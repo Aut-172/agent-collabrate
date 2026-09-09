@@ -11,7 +11,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class MockAgentProviderClientTest {
     private final ObjectMapper json = new ObjectMapper();
     private final MockAgentProviderClient provider = new MockAgentProviderClient(json);
-    private final AgentOutputValidator validator = new AgentOutputValidator(json);
+    private final AgentOutputValidator validator = new AgentOutputValidator(
+            new com.example.agentcollab.service.BuildPlanValidator(json));
 
     @Test
     void separatesArchitectureOutputFromProfileBasedFeatureStaffing() throws Exception {

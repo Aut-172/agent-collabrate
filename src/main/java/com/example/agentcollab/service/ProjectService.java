@@ -10,6 +10,7 @@ import com.example.agentcollab.repository.MemberProfileVersionRepository;
 import com.example.agentcollab.repository.ProjectMemberRepository;
 import com.example.agentcollab.repository.ProjectRepository;
 import com.example.agentcollab.repository.UserRepository;
+import com.example.agentcollab.repository.TaskRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,10 +25,12 @@ public class ProjectService {
     private final ProjectAccessService access;
     private final ProfileJsonMapper profileMapper;
     private final UserService userService;
+    private final TaskRepository tasks;
 
     public ProjectService(ProjectRepository projects, ProjectMemberRepository members,
                           MemberProfileVersionRepository profileVersions, UserRepository users,
-                          ProjectAccessService access, ProfileJsonMapper profileMapper, UserService userService) {
+                          ProjectAccessService access, ProfileJsonMapper profileMapper, UserService userService,
+                          TaskRepository tasks) {
         this.projects = projects;
         this.members = members;
         this.profileVersions = profileVersions;
@@ -35,6 +38,7 @@ public class ProjectService {
         this.access = access;
         this.profileMapper = profileMapper;
         this.userService = userService;
+        this.tasks = tasks;
     }
 
     @Transactional
@@ -85,9 +89,12 @@ public class ProjectService {
         if (actorId.equals(userId)) {
             throw new ApiException(HttpStatus.CONFLICT, "LEADER_SELF_REMOVAL_NOT_ALLOWED", "Leader 不能移除自己");
         }
-        ProjectMember member = members.findByProjectIdAndUserId(projectId, userId)
+        ProjectMember member = members.findByProjectIdAndUserIdForUpdate(projectId, userId)
                 .filter(value -> value.getStatus() == ProjectMember.Status.ACTIVE)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "PROJECT_MEMBER_NOT_FOUND", "项目成员不存在"));
+        if (tasks.existsOpenTaskForAssignee(projectId, userId)) {
+            throw new ApiException(HttpStatus.CONFLICT, "MEMBER_HAS_OPEN_TASKS", "成员仍负责未完成任务，请先转派");
+        }
         member.remove();
         members.save(member);
     }
@@ -99,7 +106,10 @@ public class ProjectService {
 
     @Transactional
     public ProjectMember updateOwnProfile(Long actorId, Long projectId, ProjectDtos.CapabilityProfileRequest request) {
-        ProjectMember member = access.requireMember(projectId, actorId);
+        access.requireMember(projectId, actorId);
+        ProjectMember member = members.findByProjectIdAndUserIdForUpdate(projectId, actorId)
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND, "PROJECT_MEMBER_NOT_FOUND", "项目成员不存在"));
         updateProfileInternal(member, request, actorId);
         return member;
     }
