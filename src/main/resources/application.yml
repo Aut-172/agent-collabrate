@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: agent-collab
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/agent_collab}
+    username: ${DB_USERNAME:agent_collab}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+    access-token-expiration: ${JWT_EXPIRATION_MS:3600000}
+
+springdoc:
+  api-docs:
+    path: /api/openapi
+  swagger-ui:
+    path: /api/swagger-ui

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-collab.local/schema/capability-profile-v1.schema.json",
+  "title": "Project member capability profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "responsibilities",
+    "skills",
+    "experience",
+    "preferredTaskTypes",
+    "limitations",
+    "availability"
+  ],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "responsibilities": { "$ref": "#/$defs/stringList" },
+    "skills": { "$ref": "#/$defs/stringList" },
+    "experience": { "$ref": "#/$defs/stringList" },
+    "preferredTaskTypes": { "$ref": "#/$defs/stringList" },
+    "limitations": { "$ref": "#/$defs/stringList" },
+    "availability": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "notes": { "type": "string", "maxLength": 2000 }
+  },
+  "$defs": {
+    "stringList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "maxItems": 100
+    }
+  }
+}
