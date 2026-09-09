@@ -1,9 +1,15 @@
 package com.example.agentcollab;
 
 import com.example.agentcollab.domain.DocumentType;
+import com.example.agentcollab.domain.AgentRun;
+import com.example.agentcollab.domain.AgentRunType;
+import com.example.agentcollab.domain.AgentRunStatus;
+import com.example.agentcollab.domain.OutboxJobStatus;
 import com.example.agentcollab.exception.ApiException;
 import com.example.agentcollab.repository.*;
 import com.example.agentcollab.service.DocumentService;
+import com.example.agentcollab.service.AgentRunExecutionService;
+import com.example.agentcollab.service.AgentRunWorker;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,11 +66,17 @@ class WorkflowDocumentIntegrationTest {
     @Autowired ProjectMemberRepository projectMembers;
     @Autowired ProjectRepository projects;
     @Autowired UserRepository users;
+    @Autowired OutboxJobRepository outboxJobs;
+    @Autowired AgentRunRepository agentRuns;
     @Autowired JdbcTemplate jdbc;
+    @Autowired AgentRunWorker worker;
+    @Autowired AgentRunExecutionService executions;
 
     @BeforeEach
     void clearDatabase() {
         documents.deleteAll();
+        outboxJobs.deleteAll();
+        agentRuns.deleteAll();
         workflowMembers.deleteAll();
         jdbc.update("UPDATE workflows SET parent_workflow_id = NULL");
         workflows.deleteAll();
@@ -136,7 +148,8 @@ class WorkflowDocumentIntegrationTest {
         mvc.perform(get("/api/workflows/{id}", changeId).header("Authorization", bearer(leaderToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextAction").value("GENERATE_BUILD_PLAN"));
-        assertThatThrownBy(() -> documentService.recordGeneratedDesign(changeId, "# Invalid design", 201L))
+        long invalidRunId = createAgentRun(changeId, AgentRunType.GENERATE_DESIGN);
+        assertThatThrownBy(() -> documentService.recordGeneratedDesign(changeId, "# Invalid design", invalidRunId))
                 .isInstanceOf(ApiException.class)
                 .extracting(error -> ((ApiException) error).getCode())
                 .isEqualTo("INVALID_WORKFLOW_TRANSITION");
@@ -172,7 +185,8 @@ class WorkflowDocumentIntegrationTest {
         String creatorToken = login("creator");
         long workflowId = createWorkflow(creatorToken, projectId, "document flow");
 
-        var designV1 = documentService.recordGeneratedDesign(workflowId, "# Design v1", 101L);
+        long designRunId = createAgentRun(workflowId, AgentRunType.GENERATE_DESIGN);
+        var designV1 = documentService.recordGeneratedDesign(workflowId, "# Design v1", designRunId);
         assertThat(designV1.getVersionNo()).isEqualTo(1);
         assertThatThrownBy(() -> documentService.recordGeneratedSpec(workflowId, "# Spec", 102L))
                 .isInstanceOf(ApiException.class)
@@ -195,7 +209,8 @@ class WorkflowDocumentIntegrationTest {
         confirm(creatorToken, workflowId, "confirm-design", 3).andExpect(status().isOk())
                 .andExpect(jsonPath("$.confirmed").value(true));
 
-        documentService.recordGeneratedSpec(workflowId, "# Spec v1", 102L);
+        long specRunId = createAgentRun(workflowId, AgentRunType.GENERATE_SPEC);
+        documentService.recordGeneratedSpec(workflowId, "# Spec v1", specRunId);
         mvc.perform(put("/api/workflows/{id}/spec", workflowId)
                         .header("Authorization", bearer(creatorToken))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"# Spec v2\"}"))
@@ -211,6 +226,186 @@ class WorkflowDocumentIntegrationTest {
         assertThat(designVersions).extracting(value -> value.getVersionNo()).containsExactly(3, 2, 1);
         assertThat(designVersions).extracting(value -> value.getContent())
                 .containsExactly("# Design v3", "# Design v2", "# Design v1");
+    }
+
+    @Test
+    void queuesAgentRunAndPersistsOutputOnlyWhenWorkerCompletes() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "core");
+        long workflowId = createWorkflow(leaderToken, projectId, "async design");
+
+        long runId = requestRun(leaderToken, workflowId, "generate-design");
+        long duplicateRunId = requestRun(leaderToken, workflowId, "generate-design");
+        assertThat(duplicateRunId).isEqualTo(runId);
+        assertThat(documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                workflowId, DocumentType.DESIGN)).isEmpty();
+        assertThat(outboxJobs.count()).isEqualTo(1);
+
+        assertThat(worker.processNext()).isTrue();
+        mvc.perform(get("/api/agent-runs/{id}", runId).header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.responseSummary").value("Generated Design document"));
+        mvc.perform(get("/api/workflows/{id}", workflowId).header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DESIGN_PROPOSED"));
+        assertThat(documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                        workflowId, DocumentType.DESIGN))
+                .singleElement()
+                .extracting(value -> value.getAgentRunId()).isEqualTo(runId);
+
+        requestRunExpecting(leaderToken, workflowId, "generate-spec", status().isConflict());
+        confirm(leaderToken, workflowId, "confirm-design", 1).andExpect(status().isOk());
+        long specRunId = requestRun(leaderToken, workflowId, "generate-spec");
+        assertThat(worker.processNext()).isTrue();
+        assertThat(agentRuns.findById(specRunId).orElseThrow().getStatus()).isEqualTo(AgentRunStatus.SUCCEEDED);
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus().name())
+                .isEqualTo("SPEC_PROPOSED");
+
+        long outsiderId = createUser(leaderToken, "outsider");
+        String outsiderToken = login("outsider");
+        assertThat(outsiderId).isPositive();
+        mvc.perform(get("/api/agent-runs/{id}", runId).header("Authorization", bearer(outsiderToken)))
+                .andExpect(status().isNotFound());
+        assertThat(worker.processNext()).isFalse();
+    }
+
+    @Test
+    void regenerationCreatesNewRunsAndDocumentVersionsWithoutChangingCandidateState() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "core");
+        long workflowId = createWorkflow(leaderToken, projectId, "regeneration", "ARCHITECTURE", null);
+
+        long designRun1 = requestRun(leaderToken, workflowId, "generate-design");
+        assertThat(worker.processNext()).isTrue();
+        long designRun2 = requestRun(leaderToken, workflowId, "generate-design");
+        assertThat(designRun2).isNotEqualTo(designRun1);
+        assertThat(worker.processNext()).isTrue();
+        assertDocumentVersions(workflowId, DocumentType.DESIGN, designRun2, designRun1);
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus().name())
+                .isEqualTo("DESIGN_PROPOSED");
+
+        confirm(leaderToken, workflowId, "confirm-design", 2).andExpect(status().isOk());
+        long specRun1 = requestRun(leaderToken, workflowId, "generate-spec");
+        assertThat(worker.processNext()).isTrue();
+        long specRun2 = requestRun(leaderToken, workflowId, "generate-spec");
+        assertThat(specRun2).isNotEqualTo(specRun1);
+        assertThat(worker.processNext()).isTrue();
+        assertDocumentVersions(workflowId, DocumentType.SPEC, specRun2, specRun1);
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus().name())
+                .isEqualTo("SPEC_PROPOSED");
+
+        confirm(leaderToken, workflowId, "confirm-spec", 2).andExpect(status().isOk());
+        long planRun1 = requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
+        long planRun2 = requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(planRun2).isNotEqualTo(planRun1);
+        assertThat(worker.processNext()).isTrue();
+        assertDocumentVersions(workflowId, DocumentType.BUILD_PLAN, planRun2, planRun1);
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus().name())
+                .isEqualTo("BUILD_PLAN_PROPOSED");
+    }
+
+    @Test
+    void retriesTransientFailureOnceAndAllowsManualRetryThenCancellation() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "core");
+        long workflowId = createWorkflow(leaderToken, projectId, "retry design");
+        long runId = requestRun(leaderToken, workflowId, "generate-design");
+
+        var firstClaim = executions.claimNext().orElseThrow();
+        assertThat(executions.claimNext()).isEmpty();
+        executions.handleFailure(firstClaim, "PROVIDER_UNAVAILABLE", "Temporary provider failure", true);
+        assertThat(agentRuns.findById(runId).orElseThrow().getStatus()).isEqualTo(AgentRunStatus.RUNNING);
+        assertThat(agentRuns.findById(runId).orElseThrow().getRetryCount()).isEqualTo(1);
+        assertThat(outboxJobs.findById(firstClaim.jobId()).orElseThrow().getStatus())
+                .isEqualTo(OutboxJobStatus.PENDING);
+
+        var secondClaim = executions.claimNext().orElseThrow();
+        executions.handleFailure(secondClaim, "PROVIDER_UNAVAILABLE", "Temporary provider failure", true);
+        assertThat(agentRuns.findById(runId).orElseThrow().getStatus()).isEqualTo(AgentRunStatus.FAILED);
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus().name()).isEqualTo("INTENT");
+
+        String retryBody = mvc.perform(post("/api/agent-runs/{id}/retry", runId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("QUEUED"))
+                .andReturn().getResponse().getContentAsString();
+        long retryRunId = json.readTree(retryBody).get("runId").asLong();
+        assertThat(retryRunId).isNotEqualTo(runId);
+
+        long memberId = createUser(leaderToken, "member");
+        addMember(leaderToken, projectId, memberId);
+        String memberToken = login("member");
+        mvc.perform(post("/api/agent-runs/{id}/cancel", retryRunId)
+                        .header("Authorization", bearer(memberToken)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("LEADER_REQUIRED"));
+        mvc.perform(post("/api/agent-runs/{id}/cancel", retryRunId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+    }
+
+    @Test
+    void changeBuildPlanUsesCurrentProjectMemberProfileAndCapacity() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "core");
+        updateProfile(leaderToken, projectId, 13);
+        long workflowId = createWorkflow(leaderToken, projectId, "small change", "CHANGE", null);
+
+        long runId = requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
+        assertThat(agentRuns.findById(runId).orElseThrow().getStatus()).isEqualTo(AgentRunStatus.SUCCEEDED);
+        var plan = documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                workflowId, DocumentType.BUILD_PLAN).get(0);
+        var content = json.readTree(plan.getContent());
+        assertThat(content.path("intentLevel").asText()).isEqualTo("CHANGE");
+        assertThat(content.path("assignments").get(0).path("profileVersion").asInt()).isEqualTo(1);
+        assertThat(content.path("assignments").get(0).path("workloadSnapshot")
+                .path("weeklyCapacityPoints").asInt()).isEqualTo(13);
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus().name())
+                .isEqualTo("BUILD_PLAN_PROPOSED");
+
+        updateProfile(leaderToken, projectId, 21);
+        long regeneratedRunId = requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
+        assertThat(regeneratedRunId).isNotEqualTo(runId);
+        var regenerated = documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                workflowId, DocumentType.BUILD_PLAN).get(0);
+        var regeneratedContent = json.readTree(regenerated.getContent());
+        assertThat(regenerated.getVersionNo()).isEqualTo(2);
+        assertThat(regeneratedContent.path("assignments").get(0).path("profileVersion").asInt()).isEqualTo(2);
+        assertThat(regeneratedContent.path("assignments").get(0).path("workloadSnapshot")
+                .path("weeklyCapacityPoints").asInt()).isEqualTo(21);
+    }
+
+    @Test
+    void failedAgentOutputDoesNotAdvanceWorkflowAndWorkflowCancellationStopsQueuedRuns() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "core");
+        long changeId = createWorkflow(leaderToken, projectId, "unassignable change", "CHANGE", null);
+        long failedRunId = requestRun(leaderToken, changeId, "generate-build-plan");
+
+        assertThat(worker.processNext()).isTrue();
+        AgentRun failedRun = agentRuns.findById(failedRunId).orElseThrow();
+        assertThat(failedRun.getStatus()).isEqualTo(AgentRunStatus.FAILED);
+        assertThat(failedRun.getErrorCode()).isEqualTo("NO_ASSIGNABLE_MEMBERS");
+        assertThat(workflows.findById(changeId).orElseThrow().getStatus().name()).isEqualTo("INTENT");
+        assertThat(documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                changeId, DocumentType.BUILD_PLAN)).isEmpty();
+
+        long featureId = createWorkflow(leaderToken, projectId, "cancelled feature");
+        long queuedRunId = requestRun(leaderToken, featureId, "generate-design");
+        mvc.perform(post("/api/workflows/{id}/cancel", featureId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+        assertThat(agentRuns.findById(queuedRunId).orElseThrow().getStatus())
+                .isEqualTo(AgentRunStatus.CANCELLED);
+        assertThat(outboxJobs.findByJobTypeAndReferenceId(
+                        com.example.agentcollab.domain.OutboxJobType.AGENT_RUN, queuedRunId).orElseThrow().getStatus())
+                .isEqualTo(OutboxJobStatus.FAILED);
     }
 
     private org.springframework.test.web.servlet.ResultActions confirm(
@@ -275,5 +470,51 @@ class WorkflowDocumentIntegrationTest {
         return json.readTree(body).get("id").asLong();
     }
 
+    private long requestRun(String token, long workflowId, String action) throws Exception {
+        String body = mvc.perform(post("/api/workflows/{id}/{action}", workflowId, action)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.statusUrl").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
+        return json.readTree(body).get("runId").asLong();
+    }
+
+    private void requestRunExpecting(
+            String token, long workflowId, String action,
+            org.springframework.test.web.servlet.ResultMatcher expectedStatus) throws Exception {
+        mvc.perform(post("/api/workflows/{id}/{action}", workflowId, action)
+                        .header("Authorization", bearer(token)))
+                .andExpect(expectedStatus);
+    }
+
+    private void updateProfile(String token, long projectId, int weeklyCapacityPoints) throws Exception {
+        mvc.perform(put("/api/projects/{id}/members/me/profile", projectId)
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "summary", "backend lead",
+                                "responsibilities", java.util.List.of("API"),
+                                "skills", java.util.List.of("Java", "PostgreSQL"),
+                                "experience", java.util.List.of("REST"),
+                                "preferredTaskTypes", java.util.List.of("backend"),
+                                "limitations", java.util.List.of(),
+                                "availability", "PART_TIME",
+                                "weeklyCapacityPoints", weeklyCapacityPoints,
+                                "notes", "test profile"))))
+                .andExpect(status().isOk());
+    }
+
     private String bearer(String token) { return "Bearer " + token; }
+
+    private long createAgentRun(long workflowId, AgentRunType type) {
+        AgentRun run = new AgentRun(workflowId, type, "test", "test-model", "test run");
+        run.start();
+        return agentRuns.save(run).getId();
+    }
+
+    private void assertDocumentVersions(long workflowId, DocumentType type, Long... runIds) {
+        var versions = documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(workflowId, type);
+        assertThat(versions).extracting(value -> value.getVersionNo()).containsExactly(2, 1);
+        assertThat(versions).extracting(value -> value.getAgentRunId()).containsExactly(runIds);
+    }
 }

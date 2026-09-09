@@ -1,9 +1,12 @@
 package com.example.agentcollab.controller;
 
 import com.example.agentcollab.domain.DocumentType;
+import com.example.agentcollab.domain.AgentRunType;
+import com.example.agentcollab.dto.AgentRunDtos;
 import com.example.agentcollab.dto.WorkflowDtos;
 import com.example.agentcollab.security.CurrentUser;
 import com.example.agentcollab.service.DocumentService;
+import com.example.agentcollab.service.AgentRunService;
 import com.example.agentcollab.service.UserService;
 import com.example.agentcollab.service.WorkflowService;
 import jakarta.validation.Valid;
@@ -17,11 +20,35 @@ public class WorkflowController {
     private final WorkflowService workflowService;
     private final DocumentService documentService;
     private final UserService userService;
+    private final AgentRunService agentRunService;
 
-    public WorkflowController(WorkflowService workflowService, DocumentService documentService, UserService userService) {
+    public WorkflowController(WorkflowService workflowService, DocumentService documentService,
+                              UserService userService, AgentRunService agentRunService) {
         this.workflowService = workflowService;
         this.documentService = documentService;
         this.userService = userService;
+        this.agentRunService = agentRunService;
+    }
+
+    @PostMapping("/workflows/{workflowId}/generate-design")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public AgentRunDtos.EnqueuedRunResponse generateDesign(@PathVariable Long workflowId) {
+        return AgentRunDtos.EnqueuedRunResponse.from(agentRunService.request(
+                currentUserId(), workflowId, AgentRunType.GENERATE_DESIGN));
+    }
+
+    @PostMapping("/workflows/{workflowId}/generate-spec")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public AgentRunDtos.EnqueuedRunResponse generateSpec(@PathVariable Long workflowId) {
+        return AgentRunDtos.EnqueuedRunResponse.from(agentRunService.request(
+                currentUserId(), workflowId, AgentRunType.GENERATE_SPEC));
+    }
+
+    @PostMapping("/workflows/{workflowId}/generate-build-plan")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public AgentRunDtos.EnqueuedRunResponse generateBuildPlan(@PathVariable Long workflowId) {
+        return AgentRunDtos.EnqueuedRunResponse.from(agentRunService.request(
+                currentUserId(), workflowId, AgentRunType.GENERATE_BUILD_PLAN));
     }
 
     @PostMapping("/projects/{projectId}/workflows")

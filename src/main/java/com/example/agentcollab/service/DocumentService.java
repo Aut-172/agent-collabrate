@@ -76,12 +76,11 @@ public class DocumentService {
     public DocumentVersion recordGeneratedDesign(Long workflowId, String content, Long agentRunId) {
         Objects.requireNonNull(agentRunId, "agentRunId is required");
         Workflow workflow = workflowService.findForUpdate(workflowId);
-        requireStatus(workflow, WorkflowStatus.INTENT);
+        requireStatusIn(workflow, WorkflowStatus.INTENT, WorkflowStatus.DESIGN_PROPOSED);
         workflowService.requireActiveProject(workflow);
         DocumentVersion document = saveAgentVersion(
                 workflow, DocumentType.DESIGN, DocumentFormat.MARKDOWN, content, agentRunId);
-        stateMachine.transition(workflow, WorkflowStatus.DESIGN_PROPOSED);
-        workflows.save(workflow);
+        advanceIfNeeded(workflow, WorkflowStatus.DESIGN_PROPOSED);
         return document;
     }
 
@@ -89,14 +88,33 @@ public class DocumentService {
     public DocumentVersion recordGeneratedSpec(Long workflowId, String content, Long agentRunId) {
         Objects.requireNonNull(agentRunId, "agentRunId is required");
         Workflow workflow = workflowService.findForUpdate(workflowId);
-        requireStatus(workflow, WorkflowStatus.DESIGN_PROPOSED);
+        requireStatusIn(workflow, WorkflowStatus.DESIGN_PROPOSED, WorkflowStatus.SPEC_PROPOSED);
         workflowService.requireActiveProject(workflow);
         requireLatestConfirmed(workflowId, DocumentType.DESIGN);
         DocumentVersion document = saveAgentVersion(
                 workflow, DocumentType.SPEC, DocumentFormat.MARKDOWN, content, agentRunId);
-        stateMachine.transition(workflow, WorkflowStatus.SPEC_PROPOSED);
-        workflows.save(workflow);
+        advanceIfNeeded(workflow, WorkflowStatus.SPEC_PROPOSED);
         return document;
+    }
+
+    @Transactional
+    public DocumentVersion recordGeneratedBuildPlan(Long workflowId, String content, Long agentRunId) {
+        Objects.requireNonNull(agentRunId, "agentRunId is required");
+        Workflow workflow = workflowService.findForUpdate(workflowId);
+        WorkflowStatus initialStatus = workflow.getIntentLevel() == IntentLevel.CHANGE
+                ? WorkflowStatus.INTENT : WorkflowStatus.SPEC_CONFIRMED;
+        requireStatusIn(workflow, initialStatus, WorkflowStatus.BUILD_PLAN_PROPOSED);
+        workflowService.requireActiveProject(workflow);
+        DocumentVersion document = saveAgentVersion(
+                workflow, DocumentType.BUILD_PLAN, DocumentFormat.JSON, content, agentRunId);
+        advanceIfNeeded(workflow, WorkflowStatus.BUILD_PLAN_PROPOSED);
+        return document;
+    }
+
+    private void advanceIfNeeded(Workflow workflow, WorkflowStatus target) {
+        if (workflow.getStatus() == target) return;
+        stateMachine.transition(workflow, target);
+        workflows.save(workflow);
     }
 
     private DocumentVersion saveUserVersion(Workflow workflow, DocumentType type, DocumentFormat format,
@@ -145,6 +163,13 @@ public class DocumentService {
 
     private void requireStatus(Workflow workflow, WorkflowStatus expected) {
         if (workflow.getStatus() != expected) {
+            throw new ApiException(HttpStatus.CONFLICT, "WORKFLOW_STATE_CONFLICT",
+                    "当前 Workflow 状态不允许此操作");
+        }
+    }
+
+    private void requireStatusIn(Workflow workflow, WorkflowStatus... allowed) {
+        if (!List.of(allowed).contains(workflow.getStatus())) {
             throw new ApiException(HttpStatus.CONFLICT, "WORKFLOW_STATE_CONFLICT",
                     "当前 Workflow 状态不允许此操作");
         }

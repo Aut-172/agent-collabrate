@@ -17,6 +17,13 @@ spring:
     enabled: true
 
 app:
+  agent:
+    worker:
+      scheduling-enabled: true
+      poll-delay-ms: 1000
+      retry-delay-ms: 1000
+      lock-timeout-ms: 300000
+      max-attempts: 2
   jwt:
     secret: ${JWT_SECRET}
     access-token-expiration: ${JWT_EXPIRATION_MS:3600000}

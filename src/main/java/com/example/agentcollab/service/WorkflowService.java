@@ -20,16 +20,19 @@ public class WorkflowService {
     private final ProjectMemberRepository projectMembers;
     private final ProjectAccessService access;
     private final WorkflowStateMachine stateMachine;
+    private final AgentRunCancellationService runCancellation;
 
     public WorkflowService(WorkflowRepository workflows, WorkflowMemberRepository workflowMembers,
                            ProjectRepository projects, ProjectMemberRepository projectMembers,
-                           ProjectAccessService access, WorkflowStateMachine stateMachine) {
+                           ProjectAccessService access, WorkflowStateMachine stateMachine,
+                           AgentRunCancellationService runCancellation) {
         this.workflows = workflows;
         this.workflowMembers = workflowMembers;
         this.projects = projects;
         this.projectMembers = projectMembers;
         this.access = access;
         this.stateMachine = stateMachine;
+        this.runCancellation = runCancellation;
     }
 
     @Transactional
@@ -67,6 +70,7 @@ public class WorkflowService {
         Workflow workflow = requireForUpdate(actorId, workflowId);
         access.requireLeader(workflow.getProjectId(), actorId);
         stateMachine.cancel(workflow);
+        runCancellation.cancelForWorkflow(workflowId);
         return workflows.save(workflow);
     }
 
