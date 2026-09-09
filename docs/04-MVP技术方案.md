@@ -128,13 +128,16 @@ Leader 与 Member 都是开发任务候选人。Leader 的额外权限只来自 
   "preferredTaskTypes": ["后端开发", "数据库设计"],
   "limitations": ["不负责前端视觉设计"],
   "availability": "PART_TIME",
+  "weeklyCapacityPoints": 13,
   "notes": "每周可投入约 15 小时"
 }
 ```
 
 ### 5.3 Workflow / WorkflowMember
 
-Workflow 保存 Intent、项目和状态；WorkflowMember 保存 OWNER/PARTICIPANT 关系。
+Workflow 保存 Intent、项目、`intent_level`、可选父 Workflow 和状态；WorkflowMember 保存 OWNER/PARTICIPANT 关系。
+
+`intent_level` 取值为 `ARCHITECTURE`、`FEATURE`、`CHANGE`。Architecture、Feature 和 Change 使用不同的 Agent 输出 Schema 和后续处理管线，但共享 Workflow 生命周期状态机。
 
 ### 5.4 DocumentVersion
 
@@ -142,7 +145,9 @@ Workflow 保存 Intent、项目和状态；WorkflowMember 保存 OWNER/PARTICIPA
 
 ### 5.5 Task / TaskAssignment
 
-Task 保存可交付开发单元。TaskAssignment 保存分配历史、Agent 分配理由、分配时的能力画像快照和确认时间，不能只覆盖当前 assignee。
+Task 保存可交付开发单元和 `effort_points`。Architecture 不创建开发 Task；Feature/Change 的 Task 必须来源于已批准的分工建议。
+
+TaskAssignment 保存分配历史、Agent 分配理由、分配评分、分配时的能力画像快照、工作量快照和确认时间，不能只覆盖当前 assignee。
 
 Agent 生成的分配建议至少包含：
 
@@ -152,11 +157,18 @@ Agent 生成的分配建议至少包含：
   "projectRole": "LEADER",
   "profileVersion": 2,
   "reason": "熟悉 Spring Security 和认证系统",
-  "confidence": 0.86
+  "confidence": 0.86,
+  "workloadSnapshot": {
+    "openEffortPoints": 5,
+    "weeklyCapacityPoints": 13
+  },
+  "assignmentScore": 0.91
 }
 ```
 
 该建议必须基于当前项目成员的能力画像。Leader 可以修改建议；批准和创建任务时，系统必须重新校验负责人仍是 ACTIVE 项目成员且画像已完成。
+
+分工建议必须包含 `staffingRecommendation.mode`、`recommendedTeamSize`、人数理由、候选成员匹配理由和警告。Feature 通常应比 Change 推荐更大的团队，但 AI 可以根据实际范围给出单人 Feature 或多人 Change，并必须说明原因。Architecture 输出不得包含开发分工字段。
 
 ### 5.6 TaskPackage
 
@@ -215,8 +227,11 @@ webhook_deliveries
 
 - `project_members(project_id, user_id)` 唯一；
 - `project_members.capability_profile` 必须通过 JSON Schema 校验；
+- `project_members.weekly_capacity_points` 和 `availability` 用于当前分工评估；
 - 项目内所有可分配成员都必须有已完成能力画像；
 - `task_assignments` 保存 `profile_snapshot`，不随成员后续修改而变化；
+- `task_assignments` 保存 `workload_snapshot` 和 `assignment_score`；
+- `tasks.effort_points` 必须在 1-8 范围内；
 - `document_versions(workflow_id, document_type, version_no)` 唯一；
 - `task_packages(task_id, version)` 唯一；
 - `task_package_confirmations(task_id, user_id, package_version)` 唯一；
@@ -262,6 +277,14 @@ POST /api/workflows/{id}/approve-plan
 POST /api/workflows/{id}/create-tasks
 POST /api/workflows/{id}/cancel
 ```
+
+`generate-build-plan` 根据 `intent_level` 选择输出：
+
+- Architecture：架构设计、约束、非功能需求和子 Intent 建议，不输出开发分工；
+- Feature：功能 Build Plan 和 AI 分工建议；
+- Change：局部变更计划和 AI 分工建议。
+
+`approve-plan` 必须校验输出 Schema 与 Intent 层级一致。`create-tasks` 对 Architecture 只能创建子 Intent，不得创建开发 Task。
 
 ### 7.3 AgentRun
 

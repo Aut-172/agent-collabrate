@@ -26,8 +26,8 @@ Leader 权限以 `project_members.project_role = LEADER` 为准。每项操作�
 | 修改 Spec | DocumentVersion、AuditLog | Plan、Task、TaskPackage 可能失效 |
 | 请求重新生成 | AgentRun、OutboxJob、AuditLog | 生成新文档候选版本 |
 | 修改 Build Plan | DocumentVersion、AuditLog | 未批准计划内容变化 |
-| 批准 Build Plan | Workflow、DocumentVersion、AuditLog | 锁定批准版本，可创建 Task |
-| 创建 Task | Task、TaskAssignment、TaskPackage | 绑定计划、规格、基线版本 |
+| 批准 Build Plan | Workflow、DocumentVersion、AuditLog | 锁定批准版本；Feature/Change 可创建 Task，Architecture 进入架构基线完成路径 |
+| 创建 Task | Task、TaskAssignment、TaskPackage | 仅适用于 Feature/Change；Architecture 只能创建子 Intent |
 | 取消 Workflow | Workflow、Task、AgentRun、OutboxJob | 未完成任务和后台任务停止；历史 Git/CI 保留 |
 | 关闭 Workflow | Workflow、AuditLog | 必须全部必要 Task 完成且无 Blocker |
 
@@ -44,12 +44,15 @@ Leader 权限以 `project_members.project_role = LEADER` 为准。每项操作�
 
 Leader 可以修改：
 
+- Intent 层级允许的计划内容；
 - 任务 key、标题和描述；
 - Scope；
 - Non-goals；
 - Acceptance Criteria；
 - Verification Commands；
 - 建议负责人和分配原因；
+- Feature/Change 的分工模式、推荐/实际人数和任务拆分；
+- Architecture 的子 Intent、边界和约束；
 - 分支名；
 - 本地 Agent Git 执行策略。
 

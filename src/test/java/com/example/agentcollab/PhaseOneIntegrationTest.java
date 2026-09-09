@@ -104,7 +104,9 @@ class PhaseOneIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(profile("backend lead")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.profileVersion").value(1))
-                .andExpect(jsonPath("$.capabilityProfile.skills[0]").value("Java"));
+                .andExpect(jsonPath("$.capabilityProfile.skills[0]").value("Java"))
+                .andExpect(jsonPath("$.weeklyCapacityPoints").value(13))
+                .andExpect(jsonPath("$.availability").value("PART_TIME"));
         mvc.perform(put("/api/projects/{id}/members/me/profile", projectId)
                         .header("Authorization", bearer(leaderToken))
                         .contentType(MediaType.APPLICATION_JSON).content(profile("security lead")))
@@ -115,9 +117,17 @@ class PhaseOneIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(oversizedProfile()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_CAPABILITY_PROFILE"));
+        JsonNode invalidCapacity = json.readTree(profile("invalid capacity"));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) invalidCapacity).put("weeklyCapacityPoints", 41);
+        mvc.perform(put("/api/projects/{id}/members/me/profile", projectId)
+                        .header("Authorization", bearer(leaderToken))
+                        .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(invalidCapacity)))
+                .andExpect(status().isBadRequest());
 
         var leaderMember = members.findByProjectIdAndUserId(projectId, users.findByUsername("leader").orElseThrow().getId()).orElseThrow();
         assertThat(profileVersions.countByProjectMemberId(leaderMember.getId())).isEqualTo(2);
+        assertThat(leaderMember.getWeeklyCapacityPoints()).isEqualTo(13);
+        assertThat(leaderMember.getAvailability()).isEqualTo("PART_TIME");
         assertThat(users.findByUsername("leader").orElseThrow().getClass().getDeclaredFields())
                 .extracting(java.lang.reflect.Field::getName).doesNotContain("capabilityProfile", "projectRole");
     }
@@ -203,6 +213,7 @@ class PhaseOneIntegrationTest {
                 "preferredTaskTypes", java.util.List.of("backend"),
                 "limitations", java.util.List.of(),
                 "availability", "PART_TIME",
+                "weeklyCapacityPoints", 13,
                 "notes", "test profile"));
     }
 

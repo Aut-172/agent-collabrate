@@ -31,6 +31,10 @@ public class ProjectMember {
     private boolean profileCompleted;
     @Column(name = "profile_updated_at")
     private Instant profileUpdatedAt;
+    @Column(name = "weekly_capacity_points")
+    private Integer weeklyCapacityPoints;
+    @Column(length = 30)
+    private String availability;
     @Column(name = "joined_at", nullable = false)
     private Instant joinedAt;
     @Column(name = "left_at")
@@ -50,8 +54,10 @@ public class ProjectMember {
         this.joinedAt = Instant.now();
     }
 
-    public void updateProfile(JsonNode profile) {
+    public void updateProfile(JsonNode profile, Integer weeklyCapacityPoints, String availability) {
         this.capabilityProfile = profile;
+        this.weeklyCapacityPoints = weeklyCapacityPoints;
+        this.availability = availability;
         this.profileVersion++;
         this.profileCompleted = true;
         this.profileUpdatedAt = Instant.now();
@@ -70,6 +76,8 @@ public class ProjectMember {
     public int getProfileVersion() { return profileVersion; }
     public boolean isProfileCompleted() { return profileCompleted; }
     public Instant getProfileUpdatedAt() { return profileUpdatedAt; }
+    public Integer getWeeklyCapacityPoints() { return weeklyCapacityPoints; }
+    public String getAvailability() { return availability; }
     public Instant getJoinedAt() { return joinedAt; }
     public Status getStatus() { return status; }
     public Long getVersion() { return version; }

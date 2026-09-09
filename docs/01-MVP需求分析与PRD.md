@@ -70,6 +70,26 @@
 - 接收 Webhook 和同步外部状态；
 - 写入审计日志。
 
+### 2.5 Intent 层级与分工边界
+
+Intent 必须声明处理层级：
+
+| 层级 | 目标 | 是否生成开发分工 |
+|---|---|---|
+| `ARCHITECTURE` | 建立系统/子系统架构、边界和约束 | 否 |
+| `FEATURE` | 交付一个可验证的功能或能力 | 是 |
+| `CHANGE` | 完成局部代码、配置或小范围行为变更 | 是 |
+
+分工人数是 AI 的建议结果，不是用户输入的固定规则。MVP 的默认倾向是：
+
+- Feature 通常比 Change 涉及更大的范围、更多模块或更多并行工作，因此推荐分工人数通常多于 Change；
+- Change 通常由单人负责，复杂或高风险 Change 可以由两人协作；
+- 简单 Feature 可以由一人完成，AI 必须解释为什么没有采用多人分工；
+- AI 必须结合 Intent 范围、任务依赖、成员能力画像、当前工作量和可投入容量裁定人数；
+- Leader 可以修改人数、任务拆分和负责人，并对最终结果负责。
+
+Architecture 可以提出架构评审参与者建议，但不得生成面向代码交付的开发分工、负责人或 TaskAssignment。
+
 ## 3. 产品目标
 
 ### 3.1 MVP 目标
@@ -105,9 +125,10 @@ Leader 创建项目并添加成员
   -> 创建者确认 Design
   -> 平台异步生成 Spec
   -> 创建者确认 Spec
-  -> 平台异步生成 Build Plan 和任务/分配建议
+  -> 平台异步生成 Build Plan
+  -> 对 Feature/Change 生成分工建议；Architecture 只生成子 Intent 建议
   -> Leader 修改或批准计划
-  -> 平台根据批准版本创建 Task
+  -> 平台根据批准版本创建 Task（Architecture 不创建开发 Task）
   -> 平台生成 Task Package
   -> Leader 分配或确认负责人
   -> Member 下载任务包并在本地执行
@@ -148,7 +169,10 @@ Leader 创建项目并添加成员
 | FR-015 | 创建者可以修改并确认 Spec | P0 |
 | FR-016 | 平台可以异步生成 Build Plan | P0 |
 | FR-017 | Build Plan 必须包含任务、范围和验收标准 | P0 |
-| FR-018 | Leader 可以修改任务和分配建议 | P0 |
+| FR-017A | Intent 必须声明为 `ARCHITECTURE`、`FEATURE` 或 `CHANGE` | P0 |
+| FR-017B | Architecture Build Plan 不得产生开发分工和 TaskAssignment | P0 |
+| FR-017C | Feature/Change Build Plan 必须包含 AI 分工建议及人数、理由、工作量依据和风险 | P0 |
+| FR-018 | Leader 可以修改任务、分工人数、任务拆分和负责人 | P0 |
 | FR-019 | 只有 Leader 批准的 Build Plan 才能创建 Task | P0 |
 | FR-019A | Leader 可以将任务分配给自己 | P0 |
 
@@ -208,6 +232,8 @@ Leader 创建项目并添加成员
 - JWT Secret、Agent API Key、Git Token 和 Webhook Secret 不入库；
 - 资源访问必须进行项目级权限校验；
 - Agent 分配输入必须使用当前项目成员画像；
+- Agent 分工建议必须区分 Intent 层级，不能为 Architecture 生成开发分工；
+- Feature/Change 的分工建议必须记录成员画像和当前工作量快照；
 - 任务分配必须保存当时使用的画像快照；
 - Webhook 必须验签并做事件幂等；
 - 审计信息必须脱敏；

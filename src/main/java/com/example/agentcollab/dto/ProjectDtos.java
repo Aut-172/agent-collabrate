@@ -3,8 +3,11 @@ package com.example.agentcollab.dto;
 import com.example.agentcollab.domain.Project;
 import com.example.agentcollab.domain.ProjectMember;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
 
@@ -28,7 +31,8 @@ public final class ProjectDtos {
 
     public record MemberResponse(Long id, Long userId, String username, ProjectMember.Role projectRole,
                                  ProjectMember.Status status, boolean profileCompleted, int profileVersion,
-                                 com.fasterxml.jackson.databind.JsonNode capabilityProfile, Instant joinedAt) {}
+                                 com.fasterxml.jackson.databind.JsonNode capabilityProfile,
+                                 Integer weeklyCapacityPoints, String availability, Instant joinedAt) {}
 
     public record CapabilityProfileRequest(
             @NotBlank String summary,
@@ -37,6 +41,7 @@ public final class ProjectDtos {
             @NotNull List<@NotBlank String> experience,
             @NotNull List<@NotBlank String> preferredTaskTypes,
             @NotNull List<@NotBlank String> limitations,
-            @NotBlank String availability,
+            @NotBlank @Size(max = 30) String availability,
+            @NotNull @Min(1) @Max(40) Integer weeklyCapacityPoints,
             String notes) {}
 }

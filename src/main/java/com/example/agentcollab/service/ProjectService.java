@@ -108,14 +108,15 @@ public class ProjectService {
         String username = users.findById(member.getUserId()).map(User::getUsername).orElse("unknown");
         return new ProjectDtos.MemberResponse(member.getId(), member.getUserId(), username,
                 member.getProjectRole(), member.getStatus(), member.isProfileCompleted(),
-                member.getProfileVersion(), member.getCapabilityProfile(), member.getJoinedAt());
+                member.getProfileVersion(), member.getCapabilityProfile(), member.getWeeklyCapacityPoints(),
+                member.getAvailability(), member.getJoinedAt());
     }
 
     private void updateProfileInternal(ProjectMember member, ProjectDtos.CapabilityProfileRequest request, Long changedBy) {
         var profile = profileMapper.toJson(request);
         int nextVersion = member.getProfileVersion() + 1;
         profileVersions.save(new MemberProfileVersion(member.getId(), nextVersion, profile, changedBy));
-        member.updateProfile(profile);
+        member.updateProfile(profile, request.weeklyCapacityPoints(), request.availability());
         members.save(member);
     }
 }

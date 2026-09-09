@@ -16,6 +16,34 @@
 | CIRun | 某个 Commit 的 CI 运行 |
 | Workflow.health | 工作流是否需要关注，不替代 Workflow.status |
 
+## 1.1 Intent 层级与处理管线
+
+Workflow 的 `intent_level` 与生命周期状态是两个维度，不能把层级编码进状态名。
+
+```text
+ARCHITECTURE
+  Intent -> Architecture Design -> Architecture Spec
+  -> Child Intent Plan -> Leader Approval -> 创建子 Intent
+
+FEATURE
+  Intent -> Feature Design -> Feature Spec -> Build Plan
+  -> AI Staffing Recommendation -> Leader Approval
+  -> Tasks -> Delivery / CI
+
+CHANGE
+  Intent -> Change Plan -> AI Staffing Recommendation
+  -> Leader Approval -> Task -> Delivery / CI
+```
+
+规则：
+
+- `ARCHITECTURE` 不产生开发分工、TaskAssignment 或代码交付型 Task；
+- `FEATURE` 和 `CHANGE` 必须生成 AI 分工建议；
+- Feature 默认倾向于比 Change 推荐更多成员，但这是 AI 的软规则，不是固定人数约束；
+- AI 必须基于范围、依赖、任务工作量、成员画像和当前工作量解释推荐人数；
+- Leader 批准后才创建实际 TaskAssignment；
+- Architecture 完成表示架构基线已批准，子 Intent 已创建或明确暂不拆分，不等待子 Intent 的代码完成。
+
 ## 2. Workflow 状态
 
 ```text
@@ -52,6 +80,8 @@ FAILED
 - `CI_PASSED` 表示当前交付 Commit 的必要 CI 已通过；
 - `READY_TO_CLOSE` 表示所有必要 Task 完成，等待 Leader 关闭；
 - `DONE` 只能由满足全部完成条件的关闭动作产生。
+- 对 `ARCHITECTURE` Workflow，`PLAN_APPROVED` 表示架构基线已批准，随后可直接进入 `READY_TO_CLOSE`，前提是子 Intent 已创建或明确暂不拆分；
+- 对 `ARCHITECTURE` Workflow，`TASKS_READY`、`IN_PROGRESS`、`DELIVERY_SUBMITTED` 和 `CI_*` 不代表架构本身必须经过代码交付，这些阶段只适用于产生开发 Task 的 Feature/Change。
 
 ## 3. Task 状态
 
@@ -150,6 +180,7 @@ REJECTED
 | `BUILD_PLAN_PROPOSED` | Leader 修改 | Schema 通过 | `BUILD_PLAN_PROPOSED` |
 | `BUILD_PLAN_PROPOSED` | Leader 批准 | 指定版本有效 | `PLAN_APPROVED` |
 | `PLAN_APPROVED` | 创建 Task | 计划已批准 | `TASKS_READY` |
+| `PLAN_APPROVED`（`ARCHITECTURE`） | 确认架构基线 | 子 Intent 已创建或明确暂不拆分 | `READY_TO_CLOSE` |
 | `TASKS_READY` | 首个 Task 开始 | 至少一个 Task 开始 | `IN_PROGRESS` |
 | `IN_PROGRESS` | 提交交付 | 有效 Git 记录 | `DELIVERY_SUBMITTED` |
 | `DELIVERY_SUBMITTED` | CI 开始 | 当前 Commit 有 CI | `CI_RUNNING` |
@@ -188,7 +219,10 @@ Agent、Git 或 CI 失败不自动把 Workflow 改为 `FAILED`。失败结果必
 9. 单个 Task `BLOCKED` 不自动把 Workflow 设为 `BLOCKED`；
 10. 只有 `READY_TO_CLOSE` 才能关闭 Workflow；
 11. 不允许通过请求参数直接把 CI 写成 `PASSED`；
-12. 不允许通过 URL ID 跨项目访问资源。
+12. 不允许通过 URL ID 跨项目访问资源；
+13. Architecture 不得创建开发分工或开发 Task；
+14. Feature/Change 的分工建议必须有推荐人数、模式、理由和工作量依据；
+15. 已批准并开始执行的 Task 不因成员工作量变化自动换人。
 
 ## 12. 任务包过期规则
 

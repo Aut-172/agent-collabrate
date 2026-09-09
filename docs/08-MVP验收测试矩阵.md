@@ -19,6 +19,9 @@
 | AT-004A | 成员加入项目后必须填写能力画像 | API/业务规则测试 |
 | AT-004B | Leader 也必须填写能力画像并可成为任务负责人 | 任务分配集成测试 |
 | AT-004C | Agent 分配建议使用项目成员画像 | Agent Prompt/Plan 测试 |
+| AT-004D | Architecture 不生成开发分工、负责人或 TaskAssignment | Schema/状态机测试 |
+| AT-004E | Feature/Change 生成分工模式、推荐人数、理由、工作量依据和警告 | Agent 输出/Schema 测试 |
+| AT-004F | Feature 默认倾向于比 Change 推荐更多成员，但简单 Feature 和复杂 Change 可由 AI 例外裁定并说明理由 | 规则测试 |
 | AT-005 | Member 可以创建 Intent | API 测试 |
 | AT-006 | Design 生成是异步的并返回 runId | API + Worker 测试 |
 | AT-007 | Agent 失败可查看原因并重试 | Worker 集成测试 |
@@ -27,6 +30,8 @@
 | AT-010 | Build Plan JSON Schema 不通过时不能批准 | Schema/API 测试 |
 | AT-011 | Agent 分配建议可以被 Leader 修改 | Service 测试 |
 | AT-011A | 分配记录保存画像快照和分配理由 | Repository/集成测试 |
+| AT-011B | 分配记录保存工作量快照、分配评分和画像版本 | Repository/集成测试 |
+| AT-011C | 已开始执行的任务不因工作量变化自动换人 | 状态机/服务测试 |
 | AT-012 | 未批准 Plan 不能创建 Task | 权限/状态测试 |
 | AT-013 | 创建 Task 具有来源版本信息 | 集成测试 |
 | AT-014 | Task Package 同时有 Markdown 和 JSON | API 测试 |

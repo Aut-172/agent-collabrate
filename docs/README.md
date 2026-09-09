@@ -28,6 +28,7 @@
 11. [11-Vibe-Coding启动指南.md](11-Vibe-Coding启动指南.md)
 12. [12-MVP前端设计规范与页面说明.md](12-MVP前端设计规范与页面说明.md)
 13. [13-任务包确认与交付流程补充.md](13-任务包确认与交付流程补充.md)
+14. [14-Intent层级与AI分工策略.md](14-Intent层级与AI分工策略.md)
 
 ## 已冻结的 MVP 决策
 
@@ -52,6 +53,7 @@
 | 版本 | 设计、规格、计划、任务和任务包都不可覆盖，使用新版本 |
 | 异步 | Agent、Git、CI 长耗时操作使用数据库任务表和 Worker |
 | 权限 | 资源级项目隔离；Leader 治理权限以项目成员关系为准 |
+| Intent 分工 | Architecture 不产生开发分工；Feature/Change 必须生成 AI 分工建议，Feature 通常比 Change 推荐更多成员，但由 AI 基于范围、画像和工作量裁定 |
 
 ## 文档维护规则
 

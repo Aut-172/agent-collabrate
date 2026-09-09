@@ -24,6 +24,7 @@ public class ProfileJsonMapper {
         node.set("preferredTaskTypes", objectMapper.valueToTree(request.preferredTaskTypes() == null ? java.util.List.of() : request.preferredTaskTypes()));
         node.set("limitations", objectMapper.valueToTree(request.limitations() == null ? java.util.List.of() : request.limitations()));
         node.put("availability", request.availability());
+        node.put("weeklyCapacityPoints", request.weeklyCapacityPoints());
         if (request.notes() != null) node.put("notes", request.notes());
         validator.validate(node);
         return node;

@@ -142,15 +142,20 @@
 主流程：
 
 1. Leader 查看 AI 生成的任务和分配建议；
-2. Leader 使用表单/表格编辑任务；
-3. 系统将修改保存为新的 Plan 版本；
-4. Leader 审查任务范围、验收标准、负责人、负责人画像摘要和 Git 策略；
-5. Leader 批准具体版本；
-6. Workflow 进入 `PLAN_APPROVED`。
+2. Leader 查看 Intent 层级对应的处理管线；
+3. Leader 使用表单/表格编辑任务；
+4. 系统将修改保存为新的 Plan 版本；
+5. Leader 审查任务范围、验收标准、负责人、负责人画像摘要和 Git 策略；
+6. 对 Feature/Change，Leader 审查推荐分工模式、推荐人数、当前工作量、容量、匹配理由和警告；
+7. 对 Architecture，Leader 审查架构边界、约束和子 Intent，不审查开发分工；
+8. Leader 批准具体版本；
+9. Workflow 进入 `PLAN_APPROVED`。
 
 异常：
 
 - 负责人不是项目成员，拒绝保存；
+- Architecture 包含负责人、推荐人数或 `taskAssignments` 等开发分工字段，拒绝批准；
+- Feature/Change 缺少分工建议、人数依据或任务负责人，拒绝批准；
 - 任务没有验收标准，拒绝批准；
 - JSON Schema 不通过，拒绝保存；
 - Spec 已更新，旧 Plan 标记为 `STALE`。
@@ -169,6 +174,7 @@
 不允许：
 
 - 根据未批准 Plan 创建任务；
+- Architecture Plan 创建开发 Task 或 TaskAssignment；
 - 同一 Plan 重复创建第二组任务；
 - 创建没有范围或验收标准的任务。
 

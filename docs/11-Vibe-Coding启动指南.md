@@ -32,6 +32,9 @@
 9. docs/08-MVP验收测试矩阵.md
 10. docs/09-架构决策记录.md
 11. docs/10-数据库表设计.md
+12. docs/12-MVP前端设计规范与页面说明.md
+13. docs/13-任务包确认与交付流程补充.md
+14. docs/14-Intent层级与AI分工策略.md
 
 开发约束：
 - 以这些文档中的“已冻结的 MVP 决策”和 ADR 为准；
@@ -39,7 +42,10 @@
 - 不要把成员能力画像放到 users，能力画像必须属于 project_members；
 - Leader 既是项目治理者，也是可被 Agent 分配开发任务的项目成员；
 - Agent 分配建议必须读取当前项目成员画像；
+- Architecture 只产生架构基线和子 Intent 建议，不产生开发分工；
+- Feature/Change 必须产生 AI 分工建议；Feature 通常比 Change 推荐更多成员，但人数是软规则，必须结合范围、依赖、画像和当前工作量解释；
 - task_assignments 必须保存分配时的画像版本、画像快照和分配理由；
+- task_assignments 还必须保存工作量快照和分配评分；
 - 本地 Agent 完成任务后必须输出结构化 Final Report，成员审阅后才能提交 TaskDelivery；
 - Final Report 是交接和审计信息，不替代 Git Provider 与 CI Provider 的事实校验；
 - 平台只负责任务编排和平台侧 Agent 文档生成；

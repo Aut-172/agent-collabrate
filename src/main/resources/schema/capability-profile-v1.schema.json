@@ -11,7 +11,8 @@
     "experience",
     "preferredTaskTypes",
     "limitations",
-    "availability"
+    "availability",
+    "weeklyCapacityPoints"
   ],
   "properties": {
     "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
@@ -20,7 +21,8 @@
     "experience": { "$ref": "#/$defs/stringList" },
     "preferredTaskTypes": { "$ref": "#/$defs/stringList" },
     "limitations": { "$ref": "#/$defs/stringList" },
-    "availability": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "availability": { "type": "string", "minLength": 1, "maxLength": 30 },
+    "weeklyCapacityPoints": { "type": "integer", "minimum": 1, "maximum": 40 },
     "notes": { "type": "string", "maxLength": 2000 }
   },
   "$defs": {
