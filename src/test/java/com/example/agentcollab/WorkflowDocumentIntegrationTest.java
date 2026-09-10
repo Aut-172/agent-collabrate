@@ -71,6 +71,7 @@ class WorkflowDocumentIntegrationTest {
     @Autowired TaskAssignmentRepository taskAssignments;
     @Autowired TaskRepository tasks;
     @Autowired com.example.agentcollab.repository.TaskPackageRepository taskPackages;
+    @Autowired com.example.agentcollab.repository.TaskPackageConfirmationRepository packageConfirmations;
     @Autowired JdbcTemplate jdbc;
     @Autowired AgentRunWorker worker;
     @Autowired AgentRunExecutionService executions;
@@ -80,8 +81,9 @@ class WorkflowDocumentIntegrationTest {
         documents.deleteAll();
         outboxJobs.deleteAll();
         agentRuns.deleteAll();
-        taskAssignments.deleteAll();
+        packageConfirmations.deleteAll();
         taskPackages.deleteAll();
+        taskAssignments.deleteAll();
         tasks.deleteAll();
         workflowMembers.deleteAll();
         jdbc.update("UPDATE workflows SET parent_workflow_id = NULL");
@@ -479,8 +481,42 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(jsonPath("$.packageVersion").value(1))
                 .andExpect(jsonPath("$.status").value("CURRENT"))
                 .andExpect(jsonPath("$.contentHash").value(org.hamcrest.Matchers.startsWith("sha256:")))
+                .andExpect(jsonPath("$.contentJson.task.taskId").value("TASK-001"))
+                .andExpect(jsonPath("$.contentJson.task.packageId").isNumber())
+                .andExpect(jsonPath("$.contentJson.task.packageHash").value(org.hamcrest.Matchers.startsWith("sha256:")))
                 .andExpect(jsonPath("$.contentJson.context.baseCommit").value("UNKNOWN"))
                 .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("Agent Task Package")));
+        var initialPackage = taskPackages.findByTaskIdAndStatus(task.getId(),
+                com.example.agentcollab.domain.TaskPackageStatus.CURRENT).orElseThrow();
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", initialPackage.getId(), "contentHash", initialPackage.getContentHash()))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TASK_ASSIGNEE_REQUIRED"));
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
+                        .header("Authorization", bearer(memberToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", initialPackage.getId(), "contentHash", "sha256:wrong"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TASK_PACKAGE_STALE"))
+                .andExpect(jsonPath("$.currentVersion").value(1))
+                .andExpect(jsonPath("$.submittedVersion").value(1));
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
+                        .header("Authorization", bearer(memberToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", initialPackage.getId(), "contentHash", initialPackage.getContentHash()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.taskStatus").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.packageVersion").value(1));
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
+                        .header("Authorization", bearer(memberToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", initialPackage.getId(), "contentHash", initialPackage.getContentHash()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.taskStatus").value("IN_PROGRESS"));
+        assertThat(packageConfirmations.count()).isEqualTo(1);
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus().name()).isEqualTo("IN_PROGRESS");
         var initialAssignment = taskAssignments.findByTaskIdAndCurrentTrue(task.getId()).orElseThrow();
         assertThat(task.getStatus().name()).isEqualTo("ASSIGNED");
         assertThat(task.getSourcePlanVersion()).isEqualTo(2);
@@ -513,6 +549,41 @@ class WorkflowDocumentIntegrationTest {
                         .value(users.findByUsername("leader").orElseThrow().getId()))
                 .andExpect(jsonPath("$.currentAssignment.profileVersion").value(1))
                 .andExpect(jsonPath("$.planDetails.acceptanceCriteria[0]").isNotEmpty());
+        var replacementPackage = taskPackages.findByTaskIdAndStatus(task.getId(),
+                com.example.agentcollab.domain.TaskPackageStatus.CURRENT).orElseThrow();
+        assertThat(replacementPackage.getPackageVersion()).isEqualTo(2);
+        assertThat(replacementPackage.getContentJson().path("task").path("packageId").asLong())
+                .isEqualTo(replacementPackage.getId());
+        assertThat(taskPackages.findById(initialPackage.getId()).orElseThrow().getStatus().name()).isEqualTo("STALE");
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", initialPackage.getId(), "contentHash", initialPackage.getContentHash()))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TASK_PACKAGE_STALE"))
+                .andExpect(jsonPath("$.currentVersion").value(2))
+                .andExpect(jsonPath("$.submittedVersion").value(1));
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 2)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", replacementPackage.getId(),
+                                "contentHash", replacementPackage.getContentHash()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.taskStatus").value("IN_PROGRESS"));
+        assertThat(taskPackages.findById(initialPackage.getId()).orElseThrow().getSupersededBy())
+                .isEqualTo(replacementPackage.getId());
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", initialPackage.getId(), "contentHash", initialPackage.getContentHash()))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TASK_PACKAGE_STALE"));
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 2)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", replacementPackage.getId(), "contentHash", replacementPackage.getContentHash()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.taskStatus").value("IN_PROGRESS"));
         assertThat(taskAssignments.findByTaskIdOrderByAssignmentVersionDesc(task.getId())).hasSize(2);
         assertThat(taskAssignments.findById(initialAssignment.getId()).orElseThrow().isCurrent()).isFalse();
         mvc.perform(delete("/api/projects/{id}/members/{userId}", projectId, memberId)
@@ -523,6 +594,8 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
         assertThat(tasks.findById(task.getId()).orElseThrow().getStatus().name()).isEqualTo("CANCELLED");
+        assertThat(taskPackages.findById(replacementPackage.getId()).orElseThrow().getStatus().name())
+                .isEqualTo("RETIRED");
     }
 
     @Test

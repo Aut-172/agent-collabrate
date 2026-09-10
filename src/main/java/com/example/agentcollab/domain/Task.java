@@ -59,10 +59,16 @@ public class Task {
     }
 
     public void markAssigned() {
-        if (status != TaskStatus.TODO && status != TaskStatus.ASSIGNED) {
-            throw new IllegalStateException("Task cannot be assigned from " + status);
-        }
+        if (isTerminal()) throw new IllegalStateException("Task cannot be assigned from " + status);
         status = TaskStatus.ASSIGNED;
+        updatedAt = Instant.now();
+    }
+
+    public void startDevelopment() {
+        if (status != TaskStatus.ASSIGNED && status != TaskStatus.BLOCKED) {
+            throw new IllegalStateException("Task cannot start development from " + status);
+        }
+        status = TaskStatus.IN_PROGRESS;
         updatedAt = Instant.now();
     }
 

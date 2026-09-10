@@ -9,7 +9,7 @@ import java.time.Instant;
 @Entity
 @Table(name = "task_packages", uniqueConstraints = @UniqueConstraint(columnNames = {"task_id", "package_version"}))
 public class TaskPackage {
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id
     private Long id;
     @Column(name = "task_id", nullable = false, updatable = false) private Long taskId;
     @Column(name = "package_version", nullable = false, updatable = false) private int packageVersion;
@@ -26,14 +26,24 @@ public class TaskPackage {
     @Column(name = "superseded_by") private Long supersededBy;
 
     protected TaskPackage() {}
-    public TaskPackage(Long taskId, int packageVersion, String markdown, JsonNode contentJson, String hash,
+    public TaskPackage(Long id, Long taskId, int packageVersion, String markdown, JsonNode contentJson, String hash,
                        Long taskVersion, int planVersion, Integer specVersion, Integer profileVersion, String baseCommit) {
-        this.taskId = taskId; this.packageVersion = packageVersion; this.status = TaskPackageStatus.CURRENT;
+        this.id = id; this.taskId = taskId; this.packageVersion = packageVersion; this.status = TaskPackageStatus.CURRENT;
         this.contentMarkdown = markdown; this.contentJson = contentJson.deepCopy(); this.contentHash = hash;
         this.sourceTaskVersion = taskVersion; this.sourcePlanVersion = planVersion; this.sourceSpecVersion = specVersion;
         this.sourceProfileVersion = profileVersion; this.baseCommit = baseCommit; this.createdAt = Instant.now();
     }
-    public void markStale(Long supersededBy) { if (status == TaskPackageStatus.CURRENT) { status = TaskPackageStatus.STALE; this.supersededBy = supersededBy; } }
+    public void markStale() {
+        if (status != TaskPackageStatus.CURRENT) throw new IllegalStateException("TaskPackage is not current");
+        status = TaskPackageStatus.STALE;
+    }
+    public void supersedeWith(Long packageId) {
+        if (status != TaskPackageStatus.STALE) throw new IllegalStateException("TaskPackage is not stale");
+        this.supersededBy = packageId;
+    }
+    public void retire() {
+        if (status == TaskPackageStatus.CURRENT) status = TaskPackageStatus.RETIRED;
+    }
     public Long getId() { return id; }
     public Long getTaskId() { return taskId; }
     public int getPackageVersion() { return packageVersion; }

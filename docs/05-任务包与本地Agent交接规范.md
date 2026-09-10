@@ -420,3 +420,7 @@ FAILED
 9. 将 Task 置为 `DELIVERY_SUBMITTED`。
 
 平台不应默认相信报告中的 `tests.status` 或验收标准状态。它们用于说明和审计；最终完成仍由当前 Commit 的 CI 结果决定。
+
+## 11. 内容哈希计算口径
+
+`content_hash` 使用任务包 JSON 的 UTF-8 规范化序列计算 SHA-256。计算时包含 `packageId` 和 `packageVersion`，但排除自引用的 `task.packageHash` 字段；计算完成后再将 `sha256:<hex>` 同时写入 JSON、Markdown 和数据库。服务端生成、任务包确认和交付校验必须使用同一口径。

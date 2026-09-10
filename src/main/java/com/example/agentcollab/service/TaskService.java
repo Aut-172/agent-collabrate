@@ -111,7 +111,8 @@ public class TaskService {
         createAssignment(task, workflow.getProjectId(), request.assigneeUserId(), actorId,
                 nextVersion, request.reason(), request.assignmentScore());
         task.markAssigned();
-        tasks.save(task);
+        tasks.saveAndFlush(task);
+        taskPackages.regenerate(task);
         return toResponse(task);
     }
 
