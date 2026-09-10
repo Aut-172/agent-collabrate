@@ -287,6 +287,8 @@ packageHash
 
 如果本地实际代码与任务包上下文明显冲突，应停止开发并提交 Blocker。
 
+成员提交 Final Report 时，可以回传 `codeContextVersionId`、`contextPlanId` 和 `baseCommitSha` 作为一组追溯字段。平台必须与不可变 TaskPackage 校验一致，并由服务端把任务包中的值固化到 TaskDelivery。`baseCommitSha` 只表示开发基线；实际交付和 CI 完成条件仍分别绑定 TaskDelivery 的 `commitSha` 和 CI Provider 返回的相同 `headSha`，不能使用 Final Report 声明或旧 Commit 的 CI 结果替代。
+
 ## 8. API 建议
 
 ```text

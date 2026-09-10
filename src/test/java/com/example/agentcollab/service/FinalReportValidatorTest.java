@@ -29,6 +29,14 @@ class FinalReportValidatorTest {
                 .isInstanceOf(FinalReportValidationException.class);
     }
 
+    @Test
+    void requiresCompleteCodeContextReferenceWhenPresent() throws Exception {
+        var incompleteContext = json.readTree(validReport());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) incompleteContext).put("codeContextVersionId", 7);
+        assertThatThrownBy(() -> validator.validate(incompleteContext))
+                .isInstanceOf(FinalReportValidationException.class);
+    }
+
     private String validReport() {
         return """
                 {

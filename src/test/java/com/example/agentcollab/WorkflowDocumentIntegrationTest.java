@@ -753,6 +753,15 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("FINAL_REPORT_GIT_MISMATCH"));
 
+        var mismatchedContextReport = validReport.deepCopy();
+        mismatchedContextReport.put("codeContextVersionId", taskPackage.getCodeContextVersionId() + 1);
+        mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(deliveryRequest(
+                                taskPackage, mismatchedContextReport, task.getBranchName(), commitSha))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("FINAL_REPORT_CONTEXT_MISMATCH"));
+
         String response = mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
                         .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(validRequest)))
@@ -760,6 +769,9 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(jsonPath("$.status").value("SUBMITTED"))
                 .andExpect(jsonPath("$.packageId").value(taskPackage.getId()))
                 .andExpect(jsonPath("$.packageVersion").value(1))
+                .andExpect(jsonPath("$.codeContextVersionId").value(taskPackage.getCodeContextVersionId()))
+                .andExpect(jsonPath("$.contextPlanId").value(taskPackage.getContextPlanId()))
+                .andExpect(jsonPath("$.baseCommitSha").value(taskPackage.getBaseCommit()))
                 .andExpect(jsonPath("$.commitSha").value(commitSha))
                 .andReturn().getResponse().getContentAsString();
         long deliveryId = json.readTree(response).path("id").asLong();
@@ -771,6 +783,9 @@ class WorkflowDocumentIntegrationTest {
         var saved = taskDeliveries.findById(deliveryId).orElseThrow();
         assertThat(saved.getPackageId()).isEqualTo(taskPackage.getId());
         assertThat(saved.getPackageVersion()).isEqualTo(1);
+        assertThat(saved.getCodeContextVersionId()).isEqualTo(taskPackage.getCodeContextVersionId());
+        assertThat(saved.getContextPlanId()).isEqualTo(taskPackage.getContextPlanId());
+        assertThat(saved.getBaseCommitSha()).isEqualTo(taskPackage.getBaseCommit());
         assertThat(saved.getReportJson().path("tests").get(0).path("status").asText()).isEqualTo("PASSED");
         assertThat(saved.getStatus().name()).isEqualTo("SUBMITTED");
         assertThat(outboxJobs.findByJobTypeAndReferenceId(OutboxJobType.GIT_SYNC, deliveryId))
@@ -1104,6 +1119,9 @@ class WorkflowDocumentIntegrationTest {
         report.put("packageId", taskPackage.getId());
         report.put("packageVersion", taskPackage.getPackageVersion());
         report.put("packageHash", taskPackage.getContentHash());
+        report.put("codeContextVersionId", taskPackage.getCodeContextVersionId());
+        report.put("contextPlanId", taskPackage.getContextPlanId());
+        report.put("baseCommitSha", taskPackage.getBaseCommit());
         report.put("outcome", "READY_FOR_REVIEW");
         report.put("summary", "Implemented and locally verified the assigned task.");
         report.putArray("changedFiles").add("src/main/java/example/Delivery.java");

@@ -55,6 +55,7 @@ public class TaskDeliveryService {
         TaskPackage current = packages.findByTaskIdAndStatus(taskId, TaskPackageStatus.CURRENT)
                 .orElseThrow(() -> notFound("TASK_PACKAGE_NOT_FOUND", "当前任务包不存在"));
         requireCurrentPackage(task, current, request);
+        requirePackageContext(current);
         requireLatestConfirmation(taskId, actorId, current);
         validateReport(task, current, request);
 
@@ -77,7 +78,8 @@ public class TaskDeliveryService {
         }
 
         TaskDelivery delivery = deliveries.save(new TaskDelivery(taskId, actorId, current.getId(),
-                current.getPackageVersion(), request.finalReport(), request.branchName(), commitSha,
+                current.getPackageVersion(), current.getCodeContextVersionId(), current.getContextPlanId(),
+                current.getBaseCommit(), request.finalReport(), request.branchName(), commitSha,
                 request.pullRequestUrl()));
         gitOperations.save(new GitOperation(workflow.getProjectId(), workflow.getId(), taskId,
                 delivery.getId(), request.branchName(), commitSha, request.pullRequestUrl()));
@@ -127,6 +129,13 @@ public class TaskDeliveryService {
         }
     }
 
+    private void requirePackageContext(TaskPackage current) {
+        if (current.getCodeContextVersionId() == null || current.getContextPlanId() == null
+                || current.getBaseCommit() == null || current.getBaseCommit().isBlank()) {
+            throw conflict("TASK_PACKAGE_CONTEXT_STALE", "当前任务包缺少可追溯 Code Context，请重新生成并确认");
+        }
+    }
+
     private void validateReport(Task task, TaskPackage current, TaskDeliveryDtos.SubmitRequest request) {
         try {
             reports.validate(request.finalReport());
@@ -143,6 +152,12 @@ public class TaskDeliveryService {
         }
         if (!"READY_FOR_REVIEW".equals(report.path("outcome").asText())) {
             throw conflict("FINAL_REPORT_NOT_READY", "提交交付需要 READY_FOR_REVIEW Final Report");
+        }
+        if (report.has("codeContextVersionId")
+                && (current.getCodeContextVersionId() != report.path("codeContextVersionId").asLong()
+                || current.getContextPlanId() != report.path("contextPlanId").asLong()
+                || !current.getBaseCommit().equalsIgnoreCase(report.path("baseCommitSha").asText()))) {
+            throw conflict("FINAL_REPORT_CONTEXT_MISMATCH", "Final Report 与当前任务包的 Code Context 不一致");
         }
         if (!request.branchName().equals(git.path("branchName").asText())
                 || !request.commitSha().equalsIgnoreCase(git.path("commitSha").asText())

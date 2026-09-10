@@ -23,12 +23,14 @@ public final class TaskDeliveryDtos {
 
     public record DeliveryResponse(
             Long id, Long taskId, Long submittedBy, Long packageId, int packageVersion,
+            Long codeContextVersionId, Long contextPlanId, String baseCommitSha,
             TaskDeliveryOutcome outcome, JsonNode finalReport, String branchName, String commitSha,
             String pullRequestUrl, TaskDeliveryStatus status, String rejectionReason,
             Instant submittedAt, Instant reviewedAt) {
         public static DeliveryResponse from(TaskDelivery delivery) {
             return new DeliveryResponse(delivery.getId(), delivery.getTaskId(), delivery.getSubmittedBy(),
-                    delivery.getPackageId(), delivery.getPackageVersion(), delivery.getOutcome(),
+                    delivery.getPackageId(), delivery.getPackageVersion(), delivery.getCodeContextVersionId(),
+                    delivery.getContextPlanId(), delivery.getBaseCommitSha(), delivery.getOutcome(),
                     delivery.getReportJson(), delivery.getBranchName(), delivery.getCommitSha(),
                     delivery.getPullRequestUrl(), delivery.getStatus(), delivery.getRejectionReason(),
                     delivery.getSubmittedAt(), delivery.getReviewedAt());

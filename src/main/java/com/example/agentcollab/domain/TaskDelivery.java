@@ -14,6 +14,9 @@ public class TaskDelivery {
     @Column(name = "submitted_by", nullable = false, updatable = false) private Long submittedBy;
     @Column(name = "package_id", nullable = false, updatable = false) private Long packageId;
     @Column(name = "package_version", nullable = false, updatable = false) private int packageVersion;
+    @Column(name = "code_context_version_id", updatable = false) private Long codeContextVersionId;
+    @Column(name = "context_plan_id", updatable = false) private Long contextPlanId;
+    @Column(name = "base_commit_sha", length = 100, updatable = false) private String baseCommitSha;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 30, updatable = false) private TaskDeliveryOutcome outcome;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name = "report_json", nullable = false, columnDefinition = "jsonb", updatable = false) private JsonNode reportJson;
     @Column(name = "branch_name", nullable = false, length = 200, updatable = false) private String branchName;
@@ -27,9 +30,12 @@ public class TaskDelivery {
     protected TaskDelivery() {}
 
     public TaskDelivery(Long taskId, Long submittedBy, Long packageId, int packageVersion,
+                        Long codeContextVersionId, Long contextPlanId, String baseCommitSha,
                         JsonNode reportJson, String branchName, String commitSha, String pullRequestUrl) {
         this.taskId = taskId; this.submittedBy = submittedBy; this.packageId = packageId;
-        this.packageVersion = packageVersion; this.outcome = TaskDeliveryOutcome.READY_FOR_REVIEW;
+        this.packageVersion = packageVersion; this.codeContextVersionId = codeContextVersionId;
+        this.contextPlanId = contextPlanId; this.baseCommitSha = baseCommitSha.toLowerCase();
+        this.outcome = TaskDeliveryOutcome.READY_FOR_REVIEW;
         this.reportJson = reportJson.deepCopy(); this.branchName = branchName;
         this.commitSha = commitSha.toLowerCase(); this.pullRequestUrl = pullRequestUrl;
         this.status = TaskDeliveryStatus.SUBMITTED; this.submittedAt = Instant.now();
@@ -41,6 +47,9 @@ public class TaskDelivery {
     public Long getSubmittedBy() { return submittedBy; }
     public Long getPackageId() { return packageId; }
     public int getPackageVersion() { return packageVersion; }
+    public Long getCodeContextVersionId() { return codeContextVersionId; }
+    public Long getContextPlanId() { return contextPlanId; }
+    public String getBaseCommitSha() { return baseCommitSha; }
     public TaskDeliveryOutcome getOutcome() { return outcome; }
     public JsonNode getReportJson() { return reportJson.deepCopy(); }
     public String getBranchName() { return branchName; }

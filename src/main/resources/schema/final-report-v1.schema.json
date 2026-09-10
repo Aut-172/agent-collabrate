@@ -11,6 +11,9 @@
     "packageId": { "type": "integer", "minimum": 1 },
     "packageVersion": { "type": "integer", "minimum": 1 },
     "packageHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "codeContextVersionId": { "type": "integer", "minimum": 1 },
+    "contextPlanId": { "type": "integer", "minimum": 1 },
+    "baseCommitSha": { "type": "string", "pattern": "^[a-fA-F0-9]{7,100}$" },
     "outcome": { "enum": ["READY_FOR_REVIEW", "BLOCKED", "FAILED"] },
     "summary": { "type": "string", "minLength": 1, "maxLength": 10000 },
     "changedFiles": { "$ref": "#/$defs/stringList" },
@@ -20,6 +23,11 @@
     "unresolvedIssues": { "$ref": "#/$defs/stringList" },
     "outOfScopeChanges": { "$ref": "#/$defs/stringList" },
     "blockers": { "type": "array", "maxItems": 100 }
+  },
+  "dependentRequired": {
+    "codeContextVersionId": ["contextPlanId", "baseCommitSha"],
+    "contextPlanId": ["codeContextVersionId", "baseCommitSha"],
+    "baseCommitSha": ["codeContextVersionId", "contextPlanId"]
   },
   "$defs": {
     "stringList": { "type": "array", "maxItems": 500, "items": { "type": "string", "minLength": 1, "maxLength": 2000 } },
