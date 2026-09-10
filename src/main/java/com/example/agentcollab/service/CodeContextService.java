@@ -20,16 +20,24 @@ public class CodeContextService {
     private final ProjectRepository projects;
     private final OutboxJobRepository jobs;
     private final ProjectAccessService access;
+    private final CodeContextVersionRepository contexts;
+    private final CodeContextFileRepository evidenceFiles;
+    private final CodeContextPlanRepository plans;
+    private final WorkflowService workflowService;
 
     public CodeContextService(CodeContextRunRepository runs, RepoInventoryVersionRepository inventories,
                               RepoInventoryFileRepository files, ProjectRepository projects,
-                              OutboxJobRepository jobs, ProjectAccessService access) {
+                              OutboxJobRepository jobs, ProjectAccessService access,
+                              CodeContextVersionRepository contexts, CodeContextFileRepository evidenceFiles,
+                              CodeContextPlanRepository plans, WorkflowService workflowService) {
         this.runs = runs;
         this.inventories = inventories;
         this.files = files;
         this.projects = projects;
         this.jobs = jobs;
         this.access = access;
+        this.contexts = contexts; this.evidenceFiles = evidenceFiles; this.plans = plans;
+        this.workflowService = workflowService;
     }
 
     @Transactional
@@ -62,6 +70,34 @@ public class CodeContextService {
                 .findTopByProjectIdAndStatusOrderByCreatedAtDesc(projectId, RepoInventoryStatus.CURRENT)
                 .orElseThrow(() -> notFound("REPO_INVENTORY_NOT_FOUND", "当前仓库索引不存在"));
         return response(inventory);
+    }
+
+    @Transactional(readOnly = true)
+    public CodeContextDtos.ContextResponse latestContext(Long actorId, Long projectId) {
+        access.requireMember(projectId, actorId);
+        return contextResponse(contexts.findTopByProjectIdAndStatusOrderByCreatedAtDesc(
+                projectId, CodeContextStatus.CURRENT).orElseThrow(() ->
+                notFound("CODE_CONTEXT_NOT_FOUND", "当前项目缺少可用 Code Context")));
+    }
+
+    @Transactional(readOnly = true)
+    public CodeContextDtos.ContextResponse workflowContext(Long actorId, Long workflowId) {
+        Workflow workflow = workflowService.get(actorId, workflowId);
+        CodeContextPlan plan = plans.findTopByWorkflowIdOrderByCreatedAtDesc(workflowId)
+                .orElseThrow(() -> notFound("CODE_CONTEXT_NOT_FOUND", "当前 Workflow 缺少 Code Context"));
+        return contextResponse(contexts.findTopByContextPlanIdAndStatusOrderByCreatedAtDesc(
+                plan.getId(), CodeContextStatus.CURRENT).orElseThrow(() ->
+                notFound("CODE_CONTEXT_NOT_FOUND", "当前 Workflow 缺少可用 Code Context")));
+    }
+
+    private CodeContextDtos.ContextResponse contextResponse(CodeContextVersion context) {
+        var files = evidenceFiles.findByContextVersionIdOrderByPath(context.getId()).stream()
+                .map(CodeContextDtos.EvidenceFileResponse::from).toList();
+        return new CodeContextDtos.ContextResponse(context.getId(), context.getProjectId(),
+                context.getInventoryVersionId(), context.getContextPlanId(), context.getProvider(),
+                context.getRepositoryUrl(), context.getBranchName(), context.getBaseCommitSha(),
+                context.getStatus(), context.getRepositoryProfile(), context.getEvidenceJson(), files,
+                context.getCreatedAt(), context.getUpdatedAt());
     }
 
     private CodeContextDtos.InventoryResponse response(RepoInventoryVersion inventory) {

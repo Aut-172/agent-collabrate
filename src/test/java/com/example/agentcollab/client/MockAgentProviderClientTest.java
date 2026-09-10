@@ -12,7 +12,8 @@ class MockAgentProviderClientTest {
     private final ObjectMapper json = new ObjectMapper();
     private final MockAgentProviderClient provider = new MockAgentProviderClient(json);
     private final AgentOutputValidator validator = new AgentOutputValidator(
-            new com.example.agentcollab.service.BuildPlanValidator(json));
+            new com.example.agentcollab.service.BuildPlanValidator(json),
+            new com.example.agentcollab.service.ContextPlanValidator(json));
 
     @Test
     void separatesArchitectureOutputFromProfileBasedFeatureStaffing() throws Exception {
@@ -66,6 +67,6 @@ class MockAgentProviderClientTest {
     private AgentGenerationRequest request(
             IntentLevel level, List<AgentGenerationRequest.MemberContext> members) {
         return new AgentGenerationRequest(1L, AgentRunType.GENERATE_BUILD_PLAN, level,
-                "title", "description", null, null, members);
+                "title", "description", null, null, members, null);
     }
 }

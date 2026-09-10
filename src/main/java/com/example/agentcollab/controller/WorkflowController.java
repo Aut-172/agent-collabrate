@@ -60,6 +60,13 @@ public class WorkflowController {
                 currentUserId(), workflowId, AgentRunType.GENERATE_BUILD_PLAN));
     }
 
+    @PostMapping("/workflows/{workflowId}/code-context/refresh")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public AgentRunDtos.EnqueuedRunResponse refreshCodeContext(@PathVariable Long workflowId) {
+        return AgentRunDtos.EnqueuedRunResponse.from(agentRunService.request(
+                currentUserId(), workflowId, AgentRunType.GENERATE_CODE_CONTEXT_PLAN));
+    }
+
     @PutMapping("/workflows/{workflowId}/plan-drafts")
     public WorkflowDtos.DocumentResponse savePlanDraft(
             @PathVariable Long workflowId,

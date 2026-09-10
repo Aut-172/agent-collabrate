@@ -34,6 +34,11 @@ public class CodeContextController {
         return codeContext.latestInventory(userId(), projectId);
     }
 
+    @GetMapping("/code-context/latest")
+    public CodeContextDtos.ContextResponse latestContext(@PathVariable Long projectId) {
+        return codeContext.latestContext(userId(), projectId);
+    }
+
     private Long userId() {
         return users.requireByUsername(CurrentUser.username()).getId();
     }

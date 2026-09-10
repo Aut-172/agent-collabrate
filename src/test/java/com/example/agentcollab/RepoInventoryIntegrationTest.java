@@ -1,9 +1,14 @@
 package com.example.agentcollab;
 
 import com.example.agentcollab.client.MockCodeContextProvider;
+import com.example.agentcollab.client.ProviderSyncException;
 import com.example.agentcollab.domain.*;
 import com.example.agentcollab.repository.*;
 import com.example.agentcollab.service.RepoIngestionWorker;
+import com.example.agentcollab.service.AgentRunWorker;
+import com.example.agentcollab.service.CodeEvidenceService;
+import com.example.agentcollab.service.CodeEvidenceCollector;
+import com.example.agentcollab.service.CodeEvidenceWorker;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,12 +20,14 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -49,6 +56,10 @@ class RepoInventoryIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
     @Autowired RepoIngestionWorker worker;
+    @Autowired AgentRunWorker agentWorker;
+    @Autowired CodeEvidenceWorker evidenceWorker;
+    @Autowired CodeEvidenceService evidenceService;
+    @Autowired CodeEvidenceCollector evidenceCollector;
     @Autowired MockCodeContextProvider provider;
     @Autowired OutboxJobRepository jobs;
     @Autowired RepoInventoryFileRepository inventoryFiles;
@@ -57,16 +68,15 @@ class RepoInventoryIntegrationTest {
     @Autowired ProjectMemberRepository members;
     @Autowired ProjectRepository projects;
     @Autowired UserRepository users;
+    @Autowired AgentRunRepository agentRuns;
+    @Autowired CodeContextPlanRepository contextPlans;
+    @Autowired CodeContextVersionRepository contexts;
+    @Autowired CodeContextFileRepository evidenceFiles;
+    @Autowired JdbcTemplate jdbc;
 
     @BeforeEach
     void clearDatabase() {
-        jobs.deleteAll();
-        inventoryFiles.deleteAll();
-        contextRuns.deleteAll();
-        inventories.deleteAll();
-        members.deleteAll();
-        projects.deleteAll();
-        users.deleteAll();
+        jdbc.execute("TRUNCATE TABLE outbox_jobs, users RESTART IDENTITY CASCADE");
         provider.reset();
     }
 
@@ -170,6 +180,104 @@ class RepoInventoryIntegrationTest {
                 .andExpect(jsonPath("$.code").value("LEADER_REQUIRED"));
     }
 
+    @Test
+    void platformAgentPlansContextAndOrchestratorCollectsBoundedEvidence() throws Exception {
+        String token = initialize("leader");
+        long projectId = createProject(token, "planning");
+        requestSync(token, projectId);
+        assertThat(worker.processNext()).isTrue();
+        long workflowId = createWorkflow(token, projectId);
+
+        String response = mvc.perform(post("/api/workflows/{id}/code-context/refresh", workflowId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        long agentRunId = json.readTree(response).path("runId").asLong();
+        assertThat(agentWorker.processNext()).isTrue();
+        var planRun = agentRuns.findById(agentRunId).orElseThrow();
+        assertThat(planRun.getContextPlanId()).isNotNull();
+        assertThat(planRun.getCodeContextVersionId()).isNull();
+        assertThat(evidenceWorker.processNext()).isTrue();
+
+        mvc.perform(get("/api/workflows/{id}/code-context", workflowId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contextPlanId").value(planRun.getContextPlanId()))
+                .andExpect(jsonPath("$.baseCommitSha").value("1111111111111111111111111111111111111111"))
+                .andExpect(jsonPath("$.evidence.roundsUsed").value(1))
+                .andExpect(jsonPath("$.files.length()").value(4));
+        var completedRun = agentRuns.findById(agentRunId).orElseThrow();
+        assertThat(completedRun.getCodeContextVersionId()).isNotNull();
+        assertThat(contextPlans.findById(completedRun.getContextPlanId()).orElseThrow().getStatus())
+                .isEqualTo(CodeContextPlanStatus.USED);
+        assertThat(contexts.findById(completedRun.getCodeContextVersionId())).isPresent();
+        assertThat(evidenceFiles.findByContextVersionIdOrderByPath(completedRun.getCodeContextVersionId()))
+                .hasSize(4);
+        assertThat(provider.getLastRequestedPaths()).hasSizeLessThanOrEqualTo(20)
+                .doesNotContain(".env", "assets/logo.png", "docs/large.md");
+
+        provider.useCommit("2222222222222222222222222222222222222222");
+        requestSync(token, projectId);
+        assertThat(worker.processNext()).isTrue();
+        assertThat(contexts.findById(completedRun.getCodeContextVersionId()).orElseThrow().getStatus())
+                .isEqualTo(CodeContextStatus.STALE);
+        mvc.perform(get("/api/workflows/{id}/code-context", workflowId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CODE_CONTEXT_NOT_FOUND"));
+    }
+
+    @Test
+    void timedOutEvidenceCollectionIsRecoveredAndRetried() throws Exception {
+        String token = initialize("leader");
+        long projectId = createProject(token, "evidence-timeout");
+        requestSync(token, projectId);
+        assertThat(worker.processNext()).isTrue();
+        long workflowId = createWorkflow(token, projectId);
+        mvc.perform(post("/api/workflows/{id}/code-context/refresh", workflowId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isAccepted());
+        assertThat(agentWorker.processNext()).isTrue();
+
+        var claimed = evidenceService.claimNext().orElseThrow();
+        jdbc.update("UPDATE outbox_jobs SET locked_at = now() - interval '10 minutes' WHERE id = ?",
+                claimed.jobId());
+        assertThat(evidenceService.recoverTimedOut()).isOne();
+        assertThat(jobs.findById(claimed.jobId()).orElseThrow().getStatus()).isEqualTo(OutboxJobStatus.PENDING);
+        assertThat(contextRuns.findById(claimed.runId()).orElseThrow().getStatus())
+                .isEqualTo(CodeContextRunStatus.RUNNING);
+
+        assertThat(evidenceWorker.processNext()).isTrue();
+        assertThat(contextRuns.findById(claimed.runId()).orElseThrow().getStatus())
+                .isEqualTo(CodeContextRunStatus.SUCCEEDED);
+    }
+
+    @Test
+    void staleInventoryCannotBePersistedAfterProviderEvidenceWasRead() throws Exception {
+        String token = initialize("leader");
+        long projectId = createProject(token, "evidence-race");
+        requestSync(token, projectId);
+        assertThat(worker.processNext()).isTrue();
+        long workflowId = createWorkflow(token, projectId);
+        mvc.perform(post("/api/workflows/{id}/code-context/refresh", workflowId)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isAccepted());
+        assertThat(agentWorker.processNext()).isTrue();
+
+        var claimed = evidenceService.claimNext().orElseThrow();
+        var evidence = evidenceCollector.collect(evidenceService.context(claimed));
+        provider.useCommit("2222222222222222222222222222222222222222");
+        requestSync(token, projectId);
+        assertThat(worker.processNext()).isTrue();
+
+        assertThatThrownBy(() -> evidenceService.complete(claimed, evidence))
+                .isInstanceOf(ProviderSyncException.class)
+                .hasMessage("Repo Inventory became stale");
+        evidenceService.handleFailure(claimed, "Repo Inventory became stale", false);
+        assertThat(contexts.count()).isZero();
+        assertThat(contextRuns.findById(claimed.runId()).orElseThrow().getStatus())
+                .isEqualTo(CodeContextRunStatus.FAILED);
+    }
+
     private long requestSync(String token, long projectId) throws Exception {
         String body = mvc.perform(post("/api/projects/{id}/code-context/sync", projectId)
                         .header("Authorization", bearer(token)))
@@ -206,6 +314,15 @@ class RepoInventoryIntegrationTest {
                         .content(json.writeValueAsString(Map.of("username", username, "password", TEST_PASSWORD))))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return json.readTree(body).path("userId").asLong();
+    }
+
+    private long createWorkflow(String token, long projectId) throws Exception {
+        String body = mvc.perform(post("/api/projects/{id}/workflows", projectId)
+                        .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("title", "context planning",
+                                "description", "collect repository evidence", "intentLevel", "FEATURE"))))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return json.readTree(body).path("id").asLong();
     }
 
     private String bearer(String token) { return "Bearer " + token; }

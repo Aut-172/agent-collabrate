@@ -14,7 +14,14 @@ public record AgentGenerationRequest(
         String description,
         String design,
         String spec,
-        List<MemberContext> assignableMembers) {
+        List<MemberContext> assignableMembers,
+        CodeContextInput codeContext) {
+
+    public record CodeContextInput(Long inventoryVersionId, String commitSha, JsonNode repositoryProfile,
+                                   JsonNode treeSummary, List<InventoryFileContext> inventoryFiles) {}
+
+    public record InventoryFileContext(String path, String fileType, long sizeBytes,
+                                       String contentHash, String indexedSummary) {}
 
     public record MemberContext(
             Long userId,

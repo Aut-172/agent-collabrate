@@ -16,6 +16,7 @@ public class RepoIngestionService {
     private final RepoInventoryVersionRepository inventories;
     private final RepoInventoryFileRepository files;
     private final ProjectRepository projects;
+    private final CodeContextVersionRepository contexts;
     private final int maxAttempts;
     private final long retryDelayMs;
     private final long lockTimeoutMs;
@@ -23,6 +24,7 @@ public class RepoIngestionService {
     public RepoIngestionService(OutboxJobRepository jobs, CodeContextRunRepository runs,
                                 RepoInventoryVersionRepository inventories,
                                 RepoInventoryFileRepository files, ProjectRepository projects,
+                                CodeContextVersionRepository contexts,
                                 @Value("${app.code-context.worker.max-attempts:3}") int maxAttempts,
                                 @Value("${app.code-context.worker.retry-delay-ms:1000}") long retryDelayMs,
                                 @Value("${app.code-context.worker.lock-timeout-ms:300000}") long lockTimeoutMs) {
@@ -31,6 +33,7 @@ public class RepoIngestionService {
         this.inventories = inventories;
         this.files = files;
         this.projects = projects;
+        this.contexts = contexts;
         this.maxAttempts = maxAttempts;
         this.retryDelayMs = retryDelayMs;
         this.lockTimeoutMs = lockTimeoutMs;
@@ -83,6 +86,9 @@ public class RepoIngestionService {
             inventory.markCurrent();
         }
         project.recordContextCommit(snapshot.commitSha());
+        contexts.findByProjectIdAndStatus(project.getId(), CodeContextStatus.CURRENT).stream()
+                .filter(context -> !context.getBaseCommitSha().equalsIgnoreCase(snapshot.commitSha()))
+                .forEach(CodeContextVersion::markStale);
         run.succeed(inventory.getId());
         job.succeed();
     }

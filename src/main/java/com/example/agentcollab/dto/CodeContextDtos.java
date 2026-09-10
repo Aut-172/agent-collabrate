@@ -16,11 +16,13 @@ public final class CodeContextDtos {
     }
 
     public record RunResponse(Long id, Long projectId, String runType, CodeContextRunStatus status,
-                              Long inventoryVersionId, String errorMessage, Instant createdAt,
+                              Long inventoryVersionId, Long contextPlanId, Long codeContextVersionId,
+                              String errorMessage, Instant createdAt,
                               Instant startedAt, Instant finishedAt) {
         public static RunResponse from(CodeContextRun run) {
             return new RunResponse(run.getId(), run.getProjectId(), run.getRunType().name(), run.getStatus(),
-                    run.getInventoryVersionId(), run.getErrorMessage(), run.getCreatedAt(),
+                    run.getInventoryVersionId(), run.getContextPlanId(), run.getCodeContextVersionId(),
+                    run.getErrorMessage(), run.getCreatedAt(),
                     run.getStartedAt(), run.getFinishedAt());
         }
     }
@@ -37,4 +39,17 @@ public final class CodeContextDtos {
                                     String branchName, String commitSha, RepoInventoryStatus status,
                                     JsonNode repositoryProfile, JsonNode treeSummary,
                                     List<InventoryFileResponse> files, Instant createdAt, Instant updatedAt) {}
+
+    public record EvidenceFileResponse(String path, CodeEvidenceType evidenceType, String contentHash,
+                                       String summary, String excerpt) {
+        public static EvidenceFileResponse from(CodeContextFile file) {
+            return new EvidenceFileResponse(file.getPath(), file.getEvidenceType(), file.getContentHash(),
+                    file.getSummary(), file.getExcerpt());
+        }
+    }
+
+    public record ContextResponse(Long id, Long projectId, Long inventoryVersionId, Long contextPlanId,
+                                  String provider, String repositoryUrl, String branchName, String baseCommitSha,
+                                  CodeContextStatus status, JsonNode repositoryProfile, JsonNode evidence,
+                                  List<EvidenceFileResponse> files, Instant createdAt, Instant updatedAt) {}
 }

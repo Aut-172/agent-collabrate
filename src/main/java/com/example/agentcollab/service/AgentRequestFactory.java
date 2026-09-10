@@ -9,6 +9,9 @@ import com.example.agentcollab.repository.ProjectMemberRepository;
 import com.example.agentcollab.repository.UserRepository;
 import com.example.agentcollab.repository.WorkflowRepository;
 import com.example.agentcollab.repository.TaskRepository;
+import com.example.agentcollab.repository.RepoInventoryFileRepository;
+import com.example.agentcollab.repository.RepoInventoryVersionRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
@@ -21,17 +24,25 @@ public class AgentRequestFactory {
     private final ProjectMemberRepository members;
     private final UserRepository users;
     private final TaskRepository tasks;
+    private final RepoInventoryVersionRepository inventories;
+    private final RepoInventoryFileRepository inventoryFiles;
+    private final int maxInventoryFiles;
 
     public AgentRequestFactory(WorkflowRepository workflows, AgentRunRepository runs,
                                DocumentVersionRepository documents,
                                ProjectMemberRepository members, UserRepository users,
-                               TaskRepository tasks) {
+                               TaskRepository tasks, RepoInventoryVersionRepository inventories,
+                               RepoInventoryFileRepository inventoryFiles,
+                               @Value("${app.code-context.max-plan-inventory-files:1000}") int maxInventoryFiles) {
         this.workflows = workflows;
         this.runs = runs;
         this.documents = documents;
         this.members = members;
         this.users = users;
         this.tasks = tasks;
+        this.inventories = inventories;
+        this.inventoryFiles = inventoryFiles;
+        this.maxInventoryFiles = maxInventoryFiles;
     }
 
     @Transactional(readOnly = true)
@@ -52,7 +63,22 @@ public class AgentRequestFactory {
         }
         return new AgentGenerationRequest(workflow.getId(), run.getRunType(), workflow.getIntentLevel(),
                 workflow.getTitle(), workflow.getDescription(), latest(workflow.getId(), DocumentType.DESIGN),
-                latest(workflow.getId(), DocumentType.SPEC), assignableMembers);
+                latest(workflow.getId(), DocumentType.SPEC), assignableMembers, codeContext(run, workflow));
+    }
+
+    private AgentGenerationRequest.CodeContextInput codeContext(AgentRun run, Workflow workflow) {
+        if (run.getRunType() != AgentRunType.GENERATE_CODE_CONTEXT_PLAN) return null;
+        RepoInventoryVersion inventory = inventories.findById(run.getInventoryVersionId())
+                .filter(value -> value.getStatus() == RepoInventoryStatus.CURRENT)
+                .orElseThrow(() -> new AgentProviderException(
+                        "REPO_INVENTORY_MISSING", "当前项目缺少可用 Repo Inventory", false));
+        var files = inventoryFiles.findByInventoryVersionIdOrderByPath(inventory.getId()).stream()
+                .limit(maxInventoryFiles)
+                .map(file -> new AgentGenerationRequest.InventoryFileContext(file.getPath(),
+                        file.getFileType().name(), file.getSizeBytes(), file.getContentHash(), file.getIndexedSummary()))
+                .toList();
+        return new AgentGenerationRequest.CodeContextInput(inventory.getId(), inventory.getCommitSha(),
+                inventory.getRepositoryProfile(), inventory.getTreeSummary(), files);
     }
 
     private List<AgentGenerationRequest.MemberContext> assignableMembers(Long projectId) {

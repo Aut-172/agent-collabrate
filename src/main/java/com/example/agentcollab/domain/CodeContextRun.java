@@ -6,7 +6,7 @@ import java.time.Instant;
 @Entity
 @Table(name = "code_context_runs")
 public class CodeContextRun {
-    public enum Type { REPO_INGESTION }
+    public enum Type { REPO_INGESTION, EVIDENCE_COLLECTION }
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -16,6 +16,8 @@ public class CodeContextRun {
     private Type runType;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 20) private CodeContextRunStatus status;
     @Column(name = "inventory_version_id") private Long inventoryVersionId;
+    @Column(name = "context_plan_id") private Long contextPlanId;
+    @Column(name = "code_context_version_id") private Long codeContextVersionId;
     @Column(name = "error_message", columnDefinition = "text") private String errorMessage;
     @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
     @Column(name = "started_at") private Instant startedAt;
@@ -31,6 +33,13 @@ public class CodeContextRun {
         this.createdAt = Instant.now();
     }
 
+    public static CodeContextRun evidenceCollection(Long projectId, Long requestedBy, Long contextPlanId) {
+        CodeContextRun run = new CodeContextRun(projectId, requestedBy);
+        run.runType = Type.EVIDENCE_COLLECTION;
+        run.contextPlanId = contextPlanId;
+        return run;
+    }
+
     public void start() {
         requireStatus(CodeContextRunStatus.QUEUED);
         status = CodeContextRunStatus.RUNNING;
@@ -40,6 +49,14 @@ public class CodeContextRun {
     public void succeed(Long inventoryVersionId) {
         requireStatus(CodeContextRunStatus.RUNNING);
         this.inventoryVersionId = inventoryVersionId;
+        status = CodeContextRunStatus.SUCCEEDED;
+        errorMessage = null;
+        finishedAt = Instant.now();
+    }
+
+    public void succeedWithContext(Long codeContextVersionId) {
+        requireStatus(CodeContextRunStatus.RUNNING);
+        this.codeContextVersionId = codeContextVersionId;
         status = CodeContextRunStatus.SUCCEEDED;
         errorMessage = null;
         finishedAt = Instant.now();
@@ -68,6 +85,8 @@ public class CodeContextRun {
     public Type getRunType() { return runType; }
     public CodeContextRunStatus getStatus() { return status; }
     public Long getInventoryVersionId() { return inventoryVersionId; }
+    public Long getContextPlanId() { return contextPlanId; }
+    public Long getCodeContextVersionId() { return codeContextVersionId; }
     public String getErrorMessage() { return errorMessage; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getStartedAt() { return startedAt; }

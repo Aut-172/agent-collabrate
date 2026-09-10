@@ -11,16 +11,22 @@ import org.springframework.stereotype.Component;
 @Component
 public class AgentOutputValidator {
     private final BuildPlanValidator buildPlans;
+    private final ContextPlanValidator contextPlans;
 
-    public AgentOutputValidator(BuildPlanValidator buildPlans) {
+    public AgentOutputValidator(BuildPlanValidator buildPlans, ContextPlanValidator contextPlans) {
         this.buildPlans = buildPlans;
+        this.contextPlans = contextPlans;
     }
 
     public void validate(AgentGenerationRequest request, AgentProviderResult result) {
         if (result == null || result.content() == null || result.content().isBlank()) {
             throw invalid("Agent 返回空内容");
         }
-        if (request.runType() == AgentRunType.GENERATE_BUILD_PLAN) {
+        if (request.runType() == AgentRunType.GENERATE_CODE_CONTEXT_PLAN) {
+            if (result.format() != DocumentFormat.JSON) throw invalid("Context Plan 必须使用 JSON 格式");
+            try { contextPlans.validate(result.content()); }
+            catch (IllegalArgumentException ex) { throw invalid(ex.getMessage()); }
+        } else if (request.runType() == AgentRunType.GENERATE_BUILD_PLAN) {
             validateBuildPlan(request.intentLevel(), result);
         } else if (result.format() != DocumentFormat.MARKDOWN) {
             throw invalid("Design 和 Spec 必须使用 Markdown 格式");

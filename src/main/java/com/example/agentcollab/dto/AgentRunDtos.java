@@ -23,6 +23,9 @@ public final class AgentRunDtos {
             String model,
             AgentRunStatus status,
             String requestSummary,
+            Long inventoryVersionId,
+            Long contextPlanId,
+            Long codeContextVersionId,
             String responseSummary,
             int retryCount,
             String errorCode,
@@ -33,6 +36,7 @@ public final class AgentRunDtos {
         public static AgentRunResponse from(AgentRun run) {
             return new AgentRunResponse(run.getId(), run.getWorkflowId(), run.getTaskId(), run.getRunType(),
                     run.getProvider(), run.getModel(), run.getStatus(), run.getRequestSummary(),
+                    run.getInventoryVersionId(), run.getContextPlanId(), run.getCodeContextVersionId(),
                     run.getResponseSummary(), run.getRetryCount(), run.getErrorCode(), run.getErrorMessage(),
                     run.getCreatedAt(), run.getStartedAt(), run.getFinishedAt());
         }

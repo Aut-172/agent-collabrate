@@ -18,12 +18,14 @@ public class AgentRunExecutionService {
     private final AgentRunRepository runs;
     private final DocumentService documents;
     private final WorkflowRepository workflows;
+    private final CodeContextOrchestrator codeContext;
     private final int maxAttempts;
     private final long retryDelayMs;
     private final long lockTimeoutMs;
 
     public AgentRunExecutionService(OutboxJobRepository jobs, AgentRunRepository runs,
                                     DocumentService documents, WorkflowRepository workflows,
+                                    CodeContextOrchestrator codeContext,
                                     @Value("${app.agent.worker.max-attempts:2}") int maxAttempts,
                                     @Value("${app.agent.worker.retry-delay-ms:1000}") long retryDelayMs,
                                     @Value("${app.agent.worker.lock-timeout-ms:300000}") long lockTimeoutMs) {
@@ -31,6 +33,7 @@ public class AgentRunExecutionService {
         this.runs = runs;
         this.documents = documents;
         this.workflows = workflows;
+        this.codeContext = codeContext;
         this.maxAttempts = maxAttempts;
         this.retryDelayMs = retryDelayMs;
         this.lockTimeoutMs = lockTimeoutMs;
@@ -60,6 +63,7 @@ public class AgentRunExecutionService {
         if (job.getStatus() != OutboxJobStatus.RUNNING || run.getStatus() != AgentRunStatus.RUNNING) return;
 
         switch (run.getRunType()) {
+            case GENERATE_CODE_CONTEXT_PLAN -> codeContext.recordPlan(run.getId(), result.content());
             case GENERATE_DESIGN -> documents.recordGeneratedDesign(run.getWorkflowId(), result.content(), run.getId());
             case GENERATE_SPEC -> documents.recordGeneratedSpec(run.getWorkflowId(), result.content(), run.getId());
             case GENERATE_BUILD_PLAN -> documents.recordGeneratedBuildPlan(

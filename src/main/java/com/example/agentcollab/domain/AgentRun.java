@@ -25,6 +25,9 @@ public class AgentRun {
     private AgentRunStatus status;
     @Column(name = "request_summary", nullable = false, columnDefinition = "text", updatable = false)
     private String requestSummary;
+    @Column(name = "code_context_version_id") private Long codeContextVersionId;
+    @Column(name = "context_plan_id") private Long contextPlanId;
+    @Column(name = "inventory_version_id") private Long inventoryVersionId;
     @Column(name = "response_summary", columnDefinition = "text")
     private String responseSummary;
     @Column(name = "retry_count", nullable = false)
@@ -74,6 +77,12 @@ public class AgentRun {
         finishedAt = Instant.now();
     }
 
+    public void bindContextPlan(Long contextPlanId) { this.contextPlanId = contextPlanId; }
+    public void bindInventoryVersion(Long inventoryVersionId) { this.inventoryVersionId = inventoryVersionId; }
+    public void bindCodeContext(Long contextPlanId, Long codeContextVersionId) {
+        this.contextPlanId = contextPlanId; this.codeContextVersionId = codeContextVersionId;
+    }
+
     public void fail(String code, String message) {
         if (status != AgentRunStatus.QUEUED && status != AgentRunStatus.RUNNING) {
             throw new IllegalStateException("AgentRun is not active");
@@ -106,6 +115,9 @@ public class AgentRun {
     public String getModel() { return model; }
     public AgentRunStatus getStatus() { return status; }
     public String getRequestSummary() { return requestSummary; }
+    public Long getCodeContextVersionId() { return codeContextVersionId; }
+    public Long getContextPlanId() { return contextPlanId; }
+    public Long getInventoryVersionId() { return inventoryVersionId; }
     public String getResponseSummary() { return responseSummary; }
     public int getRetryCount() { return retryCount; }
     public String getErrorCode() { return errorCode; }

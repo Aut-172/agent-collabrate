@@ -6,6 +6,7 @@ import com.example.agentcollab.exception.ApiException;
 import com.example.agentcollab.repository.AgentRunRepository;
 import com.example.agentcollab.repository.DocumentVersionRepository;
 import com.example.agentcollab.repository.OutboxJobRepository;
+import com.example.agentcollab.repository.RepoInventoryVersionRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,16 +23,19 @@ public class AgentRunService {
     private final WorkflowService workflowService;
     private final ProjectAccessService access;
     private final AgentProviderClient provider;
+    private final RepoInventoryVersionRepository inventories;
 
     public AgentRunService(AgentRunRepository runs, OutboxJobRepository jobs,
                            DocumentVersionRepository documents, WorkflowService workflowService,
-                           ProjectAccessService access, AgentProviderClient provider) {
+                           ProjectAccessService access, AgentProviderClient provider,
+                           RepoInventoryVersionRepository inventories) {
         this.runs = runs;
         this.jobs = jobs;
         this.documents = documents;
         this.workflowService = workflowService;
         this.access = access;
         this.provider = provider;
+        this.inventories = inventories;
     }
 
     @Transactional
@@ -44,7 +48,12 @@ public class AgentRunService {
 
         validateRequest(workflow, runType);
         AgentRun run = runs.save(new AgentRun(workflowId, runType, provider.providerName(),
-                provider.modelName(), requestSummary(runType, workflowId)));
+                provider.modelName(), requestSummary(runType, workflow)));
+        if (runType == AgentRunType.GENERATE_CODE_CONTEXT_PLAN) {
+            Long inventoryId = inventories.findTopByProjectIdAndStatusOrderByCreatedAtDesc(
+                    workflow.getProjectId(), RepoInventoryStatus.CURRENT).orElseThrow().getId();
+            run.bindInventoryVersion(inventoryId);
+        }
         jobs.save(new OutboxJob(OutboxJobType.AGENT_RUN, run.getId()));
         return run;
     }
@@ -85,6 +94,15 @@ public class AgentRunService {
 
     private void validateRequest(Workflow workflow, AgentRunType runType) {
         switch (runType) {
+            case GENERATE_CODE_CONTEXT_PLAN -> {
+                requireStatusIn(workflow, WorkflowStatus.INTENT, WorkflowStatus.DESIGN_PROPOSED,
+                        WorkflowStatus.SPEC_PROPOSED, WorkflowStatus.SPEC_CONFIRMED,
+                        WorkflowStatus.BUILD_PLAN_PROPOSED);
+                inventories.findTopByProjectIdAndStatusOrderByCreatedAtDesc(
+                                workflow.getProjectId(), RepoInventoryStatus.CURRENT)
+                        .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT,
+                                "REPO_INVENTORY_MISSING", "请先同步 Repo Inventory"));
+            }
             case GENERATE_DESIGN -> {
                 if (workflow.getIntentLevel() == IntentLevel.CHANGE) {
                     throw notAllowed("Change 直接生成 Build Plan，不生成 Design");
@@ -129,7 +147,12 @@ public class AgentRunService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AGENT_RUN_NOT_FOUND", "AgentRun 不存在"));
     }
 
-    private String requestSummary(AgentRunType runType, Long workflowId) {
-        return runType + " for workflow " + workflowId;
+    private String requestSummary(AgentRunType runType, Workflow workflow) {
+        if (runType == AgentRunType.GENERATE_CODE_CONTEXT_PLAN) {
+            Long inventoryId = inventories.findTopByProjectIdAndStatusOrderByCreatedAtDesc(
+                    workflow.getProjectId(), RepoInventoryStatus.CURRENT).map(RepoInventoryVersion::getId).orElse(null);
+            return runType + " for workflow " + workflow.getId() + ", inventoryVersionId=" + inventoryId;
+        }
+        return runType + " for workflow " + workflow.getId();
     }
 }

@@ -26,10 +26,36 @@ public class MockAgentProviderClient implements AgentProviderClient {
     @Override
     public AgentProviderResult generate(AgentGenerationRequest request) {
         return switch (request.runType()) {
+            case GENERATE_CODE_CONTEXT_PLAN -> contextPlan(request);
             case GENERATE_DESIGN -> markdown("Design", request);
             case GENERATE_SPEC -> markdown("Spec", request);
             case GENERATE_BUILD_PLAN -> buildPlan(request);
         };
+    }
+
+    private AgentProviderResult contextPlan(AgentGenerationRequest request) {
+        if (request.codeContext() == null) {
+            throw new AgentProviderException("REPO_INVENTORY_MISSING", "Context Plan 缺少 Repo Inventory", false);
+        }
+        ObjectNode root = json.createObjectNode();
+        root.put("intentLevel", request.intentLevel().name());
+        ObjectNode targets = root.putObject("readTargets");
+        ArrayNode files = targets.putArray("files");
+        request.codeContext().inventoryFiles().stream()
+                .filter(file -> !"BINARY".equals(file.fileType()))
+                .limit(6)
+                .forEach(file -> files.addObject().put("path", file.path())
+                        .put("reason", "Context Planning Agent 根据 Intent 和 Repo Inventory 选择"));
+        targets.putArray("directories");
+        targets.putArray("searchQueries");
+        root.putArray("expectedEvidence").add("相关代码和配置事实");
+        root.putArray("uncertainties");
+        try {
+            return new AgentProviderResult(json.writeValueAsString(root), DocumentFormat.JSON,
+                    "Generated Code Context Plan");
+        } catch (JsonProcessingException ex) {
+            throw new AgentProviderException("MOCK_SERIALIZATION_FAILED", "Mock Provider 输出序列化失败", false);
+        }
     }
 
     private AgentProviderResult markdown(String documentName, AgentGenerationRequest request) {
