@@ -70,6 +70,7 @@ class WorkflowDocumentIntegrationTest {
     @Autowired AgentRunRepository agentRuns;
     @Autowired TaskAssignmentRepository taskAssignments;
     @Autowired TaskRepository tasks;
+    @Autowired com.example.agentcollab.repository.TaskPackageRepository taskPackages;
     @Autowired JdbcTemplate jdbc;
     @Autowired AgentRunWorker worker;
     @Autowired AgentRunExecutionService executions;
@@ -80,6 +81,7 @@ class WorkflowDocumentIntegrationTest {
         outboxJobs.deleteAll();
         agentRuns.deleteAll();
         taskAssignments.deleteAll();
+        taskPackages.deleteAll();
         tasks.deleteAll();
         workflowMembers.deleteAll();
         jdbc.update("UPDATE workflows SET parent_workflow_id = NULL");
@@ -471,6 +473,14 @@ class WorkflowDocumentIntegrationTest {
         assertThat(tasks.count()).isEqualTo(1);
 
         var task = tasks.findByWorkflowIdOrderById(workflowId).get(0);
+        mvc.perform(get("/api/tasks/{id}/packages/current", task.getId())
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.packageVersion").value(1))
+                .andExpect(jsonPath("$.status").value("CURRENT"))
+                .andExpect(jsonPath("$.contentHash").value(org.hamcrest.Matchers.startsWith("sha256:")))
+                .andExpect(jsonPath("$.contentJson.context.baseCommit").value("UNKNOWN"))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("Agent Task Package")));
         var initialAssignment = taskAssignments.findByTaskIdAndCurrentTrue(task.getId()).orElseThrow();
         assertThat(task.getStatus().name()).isEqualTo("ASSIGNED");
         assertThat(task.getSourcePlanVersion()).isEqualTo(2);

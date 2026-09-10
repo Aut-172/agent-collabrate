@@ -304,7 +304,7 @@ PUT  /api/tasks/{id}/assignee
 GET  /api/tasks/{id}/packages/current
 GET  /api/tasks/{id}/packages/{version}
 GET  /api/tasks/{id}/packages/diff?from={from}&to={to}
-POST /api/tasks/{id}/start
+POST /api/tasks/{id}/packages/{version}/confirm
 POST /api/tasks/{id}/block
 POST /api/tasks/{id}/blockers/{blockerId}/resolve
 POST /api/tasks/{id}/delivery

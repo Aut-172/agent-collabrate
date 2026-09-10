@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-collab.local/schema/task-package-v1.schema.json",
+  "title": "Agent Task Package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "task", "project", "context", "objective", "scope", "nonGoals", "acceptanceCriteria", "verificationCommands", "executionPolicy", "allowedPaths", "forbiddenPaths", "deliverables"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "task": { "type": "object", "required": ["taskId", "workflowId", "taskVersion", "packageVersion", "status", "generatedAt"], "properties": { "taskId": { "type": "string" }, "workflowId": { "type": "string" }, "taskVersion": { "type": "integer", "minimum": 0 }, "packageVersion": { "type": "integer", "minimum": 1 }, "status": { "const": "CURRENT" }, "generatedAt": { "type": "string", "format": "date-time" } }, "additionalProperties": true },
+    "project": { "type": "object", "required": ["projectId", "name", "repositoryUrl", "defaultBranch"], "additionalProperties": true },
+    "context": { "type": "object", "required": ["designVersion", "specVersion", "buildPlanVersion", "baseBranch", "baseCommit", "relevantPaths"], "additionalProperties": true },
+    "assignee": { "type": "object" },
+    "objective": { "type": "string", "minLength": 1 },
+    "scope": { "$ref": "#/$defs/nonEmptyStringList" },
+    "nonGoals": { "$ref": "#/$defs/stringList" },
+    "acceptanceCriteria": { "$ref": "#/$defs/nonEmptyStringList" },
+    "verificationCommands": { "$ref": "#/$defs/nonEmptyStringList" },
+    "executionPolicy": { "type": "object", "required": ["mode", "git"], "additionalProperties": true },
+    "allowedPaths": { "type": "array" },
+    "forbiddenPaths": { "type": "array" },
+    "deliverables": { "$ref": "#/$defs/stringList" }
+  },
+  "$defs": {
+    "stringList": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "nonEmptyStringList": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+  }
+}

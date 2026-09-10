@@ -70,6 +70,11 @@ public class Task {
         return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELLED;
     }
 
+    public void setCurrentPackageVersion(int packageVersion) {
+        this.currentPackageVersion = packageVersion;
+        this.updatedAt = Instant.now();
+    }
+
     public void cancel() {
         if (isTerminal()) return;
         status = TaskStatus.CANCELLED;

@@ -30,12 +30,14 @@ public class TaskService {
     private final WorkflowStateMachine stateMachine;
     private final PlanService plans;
     private final ObjectMapper json;
+    private final TaskPackageService taskPackages;
 
     public TaskService(TaskRepository tasks, TaskAssignmentRepository assignments,
                        DocumentVersionRepository documents, ProjectMemberRepository members,
                        UserRepository users, WorkflowRepository workflows,
                        WorkflowService workflowService, ProjectAccessService access,
-                       WorkflowStateMachine stateMachine, PlanService plans, ObjectMapper json) {
+                       WorkflowStateMachine stateMachine, PlanService plans, ObjectMapper json,
+                       TaskPackageService taskPackages) {
         this.tasks = tasks;
         this.assignments = assignments;
         this.documents = documents;
@@ -47,6 +49,7 @@ public class TaskService {
         this.stateMachine = stateMachine;
         this.plans = plans;
         this.json = json;
+        this.taskPackages = taskPackages;
     }
 
     @Transactional
@@ -129,6 +132,7 @@ public class TaskService {
                     1, assignment.path("fitReason").asText(), assignment.path("assignmentScore").decimalValue());
             task.markAssigned();
             tasks.save(task);
+            taskPackages.createInitial(task);
         }
     }
 
