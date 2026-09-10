@@ -2,9 +2,11 @@ package com.example.agentcollab.controller;
 
 import com.example.agentcollab.dto.TaskDtos;
 import com.example.agentcollab.dto.TaskDeliveryDtos;
+import com.example.agentcollab.dto.DeliveryEvidenceDtos;
 import com.example.agentcollab.security.CurrentUser;
 import com.example.agentcollab.service.TaskService;
 import com.example.agentcollab.service.TaskDeliveryService;
+import com.example.agentcollab.service.DeliveryEvidenceService;
 import com.example.agentcollab.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -17,11 +19,14 @@ public class TaskController {
     private final TaskService tasks;
     private final UserService users;
     private final TaskDeliveryService deliveries;
+    private final DeliveryEvidenceService evidence;
 
-    public TaskController(TaskService tasks, UserService users, TaskDeliveryService deliveries) {
+    public TaskController(TaskService tasks, UserService users, TaskDeliveryService deliveries,
+                          DeliveryEvidenceService evidence) {
         this.tasks = tasks;
         this.users = users;
         this.deliveries = deliveries;
+        this.evidence = evidence;
     }
 
     @GetMapping("/{taskId}")
@@ -45,6 +50,16 @@ public class TaskController {
     @GetMapping("/{taskId}/deliveries")
     public List<TaskDeliveryDtos.DeliveryResponse> deliveries(@PathVariable Long taskId) {
         return deliveries.list(currentUserId(), taskId);
+    }
+
+    @GetMapping("/{taskId}/git-operations")
+    public List<DeliveryEvidenceDtos.GitOperationResponse> gitOperations(@PathVariable Long taskId) {
+        return evidence.listGitOperations(currentUserId(), taskId);
+    }
+
+    @GetMapping("/{taskId}/ci-runs")
+    public List<DeliveryEvidenceDtos.CiRunResponse> ciRuns(@PathVariable Long taskId) {
+        return evidence.listCiRuns(currentUserId(), taskId);
     }
 
     private Long currentUserId() {

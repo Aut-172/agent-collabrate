@@ -26,17 +26,18 @@ public class TaskDeliveryService {
     private final WorkflowStateMachine stateMachine;
     private final FinalReportValidator reports;
     private final OutboxJobRepository outboxJobs;
+    private final GitOperationRepository gitOperations;
 
     public TaskDeliveryService(TaskRepository tasks, TaskDeliveryRepository deliveries,
                                TaskAssignmentRepository assignments, TaskPackageRepository packages,
                                TaskPackageConfirmationRepository confirmations, WorkflowService workflowService,
                                WorkflowRepository workflows, ProjectRepository projects,
                                WorkflowStateMachine stateMachine, FinalReportValidator reports,
-                               OutboxJobRepository outboxJobs) {
+                               OutboxJobRepository outboxJobs, GitOperationRepository gitOperations) {
         this.tasks = tasks; this.deliveries = deliveries; this.assignments = assignments;
         this.packages = packages; this.confirmations = confirmations; this.workflowService = workflowService;
         this.workflows = workflows; this.projects = projects; this.stateMachine = stateMachine;
-        this.reports = reports; this.outboxJobs = outboxJobs;
+        this.reports = reports; this.outboxJobs = outboxJobs; this.gitOperations = gitOperations;
     }
 
     @Transactional
@@ -78,6 +79,8 @@ public class TaskDeliveryService {
         TaskDelivery delivery = deliveries.save(new TaskDelivery(taskId, actorId, current.getId(),
                 current.getPackageVersion(), request.finalReport(), request.branchName(), commitSha,
                 request.pullRequestUrl()));
+        gitOperations.save(new GitOperation(workflow.getProjectId(), workflow.getId(), taskId,
+                delivery.getId(), request.branchName(), commitSha, request.pullRequestUrl()));
         outboxJobs.save(new OutboxJob(OutboxJobType.GIT_SYNC, delivery.getId()));
         task.submitDelivery();
         tasks.save(task);

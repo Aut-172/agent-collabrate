@@ -91,6 +91,29 @@ public class WorkflowService {
         return workflows.save(workflow);
     }
 
+    @Transactional
+    public Workflow close(Long actorId, Long workflowId) {
+        Workflow workflow = requireForUpdate(actorId, workflowId);
+        access.requireLeader(workflow.getProjectId(), actorId);
+        Project project = projects.findByIdForUpdate(workflow.getProjectId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "项目不存在"));
+        if (workflow.getStatus() != WorkflowStatus.READY_TO_CLOSE) {
+            throw conflict("WORKFLOW_NOT_READY_TO_CLOSE", "Workflow 尚未满足关闭条件");
+        }
+        if (workflow.getCompletionMode() == WorkflowCompletionMode.CI_BOOTSTRAP) {
+            if (project.getCiStatus() != ProjectCiStatus.CI_NOT_CONFIGURED) {
+                throw conflict("CI_ALREADY_CONFIGURED", "项目已经启用 CI 门禁");
+            }
+            project.enableCi();
+            projects.save(project);
+        } else if (workflow.getCompletionMode() == WorkflowCompletionMode.CI_REQUIRED
+                && project.getCiStatus() != ProjectCiStatus.CI_REQUIRED) {
+            throw conflict("CI_BOOTSTRAP_REQUIRED", "项目尚未完成 CI Bootstrap");
+        }
+        stateMachine.transition(workflow, WorkflowStatus.DONE);
+        return workflows.save(workflow);
+    }
+
     public Workflow requireForUpdate(Long actorId, Long workflowId) {
         Workflow workflow = workflows.findByIdForUpdate(workflowId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "WORKFLOW_NOT_FOUND", "Workflow 不存在"));

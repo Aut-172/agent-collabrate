@@ -58,5 +58,12 @@ public class Project {
     public Status getStatus() { return status; }
     public Long getCreatedBy() { return createdBy; }
     public Long getVersion() { return version; }
+    public void enableCi() {
+        if (ciStatus != ProjectCiStatus.CI_NOT_CONFIGURED) {
+            throw new IllegalStateException("CI is already configured");
+        }
+        ciStatus = ProjectCiStatus.CI_REQUIRED;
+        updatedAt = Instant.now();
+    }
     public void archive() { status = Status.ARCHIVED; }
 }

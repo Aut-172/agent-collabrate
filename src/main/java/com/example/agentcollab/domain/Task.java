@@ -80,6 +80,32 @@ public class Task {
         updatedAt = Instant.now();
     }
 
+    public void markCiRunning() {
+        if (status != TaskStatus.DELIVERY_SUBMITTED) throw new IllegalStateException("Task cannot start CI from " + status);
+        status = TaskStatus.CI_RUNNING;
+        updatedAt = Instant.now();
+    }
+
+    public void completeFromCi() {
+        if (status != TaskStatus.CI_RUNNING) throw new IllegalStateException("Task cannot complete from " + status);
+        status = TaskStatus.DONE;
+        updatedAt = Instant.now();
+    }
+
+    public void returnForCiRework() {
+        if (status != TaskStatus.CI_RUNNING) throw new IllegalStateException("Task cannot return from " + status);
+        status = TaskStatus.IN_PROGRESS;
+        updatedAt = Instant.now();
+    }
+
+    public void returnForDeliveryRework() {
+        if (status != TaskStatus.DELIVERY_SUBMITTED) {
+            throw new IllegalStateException("Task cannot return from " + status);
+        }
+        status = TaskStatus.IN_PROGRESS;
+        updatedAt = Instant.now();
+    }
+
     public boolean isTerminal() {
         return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELLED;
     }

@@ -10,3 +10,10 @@ app:
     worker:
       scheduling-enabled: false
       retry-delay-ms: 0
+  git:
+    worker:
+      retry-delay-ms: 0
+  ci:
+    worker:
+      poll-delay-ms: 0
+      retry-delay-ms: 0

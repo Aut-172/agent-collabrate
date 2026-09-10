@@ -152,6 +152,11 @@ public class WorkflowController {
         return WorkflowDtos.WorkflowResponse.from(workflowService.cancel(currentUserId(), workflowId));
     }
 
+    @PostMapping("/workflows/{workflowId}/close")
+    public WorkflowDtos.WorkflowResponse close(@PathVariable Long workflowId) {
+        return WorkflowDtos.WorkflowResponse.from(workflowService.close(currentUserId(), workflowId));
+    }
+
     private Long currentUserId() {
         return userService.requireByUsername(CurrentUser.username()).getId();
     }

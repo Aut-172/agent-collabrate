@@ -308,6 +308,7 @@ POST /api/workflows/{id}/generate-build-plan
 PUT  /api/workflows/{id}/plan-drafts
 POST /api/workflows/{id}/approve-plan
 POST /api/workflows/{id}/create-tasks
+POST /api/workflows/{id}/close
 POST /api/workflows/{id}/cancel
 ```
 

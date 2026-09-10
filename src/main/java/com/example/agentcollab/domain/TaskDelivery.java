@@ -48,6 +48,28 @@ public class TaskDelivery {
     public String getPullRequestUrl() { return pullRequestUrl; }
     public TaskDeliveryStatus getStatus() { return status; }
     public String getRejectionReason() { return rejectionReason; }
+    public void markCiRunning() {
+        requireStatus(TaskDeliveryStatus.SUBMITTED);
+        status = TaskDeliveryStatus.CI_RUNNING;
+    }
+    public void markPassed() {
+        requireStatus(TaskDeliveryStatus.CI_RUNNING);
+        status = TaskDeliveryStatus.PASSED;
+    }
+    public void markFailed(String reason) {
+        requireStatus(TaskDeliveryStatus.CI_RUNNING);
+        status = TaskDeliveryStatus.FAILED;
+        rejectionReason = reason;
+    }
+    public void reject(String reason) {
+        requireStatus(TaskDeliveryStatus.SUBMITTED);
+        status = TaskDeliveryStatus.REJECTED;
+        rejectionReason = reason;
+    }
+
+    private void requireStatus(TaskDeliveryStatus expected) {
+        if (status != expected) throw new IllegalStateException("Expected TaskDelivery status " + expected);
+    }
     public Instant getSubmittedAt() { return submittedAt; }
     public Instant getReviewedAt() { return reviewedAt; }
 }

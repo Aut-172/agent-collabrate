@@ -174,6 +174,7 @@ Relay 不是 MVP 必须组件，但接口应保留扩展空间。Relay 需要：
 projectId
 workflowId
 taskId
+deliveryId
 commitSha
 externalId
 status
@@ -182,6 +183,8 @@ detailsUrl
 startedAt
 finishedAt
 lastSyncedAt
+configurationPresent
+configurationRecognized
 ```
 
 ### 7.1 完成判断

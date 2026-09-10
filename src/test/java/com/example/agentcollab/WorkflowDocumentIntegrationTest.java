@@ -74,6 +74,11 @@ class WorkflowDocumentIntegrationTest {
     @Autowired com.example.agentcollab.repository.TaskPackageRepository taskPackages;
     @Autowired com.example.agentcollab.repository.TaskPackageConfirmationRepository packageConfirmations;
     @Autowired com.example.agentcollab.repository.TaskDeliveryRepository taskDeliveries;
+    @Autowired com.example.agentcollab.repository.GitOperationRepository gitOperations;
+    @Autowired com.example.agentcollab.repository.CiRunRepository ciRuns;
+    @Autowired com.example.agentcollab.service.GitSyncService gitSync;
+    @Autowired com.example.agentcollab.service.CiSyncService ciSync;
+    @Autowired com.example.agentcollab.service.GitSyncWorker gitSyncWorker;
     @Autowired JdbcTemplate jdbc;
     @Autowired AgentRunWorker worker;
     @Autowired AgentRunExecutionService executions;
@@ -83,6 +88,8 @@ class WorkflowDocumentIntegrationTest {
         documents.deleteAll();
         outboxJobs.deleteAll();
         agentRuns.deleteAll();
+        ciRuns.deleteAll();
+        gitOperations.deleteAll();
         taskDeliveries.deleteAll();
         packageConfirmations.deleteAll();
         taskPackages.deleteAll();
@@ -737,6 +744,89 @@ class WorkflowDocumentIntegrationTest {
         assertThat(saved.getStatus().name()).isEqualTo("SUBMITTED");
         assertThat(outboxJobs.findByJobTypeAndReferenceId(OutboxJobType.GIT_SYNC, deliveryId))
                 .get().extracting(job -> job.getStatus()).isEqualTo(OutboxJobStatus.PENDING);
+
+        assertThat(gitOperations.findByDeliveryId(deliveryId)).get()
+                .satisfies(operation -> {
+                    assertThat(operation.getStatus()).isEqualTo(com.example.agentcollab.domain.GitOperationStatus.PENDING);
+                    assertThat(operation.getCommitSha()).isEqualTo(commitSha);
+                });
+
+        var claimedGit = gitSync.claimNext().orElseThrow();
+        gitSync.handleFailure(claimedGit, "temporary network error", true);
+        assertThat(outboxJobs.findByJobTypeAndReferenceId(OutboxJobType.GIT_SYNC, deliveryId))
+                .get().satisfies(job -> {
+                    assertThat(job.getStatus()).isEqualTo(OutboxJobStatus.PENDING);
+                    assertThat(job.getAttemptCount()).isEqualTo(1);
+                });
+        assertThat(gitOperations.findByDeliveryId(deliveryId)).get()
+                .extracting(operation -> operation.getStatus())
+                .isEqualTo(com.example.agentcollab.domain.GitOperationStatus.PENDING);
+
+        assertThat(gitSyncWorker.processGitNext()).isTrue();
+        var gitOperation = gitOperations.findByDeliveryId(deliveryId).orElseThrow();
+        assertThat(gitOperation.getStatus()).isEqualTo(com.example.agentcollab.domain.GitOperationStatus.SUCCEEDED);
+        var ciRun = ciRuns.findByDeliveryIdAndCommitSha(deliveryId, commitSha).orElseThrow();
+        assertThat(ciRun.getCommitSha()).isEqualTo(saved.getCommitSha());
+        assertThat(ciRun.getExternalId()).isNull();
+        assertThat(tasks.findById(task.getId()).orElseThrow().getStatus()).isEqualTo(com.example.agentcollab.domain.TaskStatus.CI_RUNNING);
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus()).isEqualTo(com.example.agentcollab.domain.WorkflowStatus.CI_RUNNING);
+
+        String ciExternalId = "mock-ci:" + commitSha;
+        var runningCi = ciSync.claimNext().orElseThrow();
+        ciSync.complete(runningCi, new com.example.agentcollab.client.CiProviderClient.CiProviderResult(
+                ciExternalId, commitSha, com.example.agentcollab.domain.CiRunStatus.RUNNING,
+                null, "https://ci.example.invalid/runs/running", true, true));
+        assertThat(ciRuns.findById(ciRun.getId()).orElseThrow().getStatus())
+                .isEqualTo(com.example.agentcollab.domain.CiRunStatus.RUNNING);
+        assertThat(outboxJobs.findByJobTypeAndReferenceId(OutboxJobType.CI_SYNC, ciRun.getId()))
+                .get().satisfies(job -> {
+                    assertThat(job.getStatus()).isEqualTo(OutboxJobStatus.PENDING);
+                    assertThat(job.getAttemptCount()).isZero();
+                });
+
+        var claimedCi = ciSync.claimNext().orElseThrow();
+        ciSync.complete(claimedCi, new com.example.agentcollab.client.CiProviderClient.CiProviderResult(
+                ciExternalId, "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                com.example.agentcollab.domain.CiRunStatus.PASSED, "SUCCESS",
+                "https://ci.example.invalid/runs/stale", true, true));
+        assertThat(ciRuns.findById(ciRun.getId()).orElseThrow().getStatus())
+                .isEqualTo(com.example.agentcollab.domain.CiRunStatus.UNKNOWN);
+        assertThat(tasks.findById(task.getId()).orElseThrow().getStatus())
+                .isEqualTo(com.example.agentcollab.domain.TaskStatus.CI_RUNNING);
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus())
+                .isEqualTo(com.example.agentcollab.domain.WorkflowStatus.CI_RUNNING);
+
+        assertThat(gitSyncWorker.processCiNext()).isTrue();
+        assertThat(ciRuns.findById(ciRun.getId()).orElseThrow().getStatus()).isEqualTo(com.example.agentcollab.domain.CiRunStatus.PASSED);
+        assertThat(ciRuns.findById(ciRun.getId()).orElseThrow().getExternalId()).isEqualTo(ciExternalId);
+        assertThat(taskDeliveries.findById(deliveryId).orElseThrow().getStatus()).isEqualTo(com.example.agentcollab.domain.TaskDeliveryStatus.PASSED);
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus()).isEqualTo(com.example.agentcollab.domain.WorkflowStatus.READY_TO_CLOSE);
+        assertThat(tasks.findById(task.getId()).orElseThrow().getStatus()).isEqualTo(com.example.agentcollab.domain.TaskStatus.DONE);
+        assertThat(ciRuns.findById(ciRun.getId()).orElseThrow().getConfigurationPresent()).isTrue();
+        assertThat(ciRuns.findById(ciRun.getId()).orElseThrow().getConfigurationRecognized()).isTrue();
+
+        mvc.perform(get("/api/tasks/{id}/git-operations", task.getId())
+                        .header("Authorization", bearer(reviewerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].deliveryId").value(deliveryId))
+                .andExpect(jsonPath("$[0].commitSha").value(commitSha))
+                .andExpect(jsonPath("$[0].status").value("SUCCEEDED"));
+        mvc.perform(get("/api/tasks/{id}/ci-runs", task.getId())
+                        .header("Authorization", bearer(reviewerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].deliveryId").value(deliveryId))
+                .andExpect(jsonPath("$[0].commitSha").value(commitSha))
+                .andExpect(jsonPath("$[0].configurationRecognized").value(true));
+
+        mvc.perform(post("/api/workflows/{id}/close", workflowId)
+                        .header("Authorization", bearer(reviewerToken)))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/workflows/{id}/close", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DONE"));
+        assertThat(projects.findById(projectId).orElseThrow().getCiStatus())
+                .isEqualTo(com.example.agentcollab.domain.ProjectCiStatus.CI_REQUIRED);
 
         mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
                         .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)

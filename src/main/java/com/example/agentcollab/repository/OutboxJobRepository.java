@@ -26,12 +26,20 @@ public interface OutboxJobRepository extends JpaRepository<OutboxJob, Long> {
 
     @Query(value = """
             SELECT * FROM outbox_jobs
-            WHERE job_type = 'AGENT_RUN' AND status = 'PENDING' AND next_attempt_at <= :now
+            WHERE job_type = :jobType AND status = 'PENDING' AND next_attempt_at <= :now
             ORDER BY next_attempt_at, id
             FOR UPDATE SKIP LOCKED
             LIMIT 1
             """, nativeQuery = true)
-    Optional<OutboxJob> findNextDueForUpdate(@Param("now") Instant now);
+    Optional<OutboxJob> findNextDueByTypeForUpdate(@Param("jobType") String jobType, @Param("now") Instant now);
+
+    default Optional<OutboxJob> findNextDueForUpdate(OutboxJobType jobType, Instant now) {
+        return findNextDueByTypeForUpdate(jobType.name(), now);
+    }
+
+    default Optional<OutboxJob> findNextDueForUpdate(Instant now) {
+        return findNextDueForUpdate(OutboxJobType.AGENT_RUN, now);
+    }
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select j from OutboxJob j where j.jobType = :jobType and j.status = :status and j.lockedAt < :deadline")
