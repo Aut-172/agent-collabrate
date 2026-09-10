@@ -15,13 +15,21 @@ public record AgentGenerationRequest(
         String design,
         String spec,
         List<MemberContext> assignableMembers,
+        RepoInventoryInput repoInventory,
         CodeContextInput codeContext) {
 
-    public record CodeContextInput(Long inventoryVersionId, String commitSha, JsonNode repositoryProfile,
-                                   JsonNode treeSummary, List<InventoryFileContext> inventoryFiles) {}
+    public record RepoInventoryInput(Long inventoryVersionId, String commitSha, JsonNode repositoryProfile,
+                                     JsonNode treeSummary, List<InventoryFileContext> inventoryFiles) {}
 
     public record InventoryFileContext(String path, String fileType, long sizeBytes,
                                        String contentHash, String indexedSummary) {}
+
+    public record CodeContextInput(Long codeContextVersionId, Long contextPlanId, Long inventoryVersionId,
+                                   String baseCommitSha, JsonNode repositoryProfile, JsonNode evidence,
+                                   List<EvidenceFileContext> files) {}
+
+    public record EvidenceFileContext(String path, String evidenceType, String contentHash,
+                                      String summary, JsonNode importantSymbols, String excerpt) {}
 
     public record MemberContext(
             Long userId,

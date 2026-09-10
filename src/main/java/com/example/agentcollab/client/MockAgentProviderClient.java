@@ -25,6 +25,9 @@ public class MockAgentProviderClient implements AgentProviderClient {
 
     @Override
     public AgentProviderResult generate(AgentGenerationRequest request) {
+        if (request.runType() != AgentRunType.GENERATE_CODE_CONTEXT_PLAN && request.codeContext() == null) {
+            throw new AgentProviderException("CODE_CONTEXT_MISSING", "正式文档生成缺少 Code Context", false);
+        }
         return switch (request.runType()) {
             case GENERATE_CODE_CONTEXT_PLAN -> contextPlan(request);
             case GENERATE_DESIGN -> markdown("Design", request);
@@ -34,14 +37,14 @@ public class MockAgentProviderClient implements AgentProviderClient {
     }
 
     private AgentProviderResult contextPlan(AgentGenerationRequest request) {
-        if (request.codeContext() == null) {
+        if (request.repoInventory() == null) {
             throw new AgentProviderException("REPO_INVENTORY_MISSING", "Context Plan 缺少 Repo Inventory", false);
         }
         ObjectNode root = json.createObjectNode();
         root.put("intentLevel", request.intentLevel().name());
         ObjectNode targets = root.putObject("readTargets");
         ArrayNode files = targets.putArray("files");
-        request.codeContext().inventoryFiles().stream()
+        request.repoInventory().inventoryFiles().stream()
                 .filter(file -> !"BINARY".equals(file.fileType()))
                 .limit(6)
                 .forEach(file -> files.addObject().put("path", file.path())

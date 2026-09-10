@@ -29,6 +29,8 @@ public class DocumentVersion {
     private Long createdBy;
     @Column(name = "agent_run_id", updatable = false)
     private Long agentRunId;
+    @Column(name = "code_context_version_id", updatable = false)
+    private Long codeContextVersionId;
     @Column(name = "is_confirmed", nullable = false)
     private boolean confirmed;
     @Column(name = "confirmed_by")
@@ -46,12 +48,20 @@ public class DocumentVersion {
     }
 
     public static DocumentVersion byAgent(Long workflowId, DocumentType type, int versionNo,
-                                          String content, DocumentFormat format, Long agentRunId) {
-        return new DocumentVersion(workflowId, type, versionNo, content, format, DocumentSource.AGENT, null, agentRunId);
+                                          String content, DocumentFormat format, Long agentRunId,
+                                          Long codeContextVersionId) {
+        return new DocumentVersion(workflowId, type, versionNo, content, format, DocumentSource.AGENT, null,
+                agentRunId, codeContextVersionId);
     }
 
     private DocumentVersion(Long workflowId, DocumentType type, int versionNo, String content,
                             DocumentFormat format, DocumentSource source, Long createdBy, Long agentRunId) {
+        this(workflowId, type, versionNo, content, format, source, createdBy, agentRunId, null);
+    }
+
+    private DocumentVersion(Long workflowId, DocumentType type, int versionNo, String content,
+                            DocumentFormat format, DocumentSource source, Long createdBy, Long agentRunId,
+                            Long codeContextVersionId) {
         this.workflowId = workflowId;
         this.documentType = type;
         this.versionNo = versionNo;
@@ -60,6 +70,7 @@ public class DocumentVersion {
         this.source = source;
         this.createdBy = createdBy;
         this.agentRunId = agentRunId;
+        this.codeContextVersionId = codeContextVersionId;
         this.createdAt = Instant.now();
     }
 
@@ -79,6 +90,7 @@ public class DocumentVersion {
     public DocumentSource getSource() { return source; }
     public Long getCreatedBy() { return createdBy; }
     public Long getAgentRunId() { return agentRunId; }
+    public Long getCodeContextVersionId() { return codeContextVersionId; }
     public boolean isConfirmed() { return confirmed; }
     public Long getConfirmedBy() { return confirmedBy; }
     public Instant getConfirmedAt() { return confirmedAt; }

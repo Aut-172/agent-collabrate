@@ -1,11 +1,6 @@
 package com.example.agentcollab;
 
-import com.example.agentcollab.domain.DocumentType;
-import com.example.agentcollab.domain.AgentRun;
-import com.example.agentcollab.domain.AgentRunType;
-import com.example.agentcollab.domain.AgentRunStatus;
-import com.example.agentcollab.domain.OutboxJobStatus;
-import com.example.agentcollab.domain.OutboxJobType;
+import com.example.agentcollab.domain.*;
 import com.example.agentcollab.exception.ApiException;
 import com.example.agentcollab.repository.*;
 import com.example.agentcollab.service.DocumentService;
@@ -82,26 +77,13 @@ class WorkflowDocumentIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired AgentRunWorker worker;
     @Autowired AgentRunExecutionService executions;
+    @Autowired RepoInventoryVersionRepository inventories;
+    @Autowired CodeContextPlanRepository contextPlans;
+    @Autowired CodeContextVersionRepository codeContexts;
 
     @BeforeEach
     void clearDatabase() {
-        documents.deleteAll();
-        outboxJobs.deleteAll();
-        agentRuns.deleteAll();
-        ciRuns.deleteAll();
-        gitOperations.deleteAll();
-        taskDeliveries.deleteAll();
-        packageConfirmations.deleteAll();
-        taskPackages.deleteAll();
-        taskAssignments.deleteAll();
-        tasks.deleteAll();
-        workflowMembers.deleteAll();
-        jdbc.update("UPDATE workflows SET parent_workflow_id = NULL");
-        workflows.deleteAll();
-        profileVersions.deleteAll();
-        projectMembers.deleteAll();
-        projects.deleteAll();
-        users.deleteAll();
+        jdbc.execute("TRUNCATE TABLE outbox_jobs, users RESTART IDENTITY CASCADE");
     }
 
     @Test
@@ -333,6 +315,46 @@ class WorkflowDocumentIntegrationTest {
         mvc.perform(get("/api/agent-runs/{id}", runId).header("Authorization", bearer(outsiderToken)))
                 .andExpect(status().isNotFound());
         assertThat(worker.processNext()).isFalse();
+    }
+
+    @Test
+    void formalGenerationRequiresCurrentContextAndPersistsItsReference() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "context-gate");
+        long workflowId = createWorkflow(leaderToken, projectId, "context-bound design");
+
+        mvc.perform(post("/api/workflows/{id}/generate-design", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CODE_CONTEXT_REQUIRED"));
+
+        long staleContextId = ensureCurrentCodeContext(workflowId);
+        long staleRunId = requestRun(leaderToken, workflowId, "generate-design");
+        CodeContextVersion staleContext = codeContexts.findById(staleContextId).orElseThrow();
+        staleContext.markStale();
+        codeContexts.save(staleContext);
+
+        assertThat(worker.processNext()).isTrue();
+        assertThat(agentRuns.findById(staleRunId).orElseThrow().getErrorCode()).isEqualTo("CODE_CONTEXT_STALE");
+        assertThat(documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                workflowId, DocumentType.DESIGN)).isEmpty();
+
+        long currentContextId = ensureCurrentCodeContext(workflowId);
+        long currentRunId = requestRun(leaderToken, workflowId, "generate-design");
+        AgentRun currentRun = agentRuns.findById(currentRunId).orElseThrow();
+        assertThat(currentRun.getCodeContextVersionId()).isEqualTo(currentContextId);
+        assertThat(currentRun.getContextPlanId()).isNotNull();
+        assertThat(currentRun.getInventoryVersionId()).isNotNull();
+        assertThat(worker.processNext()).isTrue();
+
+        DocumentVersion generated = documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                workflowId, DocumentType.DESIGN).get(0);
+        assertThat(generated.getAgentRunId()).isEqualTo(currentRunId);
+        assertThat(generated.getCodeContextVersionId()).isEqualTo(currentContextId);
+        mvc.perform(get("/api/workflows/{id}/documents", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].codeContextVersionId").value(currentContextId));
     }
 
     @Test
@@ -998,6 +1020,7 @@ class WorkflowDocumentIntegrationTest {
     }
 
     private long requestRun(String token, long workflowId, String action) throws Exception {
+        ensureCurrentCodeContext(workflowId);
         String body = mvc.perform(post("/api/workflows/{id}/{action}", workflowId, action)
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isAccepted())
@@ -1009,6 +1032,7 @@ class WorkflowDocumentIntegrationTest {
     private void requestRunExpecting(
             String token, long workflowId, String action,
             org.springframework.test.web.servlet.ResultMatcher expectedStatus) throws Exception {
+        ensureCurrentCodeContext(workflowId);
         mvc.perform(post("/api/workflows/{id}/{action}", workflowId, action)
                         .header("Authorization", bearer(token)))
                 .andExpect(expectedStatus);
@@ -1092,9 +1116,45 @@ class WorkflowDocumentIntegrationTest {
     private String bearer(String token) { return "Bearer " + token; }
 
     private long createAgentRun(long workflowId, AgentRunType type) {
+        long contextId = ensureCurrentCodeContext(workflowId);
+        CodeContextVersion context = codeContexts.findById(contextId).orElseThrow();
         AgentRun run = new AgentRun(workflowId, type, "test", "test-model", "test run");
+        run.bindGenerationContext(context.getInventoryVersionId(), context.getContextPlanId(), context.getId());
         run.start();
         return agentRuns.save(run).getId();
+    }
+
+    private long ensureCurrentCodeContext(long workflowId) {
+        var current = contextPlans.findTopByWorkflowIdOrderByCreatedAtDesc(workflowId)
+                .flatMap(plan -> codeContexts.findTopByContextPlanIdAndStatusOrderByCreatedAtDesc(
+                        plan.getId(), CodeContextStatus.CURRENT));
+        if (current.isPresent()) return current.get().getId();
+
+        Workflow workflow = workflows.findById(workflowId).orElseThrow();
+        Project project = projects.findById(workflow.getProjectId()).orElseThrow();
+        RepoInventoryVersion inventory = inventories.findTopByProjectIdAndStatusOrderByCreatedAtDesc(
+                project.getId(), RepoInventoryStatus.CURRENT).orElseGet(() -> inventories.save(
+                new RepoInventoryVersion(project.getId(), project.getRepositoryUrl(), project.getDefaultBranch(),
+                        "1111111111111111111111111111111111111111", json.createObjectNode(),
+                        json.createObjectNode().put("fileCount", 0))));
+        var planJson = json.createObjectNode();
+        planJson.put("intentLevel", workflow.getIntentLevel().name());
+        var targets = planJson.putObject("readTargets");
+        targets.putArray("files");
+        targets.putArray("directories");
+        targets.putArray("searchQueries");
+        planJson.putArray("expectedEvidence").add("test context");
+        planJson.putArray("uncertainties");
+        CodeContextPlan plan = contextPlans.save(new CodeContextPlan(
+                project.getId(), workflowId, inventory.getId(), null, planJson));
+        plan.markUsed();
+        contextPlans.save(plan);
+        var evidence = json.createObjectNode();
+        evidence.put("baseCommitSha", inventory.getCommitSha());
+        evidence.putArray("relatedFiles");
+        return codeContexts.save(new CodeContextVersion(project.getId(), inventory.getId(), plan.getId(),
+                project.getRepositoryUrl(), inventory.getBranchName(), inventory.getCommitSha(),
+                inventory.getRepositoryProfile(), evidence, null)).getId();
     }
 
     private void assertDocumentVersions(long workflowId, DocumentType type, Long... runIds) {

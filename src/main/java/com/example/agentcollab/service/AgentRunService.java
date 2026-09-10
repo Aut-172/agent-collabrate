@@ -7,6 +7,8 @@ import com.example.agentcollab.repository.AgentRunRepository;
 import com.example.agentcollab.repository.DocumentVersionRepository;
 import com.example.agentcollab.repository.OutboxJobRepository;
 import com.example.agentcollab.repository.RepoInventoryVersionRepository;
+import com.example.agentcollab.repository.CodeContextPlanRepository;
+import com.example.agentcollab.repository.CodeContextVersionRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,11 +26,14 @@ public class AgentRunService {
     private final ProjectAccessService access;
     private final AgentProviderClient provider;
     private final RepoInventoryVersionRepository inventories;
+    private final CodeContextPlanRepository contextPlans;
+    private final CodeContextVersionRepository contexts;
 
     public AgentRunService(AgentRunRepository runs, OutboxJobRepository jobs,
                            DocumentVersionRepository documents, WorkflowService workflowService,
                            ProjectAccessService access, AgentProviderClient provider,
-                           RepoInventoryVersionRepository inventories) {
+                           RepoInventoryVersionRepository inventories, CodeContextPlanRepository contextPlans,
+                           CodeContextVersionRepository contexts) {
         this.runs = runs;
         this.jobs = jobs;
         this.documents = documents;
@@ -36,6 +41,8 @@ public class AgentRunService {
         this.access = access;
         this.provider = provider;
         this.inventories = inventories;
+        this.contextPlans = contextPlans;
+        this.contexts = contexts;
     }
 
     @Transactional
@@ -47,12 +54,14 @@ public class AgentRunService {
         if (active.isPresent()) return active.get();
 
         validateRequest(workflow, runType);
+        GenerationContext generationContext = resolveGenerationContext(workflow, runType);
         AgentRun run = runs.save(new AgentRun(workflowId, runType, provider.providerName(),
-                provider.modelName(), requestSummary(runType, workflow)));
+                provider.modelName(), requestSummary(runType, workflow, generationContext)));
         if (runType == AgentRunType.GENERATE_CODE_CONTEXT_PLAN) {
-            Long inventoryId = inventories.findTopByProjectIdAndStatusOrderByCreatedAtDesc(
-                    workflow.getProjectId(), RepoInventoryStatus.CURRENT).orElseThrow().getId();
-            run.bindInventoryVersion(inventoryId);
+            run.bindInventoryVersion(generationContext.inventoryVersionId());
+        } else {
+            run.bindGenerationContext(generationContext.inventoryVersionId(), generationContext.contextPlanId(),
+                    generationContext.codeContextVersionId());
         }
         jobs.save(new OutboxJob(OutboxJobType.AGENT_RUN, run.getId()));
         return run;
@@ -147,12 +156,45 @@ public class AgentRunService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AGENT_RUN_NOT_FOUND", "AgentRun 不存在"));
     }
 
-    private String requestSummary(AgentRunType runType, Workflow workflow) {
+    private GenerationContext resolveGenerationContext(Workflow workflow, AgentRunType runType) {
         if (runType == AgentRunType.GENERATE_CODE_CONTEXT_PLAN) {
             Long inventoryId = inventories.findTopByProjectIdAndStatusOrderByCreatedAtDesc(
-                    workflow.getProjectId(), RepoInventoryStatus.CURRENT).map(RepoInventoryVersion::getId).orElse(null);
-            return runType + " for workflow " + workflow.getId() + ", inventoryVersionId=" + inventoryId;
+                    workflow.getProjectId(), RepoInventoryStatus.CURRENT).orElseThrow().getId();
+            return new GenerationContext(inventoryId, null, null);
         }
-        return runType + " for workflow " + workflow.getId();
+        CodeContextPlan plan = contextPlans.findTopByWorkflowIdOrderByCreatedAtDesc(workflow.getId())
+                .orElseThrow(() -> codeContextConflict("CODE_CONTEXT_REQUIRED",
+                        "请先为当前 Workflow 刷新 Code Context"));
+        if (!workflow.getProjectId().equals(plan.getProjectId()) || plan.getStatus() != CodeContextPlanStatus.USED) {
+            throw codeContextConflict("CODE_CONTEXT_REQUIRED", "当前 Workflow 的 Context Plan 尚未完成取证");
+        }
+        CodeContextVersion context = contexts.findTopByContextPlanIdOrderByCreatedAtDesc(plan.getId())
+                .orElseThrow(() -> codeContextConflict("CODE_CONTEXT_REQUIRED",
+                        "请等待当前 Workflow 的 Code Context 取证完成"));
+        RepoInventoryVersion inventory = inventories.findById(context.getInventoryVersionId())
+                .orElseThrow(() -> codeContextConflict("CODE_CONTEXT_STALE", "Code Context 对应的 Inventory 不存在"));
+        if (!workflow.getProjectId().equals(context.getProjectId())
+                || context.getStatus() != CodeContextStatus.CURRENT
+                || inventory.getStatus() != RepoInventoryStatus.CURRENT
+                || !context.getBaseCommitSha().equalsIgnoreCase(inventory.getCommitSha())) {
+            throw codeContextConflict("CODE_CONTEXT_STALE", "当前 Workflow 的 Code Context 已过期，请刷新");
+        }
+        return new GenerationContext(inventory.getId(), plan.getId(), context.getId());
     }
+
+    private String requestSummary(AgentRunType runType, Workflow workflow, GenerationContext context) {
+        String summary = runType + " for workflow " + workflow.getId()
+                + ", inventoryVersionId=" + context.inventoryVersionId();
+        if (context.codeContextVersionId() != null) {
+            summary += ", contextPlanId=" + context.contextPlanId()
+                    + ", codeContextVersionId=" + context.codeContextVersionId();
+        }
+        return summary;
+    }
+
+    private ApiException codeContextConflict(String code, String message) {
+        return new ApiException(HttpStatus.CONFLICT, code, message);
+    }
+
+    private record GenerationContext(Long inventoryVersionId, Long contextPlanId, Long codeContextVersionId) {}
 }

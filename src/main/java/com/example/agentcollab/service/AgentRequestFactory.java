@@ -11,6 +11,8 @@ import com.example.agentcollab.repository.WorkflowRepository;
 import com.example.agentcollab.repository.TaskRepository;
 import com.example.agentcollab.repository.RepoInventoryFileRepository;
 import com.example.agentcollab.repository.RepoInventoryVersionRepository;
+import com.example.agentcollab.repository.CodeContextFileRepository;
+import com.example.agentcollab.repository.CodeContextVersionRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,13 +28,16 @@ public class AgentRequestFactory {
     private final TaskRepository tasks;
     private final RepoInventoryVersionRepository inventories;
     private final RepoInventoryFileRepository inventoryFiles;
+    private final CodeContextVersionRepository contexts;
+    private final CodeContextFileRepository contextFiles;
     private final int maxInventoryFiles;
 
     public AgentRequestFactory(WorkflowRepository workflows, AgentRunRepository runs,
                                DocumentVersionRepository documents,
                                ProjectMemberRepository members, UserRepository users,
                                TaskRepository tasks, RepoInventoryVersionRepository inventories,
-                               RepoInventoryFileRepository inventoryFiles,
+                               RepoInventoryFileRepository inventoryFiles, CodeContextVersionRepository contexts,
+                               CodeContextFileRepository contextFiles,
                                @Value("${app.code-context.max-plan-inventory-files:1000}") int maxInventoryFiles) {
         this.workflows = workflows;
         this.runs = runs;
@@ -42,6 +47,8 @@ public class AgentRequestFactory {
         this.tasks = tasks;
         this.inventories = inventories;
         this.inventoryFiles = inventoryFiles;
+        this.contexts = contexts;
+        this.contextFiles = contextFiles;
         this.maxInventoryFiles = maxInventoryFiles;
     }
 
@@ -63,10 +70,11 @@ public class AgentRequestFactory {
         }
         return new AgentGenerationRequest(workflow.getId(), run.getRunType(), workflow.getIntentLevel(),
                 workflow.getTitle(), workflow.getDescription(), latest(workflow.getId(), DocumentType.DESIGN),
-                latest(workflow.getId(), DocumentType.SPEC), assignableMembers, codeContext(run, workflow));
+                latest(workflow.getId(), DocumentType.SPEC), assignableMembers, repoInventory(run),
+                codeContext(run));
     }
 
-    private AgentGenerationRequest.CodeContextInput codeContext(AgentRun run, Workflow workflow) {
+    private AgentGenerationRequest.RepoInventoryInput repoInventory(AgentRun run) {
         if (run.getRunType() != AgentRunType.GENERATE_CODE_CONTEXT_PLAN) return null;
         RepoInventoryVersion inventory = inventories.findById(run.getInventoryVersionId())
                 .filter(value -> value.getStatus() == RepoInventoryStatus.CURRENT)
@@ -77,8 +85,35 @@ public class AgentRequestFactory {
                 .map(file -> new AgentGenerationRequest.InventoryFileContext(file.getPath(),
                         file.getFileType().name(), file.getSizeBytes(), file.getContentHash(), file.getIndexedSummary()))
                 .toList();
-        return new AgentGenerationRequest.CodeContextInput(inventory.getId(), inventory.getCommitSha(),
+        return new AgentGenerationRequest.RepoInventoryInput(inventory.getId(), inventory.getCommitSha(),
                 inventory.getRepositoryProfile(), inventory.getTreeSummary(), files);
+    }
+
+    private AgentGenerationRequest.CodeContextInput codeContext(AgentRun run) {
+        if (run.getRunType() == AgentRunType.GENERATE_CODE_CONTEXT_PLAN) return null;
+        CodeContextVersion context = contexts.findById(run.getCodeContextVersionId())
+                .filter(value -> value.getStatus() == CodeContextStatus.CURRENT)
+                .orElseThrow(() -> new AgentProviderException(
+                        "CODE_CONTEXT_STALE", "AgentRun 绑定的 Code Context 已过期", false));
+        if (!context.getContextPlanId().equals(run.getContextPlanId())
+                || !context.getInventoryVersionId().equals(run.getInventoryVersionId())) {
+            throw new AgentProviderException("CODE_CONTEXT_MISMATCH", "AgentRun 的 Code Context 引用不一致", false);
+        }
+        RepoInventoryVersion inventory = inventories.findById(context.getInventoryVersionId())
+                .filter(value -> value.getStatus() == RepoInventoryStatus.CURRENT)
+                .orElseThrow(() -> new AgentProviderException(
+                        "CODE_CONTEXT_STALE", "Code Context 绑定的 Repo Inventory 已过期", false));
+        if (!context.getBaseCommitSha().equalsIgnoreCase(inventory.getCommitSha())) {
+            throw new AgentProviderException("CODE_CONTEXT_MISMATCH", "Code Context 的 Commit 引用不一致", false);
+        }
+        var files = contextFiles.findByContextVersionIdOrderByPath(context.getId()).stream()
+                .map(file -> new AgentGenerationRequest.EvidenceFileContext(file.getPath(),
+                        file.getEvidenceType().name(), file.getContentHash(), file.getSummary(),
+                        file.getImportantSymbols(), file.getExcerpt()))
+                .toList();
+        return new AgentGenerationRequest.CodeContextInput(context.getId(), context.getContextPlanId(),
+                context.getInventoryVersionId(), context.getBaseCommitSha(), context.getRepositoryProfile(),
+                context.getEvidenceJson(), files);
     }
 
     private List<AgentGenerationRequest.MemberContext> assignableMembers(Long projectId) {

@@ -4,6 +4,8 @@ import com.example.agentcollab.domain.*;
 import com.example.agentcollab.exception.ApiException;
 import com.example.agentcollab.repository.DocumentVersionRepository;
 import com.example.agentcollab.repository.WorkflowRepository;
+import com.example.agentcollab.repository.AgentRunRepository;
+import com.example.agentcollab.repository.CodeContextVersionRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,13 +18,18 @@ public class DocumentService {
     private final WorkflowRepository workflows;
     private final WorkflowService workflowService;
     private final WorkflowStateMachine stateMachine;
+    private final AgentRunRepository agentRuns;
+    private final CodeContextVersionRepository contexts;
 
     public DocumentService(DocumentVersionRepository documents, WorkflowRepository workflows,
-                           WorkflowService workflowService, WorkflowStateMachine stateMachine) {
+                           WorkflowService workflowService, WorkflowStateMachine stateMachine,
+                           AgentRunRepository agentRuns, CodeContextVersionRepository contexts) {
         this.documents = documents;
         this.workflows = workflows;
         this.workflowService = workflowService;
         this.stateMachine = stateMachine;
+        this.agentRuns = agentRuns;
+        this.contexts = contexts;
     }
 
     @Transactional(readOnly = true)
@@ -78,8 +85,9 @@ public class DocumentService {
         Workflow workflow = workflowService.findForUpdate(workflowId);
         requireStatusIn(workflow, WorkflowStatus.INTENT, WorkflowStatus.DESIGN_PROPOSED);
         workflowService.requireActiveProject(workflow);
+        Long contextId = requireCurrentContext(workflow, agentRunId);
         DocumentVersion document = saveAgentVersion(
-                workflow, DocumentType.DESIGN, DocumentFormat.MARKDOWN, content, agentRunId);
+                workflow, DocumentType.DESIGN, DocumentFormat.MARKDOWN, content, agentRunId, contextId);
         advanceIfNeeded(workflow, WorkflowStatus.DESIGN_PROPOSED);
         return document;
     }
@@ -91,8 +99,9 @@ public class DocumentService {
         requireStatusIn(workflow, WorkflowStatus.DESIGN_PROPOSED, WorkflowStatus.SPEC_PROPOSED);
         workflowService.requireActiveProject(workflow);
         requireLatestConfirmed(workflowId, DocumentType.DESIGN);
+        Long contextId = requireCurrentContext(workflow, agentRunId);
         DocumentVersion document = saveAgentVersion(
-                workflow, DocumentType.SPEC, DocumentFormat.MARKDOWN, content, agentRunId);
+                workflow, DocumentType.SPEC, DocumentFormat.MARKDOWN, content, agentRunId, contextId);
         advanceIfNeeded(workflow, WorkflowStatus.SPEC_PROPOSED);
         return document;
     }
@@ -105,8 +114,9 @@ public class DocumentService {
                 ? WorkflowStatus.INTENT : WorkflowStatus.SPEC_CONFIRMED;
         requireStatusIn(workflow, initialStatus, WorkflowStatus.BUILD_PLAN_PROPOSED);
         workflowService.requireActiveProject(workflow);
+        Long contextId = requireCurrentContext(workflow, agentRunId);
         DocumentVersion document = saveAgentVersion(
-                workflow, DocumentType.BUILD_PLAN, DocumentFormat.JSON, content, agentRunId);
+                workflow, DocumentType.BUILD_PLAN, DocumentFormat.JSON, content, agentRunId, contextId);
         advanceIfNeeded(workflow, WorkflowStatus.BUILD_PLAN_PROPOSED);
         return document;
     }
@@ -127,12 +137,31 @@ public class DocumentService {
     }
 
     private DocumentVersion saveAgentVersion(Workflow workflow, DocumentType type, DocumentFormat format,
-                                             String content, Long agentRunId) {
+                                             String content, Long agentRunId, Long codeContextVersionId) {
         if (content == null || content.isBlank()) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "EMPTY_AGENT_DOCUMENT", "Agent 文档内容为空");
         }
         return documents.save(DocumentVersion.byAgent(workflow.getId(), type, nextVersion(workflow.getId(), type),
-                content, format, agentRunId));
+                content, format, agentRunId, codeContextVersionId));
+    }
+
+    private Long requireCurrentContext(Workflow workflow, Long agentRunId) {
+        AgentRun run = agentRuns.findById(agentRunId)
+                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT,
+                        "AGENT_RUN_NOT_FOUND", "Agent 文档缺少运行记录"));
+        if (!workflow.getId().equals(run.getWorkflowId()) || run.getCodeContextVersionId() == null) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "CODE_CONTEXT_MISMATCH", "AgentRun 未绑定当前 Workflow 的 Code Context");
+        }
+        CodeContextVersion context = contexts.findByIdForUpdate(run.getCodeContextVersionId())
+                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT,
+                        "CODE_CONTEXT_MISSING", "AgentRun 绑定的 Code Context 不存在"));
+        if (!workflow.getProjectId().equals(context.getProjectId())
+                || context.getStatus() != CodeContextStatus.CURRENT) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "CODE_CONTEXT_STALE", "AgentRun 绑定的 Code Context 已过期");
+        }
+        return context.getId();
     }
 
     private DocumentVersion confirmLatest(Workflow workflow, DocumentType type, int versionNo, Long actorId) {

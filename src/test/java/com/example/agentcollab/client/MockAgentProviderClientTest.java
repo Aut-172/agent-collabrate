@@ -66,7 +66,10 @@ class MockAgentProviderClientTest {
 
     private AgentGenerationRequest request(
             IntentLevel level, List<AgentGenerationRequest.MemberContext> members) {
+        var context = new AgentGenerationRequest.CodeContextInput(3L, 2L, 1L,
+                "1111111111111111111111111111111111111111", json.createObjectNode(),
+                json.createObjectNode(), java.util.List.of());
         return new AgentGenerationRequest(1L, AgentRunType.GENERATE_BUILD_PLAN, level,
-                "title", "description", null, null, members, null);
+                "title", "description", null, null, members, null, context);
     }
 }

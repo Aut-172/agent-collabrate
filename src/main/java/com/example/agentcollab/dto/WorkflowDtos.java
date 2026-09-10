@@ -78,6 +78,7 @@ public final class WorkflowDtos {
             DocumentSource source,
             Long createdBy,
             Long agentRunId,
+            Long codeContextVersionId,
             boolean confirmed,
             Long confirmedBy,
             Instant confirmedAt,
@@ -85,7 +86,8 @@ public final class WorkflowDtos {
         public static DocumentResponse from(DocumentVersion document) {
             return new DocumentResponse(document.getId(), document.getWorkflowId(), document.getDocumentType(),
                     document.getVersionNo(), document.getContent(), document.getContentFormat(), document.getSource(),
-                    document.getCreatedBy(), document.getAgentRunId(), document.isConfirmed(),
+                    document.getCreatedBy(), document.getAgentRunId(), document.getCodeContextVersionId(),
+                    document.isConfirmed(),
                     document.getConfirmedBy(), document.getConfirmedAt(), document.getCreatedAt());
         }
     }

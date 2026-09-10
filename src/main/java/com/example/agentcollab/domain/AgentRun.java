@@ -79,6 +79,11 @@ public class AgentRun {
 
     public void bindContextPlan(Long contextPlanId) { this.contextPlanId = contextPlanId; }
     public void bindInventoryVersion(Long inventoryVersionId) { this.inventoryVersionId = inventoryVersionId; }
+    public void bindGenerationContext(Long inventoryVersionId, Long contextPlanId, Long codeContextVersionId) {
+        this.inventoryVersionId = inventoryVersionId;
+        this.contextPlanId = contextPlanId;
+        this.codeContextVersionId = codeContextVersionId;
+    }
     public void bindCodeContext(Long contextPlanId, Long codeContextVersionId) {
         this.contextPlanId = contextPlanId; this.codeContextVersionId = codeContextVersionId;
     }
