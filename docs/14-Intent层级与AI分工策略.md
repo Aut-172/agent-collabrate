@@ -150,6 +150,7 @@ Agent 生成分工建议时至少接收：
 - `intent_level`；
 - Intent 目标、范围和非目标；
 - 当前父 Intent 的架构约束；
+- 当前 Repo Inventory、Context Plan、Code Context 版本、base Commit、相关文件证据和约束；
 - Feature/Change 的 Design、Spec 和 Build Plan；
 - Task 估算工作量；
 - 项目内所有可分配成员的能力画像；
@@ -158,7 +159,7 @@ Agent 生成分工建议时至少接收：
 - 成员的任务偏好和限制；
 - 任务之间的依赖和并行关系。
 
-Architecture Intent 不读取成员画像来产生开发分工。它只读取架构和项目上下文。
+Architecture Intent 不读取成员画像来产生开发分工。它只读取架构、项目和代码上下文，用于形成系统边界、约束和子 Intent 建议。
 
 ### 6.3 成员候选资格
 
@@ -258,6 +259,8 @@ MVP 不要求精确预测工时，优先使用相对工作量点数，避免制�
 ```
 
 `assignments` 仍然只是建议。Leader 可以修改负责人、人数、拆分方式和理由。
+
+所有层级的 Agent 输出都应引用使用的 Code Context。Architecture 引用代码证据来说明现有架构；Feature/Change 引用代码证据来说明影响范围、任务拆分和验收依据。Git Provider 不参与分工判断，也不决定相关文件；平台 Agent 先生成 Context Plan，再基于 Orchestrator 取回的 Code Evidence 生成分工建议。
 
 ## 9. 分配评价维度
 

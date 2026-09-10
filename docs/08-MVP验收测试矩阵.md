@@ -19,6 +19,12 @@
 | AT-004A | 成员加入项目后必须填写能力画像 | API/业务规则测试 |
 | AT-004B | Leader 也必须填写能力画像并可成为任务负责人 | 任务分配集成测试 |
 | AT-004C | Agent 分配建议使用项目成员画像 | Agent Prompt/Plan 测试 |
+| AT-004H | Code Context Provider 可以同步仓库 Commit、目录树、文件元数据和白名单文件 | Mock/Git Client 测试 |
+| AT-004I | Code Context 缺失或过期时不能静默生成正式 Design | API/状态测试 |
+| AT-004J | AgentRun 和生成文档记录使用的 Code Context 版本 | Repository/集成测试 |
+| AT-004K | 平台 Agent 先生成 Context Plan，再由 Orchestrator 定向读取文件证据 | Worker/服务测试 |
+| AT-004L | Git Provider 不包含自主相关性判断，只按请求返回仓库事实 | 单元测试/接口测试 |
+| AT-004M | Code Context 多轮补充受轮次、文件数和大小预算限制 | Worker/配置测试 |
 | AT-004G | 新项目默认处于 `CI_NOT_CONFIGURED` | 数据库/项目创建测试 |
 | AT-004D | Architecture 不生成开发分工、负责人或 TaskAssignment | Schema/状态机测试 |
 | AT-004E | Feature/Change 生成分工模式、推荐人数、理由、工作量依据和警告 | Agent 输出/Schema 测试 |
@@ -37,6 +43,7 @@
 | AT-013 | 创建 Task 具有来源版本信息 | 集成测试 |
 | AT-014 | Task Package 同时有 Markdown 和 JSON | API 测试 |
 | AT-015 | Task Package 包含 baseCommit 和版本信息 | JSON Schema 测试 |
+| AT-015A | Task Package 包含 codeContextVersionId 和相关文件证据摘要 | JSON Schema 测试 |
 | AT-016 | 任务包更新后旧版本标记 STALE | Service 测试 |
 | AT-017 | 过期任务包不能开始开发 | 409 API 测试 |
 | AT-018 | 过期任务包不能提交交付 | 409 API 测试 |
@@ -111,6 +118,10 @@ INTENT
 - Agent 超时；
 - Agent 429；
 - Agent 5xx；
+- Code Context Provider 同步失败；
+- Code Context 过期；
+- Context Plan 无法找到足够证据；
+- 多轮取证达到预算上限；
 - Git API DNS/连接失败；
 - Git API 限流；
 - CI Webhook 延迟；
@@ -127,6 +138,7 @@ INTENT
 - 页面展示可解释状态；
 - 手动同步有效；
 - 旧结果不污染新交付。
+- 无代码上下文时不会生成看似正常的 Design。
 
 ## 5. 安全测试
 
@@ -136,6 +148,7 @@ INTENT
 - 客户端传入 role 不会提升权限；
 - JWT Secret 不出现在响应和日志；
 - Git Token 不出现在任务包；
+- Code Context 不采集密钥文件、二进制文件和超限大文件；
 - Webhook 必须验签；
 - SQL/JSON 输入不能绕过资源条件；
 - 并发更新使用乐观锁；

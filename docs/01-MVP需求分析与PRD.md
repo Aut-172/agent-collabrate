@@ -4,7 +4,7 @@
 
 ## 1. 产品定位
 
-这是一个面向小型开发团队的 Agent 协作编排平台。它把自然语言意图转化为经过确认的设计、规格、构建计划和可分配任务，并记录成员使用本地 Agent 开发后的 Git、PR 和 CI 交付结果。
+这是一个面向小型开发团队的 Agent 协作编排平台。它把自然语言意图和可追溯代码上下文转化为经过确认的设计、规格、构建计划和可分配任务，并记录成员使用本地 Agent 开发后的 Git、PR 和 CI 交付结果。
 
 平台的价值不是代替开发者操作本地代码，而是让团队形成一条可追踪的链路：
 
@@ -63,6 +63,7 @@
 系统负责：
 
 - 调用平台侧 Agent API；
+- 通过 Code Context Provider 获取仓库代码事实；
 - 生成和保存文档版本；
 - 根据批准计划生成任务；
 - 校验权限、状态、版本和 Git/CI 事实；
@@ -89,6 +90,20 @@ Intent 必须声明处理层级：
 - Leader 可以修改人数、任务拆分和负责人，并对最终结果负责。
 
 Architecture 可以提出架构评审参与者建议，但不得生成面向代码交付的开发分工、负责人或 TaskAssignment。
+
+### 2.6 代码上下文边界
+
+平台 Agent 在生成 Design、Spec 和 Build Plan 前，必须获得与当前仓库相关的代码上下文证据。该证据由 Code Context Provider 提供，而不是由用户手工描述替代。
+
+MVP 当前扩展默认使用 Git Provider 读取远程仓库的默认分支、Commit、目录树、文件元数据和白名单文件，形成 Repo Inventory。随后由平台 Agent 基于 Intent 和 Repo Inventory 生成 Context Plan，再由 Code Context Orchestrator 按计划读取相关文件和 Diff，形成版本化 Code Context。未来可以增加 Local Agent Provider，由本地 Connector 调用 Codex CLI 读取本地仓库并返回结构化证据。
+
+职责划分：
+
+- Git Provider 负责仓库原始事实，不自主判断文件相关性；
+- Code Context Orchestrator 负责 Repo Inventory、Context Plan、多轮取证、预算和证据引用；
+- 平台 Agent 负责正式 Design、Spec、Build Plan 和分工；
+- 本地 Agent 负责按任务包执行代码修改、测试和 Git 操作；
+- 本地 Agent 的输出不能绕过平台文档版本、Schema 校验和 Leader 审批。
 
 ## 3. 产品目标
 
@@ -131,6 +146,7 @@ MVP 不实现：
 ```text
 Leader 创建项目并添加成员
   -> Member 创建 Intent
+  -> 平台同步或刷新 Code Context
   -> 平台异步生成 Design
   -> 创建者确认 Design
   -> 平台异步生成 Spec
@@ -168,13 +184,15 @@ Leader 创建项目并添加成员
 | FR-007 | 成员加入项目时必须填写项目能力画像 | P0 |
 | FR-008 | Leader 也必须填写能力画像，并可作为任务候选人 | P0 |
 | FR-009 | Agent 分配建议必须参考项目成员画像 | P0 |
+| FR-009A | 项目可以通过 Code Context Provider 同步 Repo Inventory 和代码上下文 | P0 |
+| FR-009B | 平台 Agent 可以基于 Intent 和 Repo Inventory 生成 Context Plan | P0 |
 
 ### 5.2 Intent、Design、Spec 和 Build Plan
 
 | 编号 | 需求 | 优先级 |
 |---|---|---|
 | FR-010 | Member 可以创建 Intent | P0 |
-| FR-011 | 平台可以异步生成 Design 建议 | P0 |
+| FR-011 | 平台可以基于 Intent 和 Code Context 异步生成 Design 建议 | P0 |
 | FR-012 | 创建者可以修改并保存 Design 新版本 | P0 |
 | FR-013 | 创建者确认 Design 后才可以生成 Spec | P0 |
 | FR-014 | 平台可以异步生成 Spec 草稿 | P0 |
@@ -184,6 +202,8 @@ Leader 创建项目并添加成员
 | FR-017A | Intent 必须声明为 `ARCHITECTURE`、`FEATURE` 或 `CHANGE` | P0 |
 | FR-017B | Architecture Build Plan 不得产生开发分工和 TaskAssignment | P0 |
 | FR-017C | Feature/Change Build Plan 必须包含 AI 分工建议及人数、理由、工作量依据和风险 | P0 |
+| FR-017D | Design、Spec 和 Build Plan 必须记录使用的 Code Context 版本和关键代码证据 | P0 |
+| FR-017E | Git Provider 不承担语义相关性判断，相关文件选择必须由 Context Plan 引导 | P0 |
 | FR-018 | Leader 可以修改任务、分工人数、任务拆分和负责人 | P0 |
 | FR-019 | 只有 Leader 批准的 Build Plan 才能创建 Task | P0 |
 | FR-019A | Leader 可以将任务分配给自己 | P0 |
@@ -208,6 +228,7 @@ Leader 创建项目并添加成员
 | FR-030 | 平台生成版本化 Markdown 任务包 | P0 |
 | FR-031 | 平台生成机器可校验的 JSON 任务包 | P0 |
 | FR-032 | 任务包包含设计、规格、计划和代码基线版本 | P0 |
+| FR-032A | 任务包包含 `codeContextVersionId`、`baseCommitSha` 和相关文件证据摘要 | P0 |
 | FR-033 | 任务包明确允许和禁止的 Git 操作 | P0 |
 | FR-034 | Member 可以复制或下载任务包 | P0 |
 | FR-035 | 成员开始开发和提交交付时必须确认当前任务包版本 | P0 |
@@ -246,6 +267,7 @@ Leader 创建项目并添加成员
 - JWT Secret、Agent API Key、Git Token 和 Webhook Secret 不入库；
 - 资源访问必须进行项目级权限校验；
 - Agent 分配输入必须使用当前项目成员画像；
+- Agent 文档生成输入必须包含可追溯 Code Context，除非 Leader 明确选择降级且系统记录原因；
 - Agent 分工建议必须区分 Intent 层级，不能为 Architecture 生成开发分工；
 - Feature/Change 的分工建议必须记录成员画像和当前工作量快照；
 - 任务分配必须保存当时使用的画像快照；
@@ -259,6 +281,7 @@ Leader 创建项目并添加成员
 - 状态转换必须在事务中校验；
 - 关键实体使用乐观锁；
 - 文档和任务包使用不可变版本；
+- Code Context 使用版本化记录，Design/Spec/Plan 绑定具体上下文版本；
 - 交付与 CI 必须绑定 Commit SHA；
 - 重复请求必须具备幂等行为。
 

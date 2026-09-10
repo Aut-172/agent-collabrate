@@ -27,12 +27,13 @@ TASK-001.json
 | 内容 | 权威来源 |
 |---|---|
 | 目标、范围、非目标、验收标准 | 当前有效 Task Package |
+| 任务包生成时使用的代码证据 | Code Context Version |
 | 当前代码结构和实现细节 | 成员本地 Git 仓库 |
 | 分支、Commit、PR 是否真实存在 | Git Provider |
 | 是否通过自动检查 | CI Provider |
 | 任务包是否仍有效 | 平台当前版本 |
 
-任务包不包含整个代码仓库。它提供相关路径和规则，要求本地 Agent 先读取实际代码。
+任务包不包含整个代码仓库。它提供 Code Context 版本、相关路径、证据摘要和规则，要求本地 Agent 先读取实际代码。若本地仓库现状与任务包证据冲突，以阻塞报告反馈，不要自行扩大范围。
 
 ## 3. JSON 结构
 
@@ -59,11 +60,20 @@ TASK-001.json
     "designVersion": 2,
     "specVersion": 3,
     "buildPlanVersion": 1,
+    "codeContextVersionId": 18,
+    "contextPlanId": 12,
     "baseBranch": "main",
     "baseCommit": "abcdef1234567890",
     "relevantPaths": [
       "src/main/java/example/auth",
       "src/test/java/example/auth"
+    ],
+    "codeEvidence": [
+      {
+        "path": "src/main/java/example/auth/AuthService.java",
+        "reason": "登录流程的现有服务入口",
+        "summary": "负责用户凭证校验和认证错误处理"
+      }
     ]
   },
   "assignee": {
@@ -151,6 +161,8 @@ TASK-001.json
 - Design version: 2
 - Spec version: 3
 - Build plan version: 1
+- Code context version: 18
+- Context plan: 12
 - Base branch: main
 - Base commit: abcdef1234567890
 
@@ -172,6 +184,7 @@ TASK-001.json
 
 ## Relevant Context
 
+- 本任务包基于 Code Context v18 和 Context Plan 12；
 - 先阅读认证模块和现有测试；
 - 遵循项目现有错误响应格式；
 - 不假设任务包中没有写出的接口已经存在；
@@ -209,6 +222,7 @@ mvn test
 - Repository: PASS/FAIL
 - Branch: PASS/FAIL
 - HEAD/base commit: PASS/FAIL
+- Code context evidence: PASS/FAIL
 - Relevant files: PASS/FAIL
 - Context conflict: NONE/FOUND
 - Can start: YES/NO
@@ -283,6 +297,8 @@ packageVersion
 designVersion
 specVersion
 buildPlanVersion
+codeContextVersionId
+contextPlanId
 baseCommit
 contentHash
 ```
@@ -300,6 +316,13 @@ contentHash
 ```
 
 通知用于提醒，版本校验用于保证正确性。平台不依赖实时通知作为唯一保障。
+
+Code Context 过期并不一定立刻取消已经开始的本地开发，但以下情况必须生成新任务包或要求成员重新确认：
+
+- Design、Spec 或 Build Plan 因新上下文被修改；
+- 当前任务包的 `baseCommit` 已不再是推荐开发基线；
+- Context Plan 或 Code Evidence 指出的关键文件已变化；
+- Leader 明确要求基于新 Code Context 重新生成任务包。
 
 ## 8. 阻塞报告格式
 
@@ -360,6 +383,7 @@ Final Report 不是平台认定完成的唯一依据，也不能替代：
   "packageId": 3003,
   "packageVersion": 2,
   "packageHash": "sha256:...",
+  "codeContextVersionId": 18,
   "outcome": "READY_FOR_REVIEW",
   "summary": "已实现登录接口并补充认证测试。",
   "changedFiles": [

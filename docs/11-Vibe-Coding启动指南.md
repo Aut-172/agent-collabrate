@@ -35,6 +35,7 @@
 12. docs/12-MVP前端设计规范与页面说明.md
 13. docs/13-任务包确认与交付流程补充.md
 14. docs/14-Intent层级与AI分工策略.md
+15. docs/15-CodeContextProvider与代码上下文机制.md
 
 开发约束：
 - 以这些文档中的“已冻结的 MVP 决策”和 ADR 为准；
@@ -42,6 +43,12 @@
 - 不要把成员能力画像放到 users，能力画像必须属于 project_members；
 - Leader 既是项目治理者，也是可被 Agent 分配开发任务的项目成员；
 - Agent 分配建议必须读取当前项目成员画像；
+- 平台 Agent 生成 Design、Spec 和 Build Plan 前，必须通过 Code Context Provider 获取可追溯代码事实；
+- MVP 当前扩展优先实现 Git Provider + Repo Inventory + Context Plan + Code Context Orchestrator；
+- Git Provider 只读取仓库事实，不自主判断哪些文件与 Intent 有关；
+- 平台 Agent 先根据 Intent 和 Repo Inventory 生成 Context Plan，再由 Orchestrator 多轮、受控地读取文件和 Diff；
+- LocalAgentCodeContextProvider 只作为未来扩展预留，不要在当前阶段让平台保存成员本地 Agent Key 或直接远程控制本地 Codex；
+- 本地 Agent 可以提供未来的 Code Evidence，但正式 Design/Spec/Plan 仍由平台 Agent 生成、校验、版本化和审批；
 - Architecture 只产生架构基线和子 Intent 建议，不产生开发分工；
 - Feature/Change 必须产生 AI 分工建议；Feature 通常比 Change 推荐更多成员，但人数是软规则，必须结合范围、依赖、画像和当前工作量解释；
 - 新项目默认 `ci_status = CI_NOT_CONFIGURED`；必须先通过一次性 `CI_BOOTSTRAP` 建立并验证真实 CI，成功后项目才进入 `CI_REQUIRED`；
@@ -50,7 +57,7 @@
 - task_assignments 还必须保存工作量快照和分配评分；
 - 本地 Agent 完成任务后必须输出结构化 Final Report，成员审阅后才能提交 TaskDelivery；
 - Final Report 是交接和审计信息，不替代 Git Provider 与 CI Provider 的事实校验；
-- 平台只负责任务编排和平台侧 Agent 文档生成；
+- 平台只负责任务编排、代码上下文获取和平台侧 Agent 文档生成；
 - 平台不访问成员本地代码，不在服务器执行成员代码；
 - 本地 Agent 通过任务包执行代码修改、测试和允许的 Git 操作；
 - 文档、任务、任务包、分配和审计记录不能静默覆盖历史；
@@ -94,12 +101,13 @@
 3. 项目能力画像和画像版本；
 4. 登录、JWT 和项目级权限；
 5. Workflow、DocumentVersion 和状态机；
-6. AgentRun、OutboxJob 和 Mock Agent Provider；
-7. Build Plan Schema、Task、TaskAssignment；
-8. TaskPackage、版本确认和 Blocker；
-9. 看板和通知；
-10. Git/PR/CI 同步；
-11. 审计、集成测试和最小前端。
+6. Code Context Provider、Repo Inventory、Context Plan 和 Mock/Git 实现；
+7. AgentRun、OutboxJob 和 Mock Agent Provider；
+8. Build Plan Schema、Task、TaskAssignment；
+9. TaskPackage、版本确认和 Blocker；
+10. 看板和通知；
+11. Git/PR/CI 同步；
+12. 审计、集成测试和最小前端。
 
 ## 5. 开发会话的停止条件
 

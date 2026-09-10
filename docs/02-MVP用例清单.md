@@ -8,6 +8,8 @@
 | Member | 项目开发成员 |
 | System | 平台后台服务 |
 | Agent Provider | 平台调用的外部 Agent API |
+| Code Context Provider | 为平台 Agent 提供仓库代码事实，可由 Git Provider 或未来 Local Agent Provider 实现 |
+| Code Context Orchestrator | 编排 Repo Inventory、Context Plan、多轮取证和上下文版本化 |
 | Git Provider | GitHub 等 Git 平台 |
 | CI Provider | GitHub Actions 等 CI 平台 |
 
@@ -22,6 +24,7 @@
 | UC-004 | 管理项目成员 | Leader | P0 |
 | UC-004A | 填写和更新项目能力画像 | Leader/Member | P0 |
 | UC-005 | 创建 Intent | Member/Leader | P0 |
+| UC-005A | 同步代码上下文 | System/Code Context Provider/Git Provider | P0 |
 | UC-006 | 生成 Design | System/Agent Provider | P0 |
 | UC-007 | 编辑和确认 Design | 创建者 | P0 |
 | UC-008 | 生成并确认 Spec | System/Agent Provider/创建者 | P0 |
@@ -92,27 +95,67 @@
 - 标题或描述为空，返回 400；
 - 项目已归档，返回 409。
 
+### UC-005A 同步代码上下文
+
+前置条件：
+
+- 项目已绑定 Git 仓库；
+- 用户是项目成员；
+- 项目状态为 `ACTIVE`。
+
+主流程：
+
+1. 用户创建 Intent 或手动点击刷新代码上下文；
+2. 平台创建 Code Context 同步任务；
+3. Git Provider 读取默认分支、最新 Commit、目录树、文件元数据和白名单文件；
+4. 平台保存 Repo Inventory；
+5. 平台 Agent 根据 Intent 和 Repo Inventory 生成 Context Plan；
+6. Code Context Orchestrator 按计划读取相关文件、Diff 和片段；
+7. 平台保存 `CodeContextVersion` 和文件级证据；
+8. 当前 Workflow 绑定可用的 Code Context 版本；
+9. 后续 AgentRun 使用该版本生成 Design、Spec 或 Build Plan。
+
+异常：
+
+- Git Provider 不可访问，上下文同步任务标记失败或等待重试；
+- 仓库权限无效，返回可解释错误；
+- 发现默认分支 Commit 已变化，旧 Code Context 标记为 `STALE`；
+- Code Context 缺失时，不应静默生成无代码依据的正式 Design。
+
+说明：
+
+- Git Provider 只提供仓库事实，不自主决定哪些文件与 Intent 有关；
+- Code Context Provider 和 Orchestrator 不生成最终 Design、Spec 或分工；
+- MVP 当前扩展优先实现 Git Provider + Repo Inventory + Context Plan + 受控多轮取证；
+- Local Agent Provider 作为未来扩展，只返回 Code Evidence，不接管平台文档生成。
+
 ### UC-006 生成 Design
 
 前置条件：
 
 - Workflow 为 `INTENT`；
 - 没有同类 `QUEUED/RUNNING` 的 AgentRun。
+- 存在可用 Code Context，或 Leader 明确选择有记录的降级生成。
 
 主流程：
 
 1. 用户点击生成；
-2. 平台创建 `AgentRun` 和 `OutboxJob`；
-3. API 返回 202 和 `runId`；
-4. Worker 调用 Agent Provider；
-5. 保存 Design `DocumentVersion`；
-6. Workflow 进入 `DESIGN_PROPOSED`；
-7. 写入成功审计。
+2. 平台读取 Repo Inventory；
+3. 平台 Agent 生成 Context Plan；
+4. Code Context Orchestrator 按计划获取 Code Evidence，必要时执行受控补充轮次；
+5. 平台绑定 Code Context 版本；
+6. 平台创建 `AgentRun` 和 `OutboxJob`；
+7. API 返回 202 和 `runId`；
+8. Worker 调用 Agent Provider；
+9. 保存 Design `DocumentVersion`，记录使用的 Code Context；
+10. Workflow 进入 `DESIGN_PROPOSED`；
+11. 写入成功审计。
 
 异常：
 
 - Provider 超时，AgentRun 标记 `FAILED`；
 - Provider 返回空内容，标记 `FAILED`；
+- Code Context 缺失或过期，返回 409 并提示刷新；
 - 重复点击，返回已有 `runId` 或 409；
 - 外部服务不可用，不改变为成功状态。
 
@@ -160,6 +203,7 @@
 - 任务没有验收标准，拒绝批准；
 - JSON Schema 不通过，拒绝保存；
 - Spec 已更新，旧 Plan 标记为 `STALE`。
+- Code Context 已过期，需要刷新或记录降级原因。
 
 ### UC-011 创建 Task
 

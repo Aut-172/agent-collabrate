@@ -264,6 +264,7 @@ Agent、Git 或 CI 失败不自动把 Workflow 改为 `FAILED`。失败结果必
 
 - Spec 版本变化；
 - Build Plan 版本变化；
+- Code Context 版本变化并影响当前任务范围或代码基线；
 - Task 范围、验收标准或测试命令变化；
 - Task 负责人变化；
 - base branch 或 base commit 变化；

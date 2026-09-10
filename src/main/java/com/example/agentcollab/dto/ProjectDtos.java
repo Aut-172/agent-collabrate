@@ -23,11 +23,11 @@ public final class ProjectDtos {
     public record AddMemberRequest(@NotNull Long userId) {}
 
     public record ProjectResponse(Long id, String name, String repositoryUrl, String gitProvider,
-                                  String defaultBranch, ProjectCiStatus ciStatus,
+                                  String defaultBranch, String latestContextCommit, ProjectCiStatus ciStatus,
                                   Project.Status status, Long createdBy) {
         public static ProjectResponse from(Project p) {
             return new ProjectResponse(p.getId(), p.getName(), p.getRepositoryUrl(), p.getGitProvider(),
-                    p.getDefaultBranch(), p.getCiStatus(), p.getStatus(), p.getCreatedBy());
+                    p.getDefaultBranch(), p.getLatestContextCommit(), p.getCiStatus(), p.getStatus(), p.getCreatedBy());
         }
     }
 

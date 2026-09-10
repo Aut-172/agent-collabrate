@@ -6,6 +6,8 @@ MVP 优先支持 GitHub + GitHub Actions。Git Provider 和 CI Provider 使用�
 
 平台只保存和验证 Git/CI 元数据，不修改成员本地仓库，不代替成员执行 Git CLI。
 
+Git Provider 同时为 Code Context 机制提供仓库事实，但它只负责读取 tree、file、diff、commit 等原始数据，不负责判断哪些文件与 Intent 有关。相关性判断由平台 Agent 生成 Context Plan 后交给 Code Context Orchestrator 执行。
+
 ## 1.1 从零项目的 CI Bootstrap
 
 项目创建时可以没有任何 CI 配置：
@@ -59,6 +61,9 @@ Project.ci_status = CI_REQUIRED
 getRepository(owner, repo)
 getBranch(owner, repo, branch)
 getCommit(owner, repo, sha)
+getTree(owner, repo, sha)
+getFile(owner, repo, sha, path)
+compareCommits(owner, repo, baseSha, headSha)
 getPullRequest(owner, repo, number)
 listCommitCheckRuns(owner, repo, ref)
 listWorkflowRuns(owner, repo, filters)
@@ -73,6 +78,17 @@ listWorkflowRuns(owner, repo, filters)
 - PR head branch 与任务分支一致；
 - PR head SHA 与提交的 Commit SHA 一致；
 - CI Run 的 head SHA 与当前交付 SHA 一致。
+
+用于 Code Context 时，Git Provider 还需要支持：
+
+- 首次同步完整目录树和文件元数据；
+- 读取白名单配置文件、README、迁移文件和测试入口；
+- 按 Context Plan 读取指定文件或目录下候选文件；
+- 按查询词在已同步 tree 中筛选候选路径；
+- 读取 base/head Diff；
+- 跳过二进制、大文件和敏感路径。
+
+Git Provider 不输出“相关文件推荐”。它只按请求返回事实，避免把语义判断散落在 Provider 适配器中。
 
 参考：
 

@@ -30,6 +30,18 @@ app:
       retry-delay-ms: 1000
       lock-timeout-ms: 300000
       max-attempts: 3
+  code-context:
+    max-file-bytes: 200000
+    max-bootstrap-files: 20
+    max-indexed-summary-chars: 2000
+    git:
+      api-url: ${GIT_API_URL:https://api.github.com}
+      token: ${GIT_TOKEN:}
+    worker:
+      poll-delay-ms: 1000
+      retry-delay-ms: 1000
+      lock-timeout-ms: 300000
+      max-attempts: 3
   ci:
     worker:
       poll-delay-ms: 5000

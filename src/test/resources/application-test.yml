@@ -13,6 +13,9 @@ app:
   git:
     worker:
       retry-delay-ms: 0
+  code-context:
+    worker:
+      retry-delay-ms: 0
   ci:
     worker:
       poll-delay-ms: 0

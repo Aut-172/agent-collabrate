@@ -19,6 +19,8 @@ public class Project {
     private String gitProvider;
     @Column(name = "default_branch", nullable = false, length = 100)
     private String defaultBranch;
+    @Column(name = "latest_context_commit", length = 100)
+    private String latestContextCommit;
     @Enumerated(EnumType.STRING)
     @Column(name = "ci_status", nullable = false, length = 30)
     private ProjectCiStatus ciStatus = ProjectCiStatus.CI_NOT_CONFIGURED;
@@ -54,6 +56,7 @@ public class Project {
     public String getRepositoryUrl() { return repositoryUrl; }
     public String getGitProvider() { return gitProvider; }
     public String getDefaultBranch() { return defaultBranch; }
+    public String getLatestContextCommit() { return latestContextCommit; }
     public ProjectCiStatus getCiStatus() { return ciStatus; }
     public Status getStatus() { return status; }
     public Long getCreatedBy() { return createdBy; }
@@ -66,4 +69,8 @@ public class Project {
         updatedAt = Instant.now();
     }
     public void archive() { status = Status.ARCHIVED; }
+    public void recordContextCommit(String commitSha) {
+        this.latestContextCommit = commitSha;
+        this.updatedAt = Instant.now();
+    }
 }

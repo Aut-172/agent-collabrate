@@ -11,6 +11,7 @@
 - 用户、项目和成员管理；
 - Workflow、DocumentVersion、Task 和 TaskPackage 持久化；
 - 调用外部 Agent API 生成 Design、Spec、Build Plan；
+- 调用 Code Context Provider 获取仓库代码事实；
 - 保存 AgentRun 和审计日志；
 - 生成任务和任务包；
 - 查询、校验和同步 Git、PR、CI；
@@ -28,7 +29,7 @@
 - 回平台登记交付；
 - 主动报告阻塞。
 
-平台不访问成员本地文件，不执行成员代码，不保存成员本地 Agent Key。
+平台不访问成员本地文件，不执行成员代码，不保存成员本地 Agent Key。平台可以通过 Git Provider 读取远程仓库已提交内容，用于为平台 Agent 提供代码上下文；这不等同于访问成员本地工作区。
 
 ## 2. 总体架构
 
@@ -48,7 +49,7 @@
 │      -> Repository                                     │
 │      -> Outbox Worker                                  │
 │                                                        │
-│ Agent Provider Client / Git Client / CI Client          │
+│ Agent Provider / Code Context / Git / CI Client          │
 └──────────┬────────────────────┬────────────────────────┘
            │                    │
       PostgreSQL           外部 Provider API
@@ -86,7 +87,8 @@ com.example.agentcollab
 ├── client
 │   ├── AgentProviderClient
 │   ├── GitProviderClient
-│   └── CiProviderClient
+│   ├── CiProviderClient
+│   └── CodeContextProvider
 ├── service
 │   ├── auth
 │   ├── project
@@ -159,7 +161,7 @@ Workflow 保存 Intent、项目、`intent_level`、`completion_mode`、可选父
 
 ### 5.4 DocumentVersion
 
-保存 Design、Spec、Build Plan 的不可变版本，关联来源 AgentRun 或人工修改者。
+保存 Design、Spec、Build Plan 的不可变版本，关联来源 AgentRun 或人工修改者。Agent 生成的文档必须记录使用的 Code Context 版本，便于追溯设计依据。
 
 ### 5.5 Task / TaskAssignment
 
@@ -204,17 +206,35 @@ Agent 生成的分配建议至少包含：
 
 保存一次平台侧 Agent 调用的类型、模型、状态、摘要、错误和重试信息。
 
-### 5.10 GitOperation / CIRun
+### 5.10 CodeContext
+
+保存平台 Agent 生成文档前使用的代码上下文版本。MVP 当前扩展优先实现 Git Provider + Repo Inventory + Code Context Orchestrator：
+
+```text
+Repo Ingestion Worker 读取默认分支、目录树、文件元数据和白名单文件
+  -> 保存 Repo Inventory
+  -> Context Planning Agent 根据 Intent + Inventory 生成 Context Plan
+  -> Orchestrator 按计划调用 Git Provider 读取文件和 Diff
+  -> 必要时进行受控补充轮次
+  -> 保存 CodeContextVersion 和 Code Evidence
+  -> AgentRun 引用该版本
+```
+
+Git Provider 只提供仓库原始事实，不能自主判断哪些文件与 Intent 有关。相关性判断由平台 Agent 的 Context Planning 步骤完成，Code Context Orchestrator 负责执行计划、控制轮次和预算。正式文档仍由 Agent Provider 基于 Intent、Code Context、成员画像和工作量生成。
+
+未来可增加 `LocalAgentCodeContextProvider`，由本地 Connector 调用 Codex CLI 读取本地仓库和未提交改动。该能力不纳入当前 MVP 扩展，且平台仍不保存成员本地 Agent Key。
+
+### 5.11 GitOperation / CIRun
 
 分别保存分支、Commit、PR 元数据和某个 Commit 对应的 CI 运行。
 
-### 5.11 AuditLog / Notification / OutboxJob
+### 5.12 AuditLog / Notification / OutboxJob
 
 - AuditLog：不可篡改的操作记录；
 - Notification：任务包更新、阻塞和失败提醒；
 - OutboxJob：异步 Agent、Git、CI 任务。
 
-### 5.12 CI Bootstrap 验证
+### 5.13 CI Bootstrap 验证
 
 CI Bootstrap 不是“Leader 手工勾选 CI 已通过”，而是一个受限的完成模式。系统至少验证：
 
@@ -247,6 +267,12 @@ task_package_confirmations
 task_deliveries
 task_blockers
 agent_runs
+code_context_runs
+repo_inventory_versions
+repo_inventory_files
+code_context_plans
+code_context_versions
+code_context_files
 git_operations
 ci_runs
 audit_logs
@@ -265,6 +291,8 @@ webhook_deliveries
 - `task_assignments` 保存 `workload_snapshot` 和 `assignment_score`；
 - `tasks.effort_points` 必须在 1-8 范围内；
 - `document_versions(workflow_id, document_type, version_no)` 唯一；
+- Agent 生成的 `document_versions` 必须能追溯到 AgentRun、Context Plan 和 Code Context 版本；
+- TaskPackage 必须绑定 `contextPlanId`、`codeContextVersionId` 和 `baseCommitSha`；
 - `task_packages(task_id, version)` 唯一；
 - `task_package_confirmations(task_id, user_id, package_version)` 唯一；
 - `webhook_deliveries(provider, delivery_id)` 唯一；
@@ -298,6 +326,11 @@ POST /api/projects/{id}/ci-bootstrap
 POST /api/projects/{projectId}/workflows
 GET  /api/workflows
 GET  /api/workflows/{id}
+GET  /api/projects/{projectId}/code-context/latest
+POST /api/projects/{projectId}/code-context/sync
+GET  /api/projects/{projectId}/repo-inventory/latest
+GET  /api/workflows/{id}/code-context
+POST /api/workflows/{id}/code-context/refresh
 POST /api/workflows/{id}/generate-design
 PUT  /api/workflows/{id}/design
 POST /api/workflows/{id}/confirm-design
@@ -319,6 +352,8 @@ POST /api/workflows/{id}/cancel
 - Change：局部变更计划和 AI 分工建议。
 
 `approve-plan` 必须校验输出 Schema 与 Intent 层级一致。`create-tasks` 对 Architecture 只能创建子 Intent，不得创建开发 Task。
+
+`generate-design`、`generate-spec` 和 `generate-build-plan` 必须解析当前可用 Code Context。`generate-design` 前必须先基于 Repo Inventory 生成 Context Plan，再由 Orchestrator 调 Git Provider 定向读取证据。若 Code Context 缺失或明显过期，默认拒绝生成并提示刷新；Leader 选择降级时，系统必须在 AgentRun 中记录原因。
 
 `POST /api/projects/{id}/ci-bootstrap` 只能由 Leader 在 `ci_status = CI_NOT_CONFIGURED` 时调用。接口创建或登记一个 `CI_BOOTSTRAP` Workflow，并确保项目内同时只有一个进行中的 Bootstrap。也可以由普通 Workflow 创建流程显式声明 `completion_mode = CI_BOOTSTRAP`，但服务端必须执行相同的唯一性和权限校验。
 
@@ -375,6 +410,10 @@ POST /api/notifications/{id}/read
 
 ```text
 校验权限和状态
+  -> 校验 Repo Inventory
+  -> 生成 Context Plan
+  -> 按计划获取 Code Evidence
+  -> 校验或绑定 Code Context
   -> 创建 AgentRun = QUEUED
   -> 创建 OutboxJob = PENDING
   -> 写入审计
@@ -448,6 +487,20 @@ ci:
   webhook-secret: ${CI_WEBHOOK_SECRET}
   sync-interval-seconds: 30
 
+code-context:
+  provider: ${CODE_CONTEXT_PROVIDER:git}
+  max-context-rounds: 2
+  max-files-per-round: 20
+  max-file-bytes: 200000
+  included-paths:
+    - README*
+    - pom.xml
+    - src/main/**
+    - src/test/**
+    - src/main/resources/db/migration/**
+    - .github/workflows/**
+    - docs/**
+
 jobs:
   poll-interval-seconds: 5
   max-concurrency: 4
@@ -474,6 +527,8 @@ jobs:
 - PostgreSQL 数据隔离；
 - Mock Agent Provider；
 - Mock Git/CI Provider；
+- Mock Code Context Provider；
+- Context Plan 多轮取证和预算上限；
 - Webhook 验签和去重；
 - Outbox Worker 重试；
 - 当前 SHA 与 CI SHA 匹配。
@@ -483,9 +538,10 @@ jobs:
 1. 项目骨架、数据库和认证；
 2. Project、ProjectMember、能力画像和画像版本；
 3. 文档版本和状态机；
-4. AgentRun、OutboxJob 和 Mock Provider；
-5. Plan Schema、Task、TaskAssignment；
-6. TaskPackage、Blocker 和看板；
-7. Git/PR/CI 同步；
-8. 审计、通知和错误恢复；
-9. 最小前端和完整验收测试。
+4. Code Context Provider、Repo Inventory、Context Plan 和 Git 仓库上下文同步；
+5. AgentRun、OutboxJob 和 Mock Provider；
+6. Plan Schema、Task、TaskAssignment；
+7. TaskPackage、Blocker 和看板；
+8. Git/PR/CI 同步；
+9. 审计、通知和错误恢复；
+10. 最小前端和完整验收测试。

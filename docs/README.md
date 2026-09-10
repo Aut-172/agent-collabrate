@@ -11,7 +11,7 @@
 成员在本地使用 Codex CLI 或其他 Agent 完成代码修改、测试和 Git 操作
 ```
 
-平台不访问成员本地代码，不在服务器执行成员代码，不保存成员本地 Agent Key。
+平台不访问成员本地代码，不在服务器执行成员代码，不保存成员本地 Agent Key。平台生成 Design、Spec 和 Build Plan 前，必须通过 Code Context Provider 获取可追溯的仓库代码事实；MVP 当前扩展优先使用 Git Provider 建立 Repo Inventory，再由平台 Agent 生成 Context Plan，Orchestrator 受控多轮读取相关证据，未来可扩展 Local Agent Provider。
 
 ## 推荐阅读顺序
 
@@ -29,6 +29,7 @@
 12. [12-MVP前端设计规范与页面说明.md](12-MVP前端设计规范与页面说明.md)
 13. [13-任务包确认与交付流程补充.md](13-任务包确认与交付流程补充.md)
 14. [14-Intent层级与AI分工策略.md](14-Intent层级与AI分工策略.md)
+15. [15-CodeContextProvider与代码上下文机制.md](15-CodeContextProvider与代码上下文机制.md)
 
 ## 已冻结的 MVP 决策
 
@@ -37,6 +38,7 @@
 | 应用形态 | Java 17+、Spring Boot 3.x 单体应用 |
 | 数据库 | PostgreSQL，使用 Flyway 管理结构 |
 | Agent 文档生成 | 平台服务端调用 Agent Provider API |
+| 代码上下文 | 引入 Code Context Provider；MVP 当前扩展先用 Git Provider 建立 Repo Inventory，再由 Context Plan 引导多轮取证，预留 Local Agent Provider |
 | Agent 代码执行 | 成员本地使用 Codex CLI 或其他 Agent |
 | 本地 Agent Key | 只保存在成员本机，不上传平台 |
 | 任务分配 | Agent 生成任务和人员分配建议，Leader 修改并批准 |
