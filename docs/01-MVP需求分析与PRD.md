@@ -98,8 +98,18 @@ Architecture 可以提出架构评审参与者建议，但不得生成面向代�
 2. 让 Leader 可以对 Agent 的计划和分配结果进行审核和修改；
 3. 让成员获得具有明确上下文、边界和验收标准的任务包；
 4. 让成员在本地使用自己熟悉的 Agent 完成代码开发；
-5. 让平台能验证并记录 Commit、PR 和 CI 状态；
+5. 让平台能验证并记录 Commit、PR 和 CI 状态，并支持从零项目先建立 CI 门禁；
 6. 让关键决策和交付结果可追溯、可审计。
+
+从零项目的推荐顺序是：
+
+```text
+创建项目（CI_NOT_CONFIGURED）
+  -> 可先完成 Architecture 基线
+  -> CI Bootstrap：建立最小 CI 并验证一次
+  -> 项目进入 CI_REQUIRED
+  -> 正常 Feature/Change 开发
+```
 
 ### 3.2 非目标
 
@@ -152,6 +162,8 @@ Leader 创建项目并添加成员
 | FR-003 | Leader 可以创建项目 | P0 |
 | FR-004 | Leader 可以添加和移除项目成员 | P0 |
 | FR-005 | 项目包含 Git 仓库地址、默认分支和 Git Provider | P0 |
+| FR-005A | 新项目初始标记为 `CI_NOT_CONFIGURED`，Leader 可以发起一次 CI Bootstrap Workflow | P0 |
+| FR-005B | CI Bootstrap 成功后项目切换为 `CI_REQUIRED` | P0 |
 | FR-006 | 归档项目后不允许新建工作流和任务 | P1 |
 | FR-007 | 成员加入项目时必须填写项目能力画像 | P0 |
 | FR-008 | Leader 也必须填写能力画像，并可作为任务候选人 | P0 |
@@ -212,7 +224,9 @@ Leader 创建项目并添加成员
 | FR-044 | 平台可以接收 Git/CI Webhook | P0 |
 | FR-045 | 平台可以轮询 Git/CI 状态作为兜底 | P0 |
 | FR-046 | CI 状态必须绑定当前 Commit SHA | P0 |
-| FR-047 | CI 未通过时不能完成 Task 或 Workflow | P0 |
+| FR-047 | `CI_REQUIRED` 项目中，当前 Commit 的必要 CI 未通过时不能完成 Task 或 Workflow | P0 |
+| FR-047A | `CI_BOOTSTRAP` Workflow 必须验证 CI 配置已被 Provider 识别且至少一次引导检查通过 | P0 |
+| FR-047B | CI 尚未配置时，普通 Feature/Change 不能绕过 Bootstrap 直接关闭 | P0 |
 
 ### 5.6 审计和通知
 
@@ -257,7 +271,7 @@ Leader 创建项目并添加成员
 
 ## 7. 产品级完成定义
 
-一个 Workflow 只有同时满足以下条件才能关闭：
+一个处于 `CI_REQUIRED` 项目的普通 Feature/Change Workflow 只有同时满足以下条件才能关闭：
 
 1. 所有必要 Task 已完成；
 2. 每个 Task 有有效的 Commit 和 PR；
@@ -265,3 +279,24 @@ Leader 创建项目并添加成员
 4. 没有未解决的 Blocker；
 5. Leader 执行关闭操作；
 6. 关闭动作写入审计日志。
+
+### 7.1 从零项目的 CI Bootstrap 完成定义
+
+新项目创建时：
+
+```text
+Project.ci_status = CI_NOT_CONFIGURED
+```
+
+Leader 必须先创建或指定一个 `CI_BOOTSTRAP` Workflow，用于提交最小可运行的 CI 配置和必要的项目构建/测试入口。Bootstrap 不要求项目在 Workflow 开始前已经存在 CI，但关闭前必须满足：
+
+1. Bootstrap 交付包含有效 Commit 和 PR；
+2. 当前 Commit 中存在项目配置的 CI 文件或等价配置；
+3. CI Provider 已识别该配置；
+4. 至少一个由该配置触发的引导检查在当前 Commit 上成功；
+5. Leader 确认后，系统将项目切换为 `CI_REQUIRED`；
+6. Bootstrap 不通过时只能修复、返工或报告阻塞，不能手工标记成功。
+
+因此，Bootstrap 解决的是“先有 CI 才能验证 CI”的循环：第一条 CI 由 Bootstrap 交付建立，之后再由它自己验证。若 Provider 不能在 PR/head SHA 上运行配置，则必须使用该 Provider 支持的手动触发、分支推送或合并后的首次运行完成验证，平台不能伪造通过结果。
+
+MVP 不提供永久性的“无 CI 关闭”模式。若项目确实不适用 CI，应在项目创建前选择不纳入本 MVP 的其他交付治理方案，而不是让普通 Workflow 绕过门禁。

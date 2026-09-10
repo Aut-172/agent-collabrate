@@ -74,6 +74,7 @@
 显示：
 
 - 项目健康状态；
+- CI 状态：未配置 / Bootstrap 验证中 / 已启用门禁；
 - 进行中的 Workflow；
 - 待 Leader 处理事项；
 - Blocked Task；
@@ -86,6 +87,28 @@
 ```text
 12 个任务进行中 · 2 个阻塞 · 3 个 CI 检查中 · 最近同步 2 分钟前
 ```
+
+当项目为 `CI_NOT_CONFIGURED` 时，项目概览必须显示明确的 Bootstrap 入口：
+
+```text
+项目尚未建立 CI 门禁 · 先完成 CI Bootstrap
+```
+
+普通 Feature/Change 的关闭按钮应显示为不可用，并说明需要先完成 Bootstrap；Architecture Workflow 仍可按架构基线规则关闭。
+
+### 5.1A CI Bootstrap
+
+Bootstrap 页面显示：
+
+- 当前项目 `ci_status`；
+- Bootstrap Workflow 和任务；
+- CI 配置文件是否存在于当前 Commit；
+- Provider 是否已识别配置；
+- 当前 Bootstrap Commit；
+- 引导检查的运行状态和详情链接；
+- 关闭 Bootstrap 的前置条件。
+
+页面不提供“手工标记 CI 通过”按钮。所有通过状态必须来自 Git/CI Provider 同步。
 
 ### 5.2 Workflow 详情
 

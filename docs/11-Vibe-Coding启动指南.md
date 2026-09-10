@@ -44,6 +44,8 @@
 - Agent 分配建议必须读取当前项目成员画像；
 - Architecture 只产生架构基线和子 Intent 建议，不产生开发分工；
 - Feature/Change 必须产生 AI 分工建议；Feature 通常比 Change 推荐更多成员，但人数是软规则，必须结合范围、依赖、画像和当前工作量解释；
+- 新项目默认 `ci_status = CI_NOT_CONFIGURED`；必须先通过一次性 `CI_BOOTSTRAP` 建立并验证真实 CI，成功后项目才进入 `CI_REQUIRED`；
+- `CI_BOOTSTRAP` 不等于永久免 CI，不能用人工字段、Final Report 或空流水线伪造通过；
 - task_assignments 必须保存分配时的画像版本、画像快照和分配理由；
 - task_assignments 还必须保存工作量快照和分配评分；
 - 本地 Agent 完成任务后必须输出结构化 Final Report，成员审阅后才能提交 TaskDelivery；
@@ -109,6 +111,7 @@
 - 需要把平台改成远程代码执行平台；
 - 需要保存成员本地 Agent Key；
 - 需要绕过当前 Commit 的 CI 校验；
+- 需要把普通 Feature/Change 标记成 `CI_BOOTSTRAP` 以绕过 CI；
 - 需要删除或覆盖历史文档、任务包或审计记录。
 
 遇到这些情况，应先列出冲突和建议，等待确认。

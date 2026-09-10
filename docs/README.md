@@ -48,7 +48,7 @@
 | Git 操作 | 本地 Agent 可按任务包执行分支、Commit、Push；禁止 Merge 和 Force Push |
 | PR | 成员本地创建或登记 PR，平台校验和同步 |
 | CI | GitHub Actions 优先，Webhook 实时更新，轮询兜底 |
-| 完成条件 | 当前 Commit 对应的必要 CI 检查通过后，才允许完成 |
+| 完成条件 | `CI_REQUIRED` 项目中当前 Commit 对应的必要 CI 检查通过后才允许完成；新项目先通过一次性 CI Bootstrap 建立门禁 |
 | 阻塞 | Task 进入 `BLOCKED`，Workflow 默认保持原状态并标记需关注 |
 | 版本 | 设计、规格、计划、任务和任务包都不可覆盖，使用新版本 |
 | 异步 | Agent、Git、CI 长耗时操作使用数据库任务表和 Worker |

@@ -414,10 +414,13 @@ FAILED
 3. 校验任务包 ID、版本和哈希仍是 CURRENT；
 4. 校验该成员最近确认的任务包与交付引用一致；
 5. 校验 Final Report 中的任务包引用一致；
-6. 通过 Git Provider 校验 Commit、分支和 PR；
-7. 保存交付报告和任务包引用；
-8. 创建或更新 CI 同步任务；
-9. 将 Task 置为 `DELIVERY_SUBMITTED`。
+6. 保存状态为 `SUBMITTED` 的交付报告和任务包引用；
+7. 创建异步 `GIT_SYNC` 任务；
+8. 将 Task 置为 `DELIVERY_SUBMITTED`；
+9. 后台通过 Git Provider 校验 Commit、分支和 PR；
+10. Git 事实校验成功后，创建或更新当前 Commit SHA 对应的 CI 同步任务。
+
+同步提交阶段只校验平台已有事实和请求一致性，不把 Final Report 中的 Git 字段当作 Provider 事实。所有 Git/PR/CI Provider 调用必须由后台任务异步执行并保留运行记录。
 
 平台不应默认相信报告中的 `tests.status` 或验收标准状态。它们用于说明和审计；最终完成仍由当前 Commit 的 CI 结果决定。
 

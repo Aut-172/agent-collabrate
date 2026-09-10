@@ -46,6 +46,35 @@ CHANGE
 
 ## 2. Workflow 状态
 
+Workflow 还需要一个独立的 `completion_mode`：
+
+```text
+ARCHITECTURE_BASELINE
+CI_BOOTSTRAP
+CI_REQUIRED
+```
+
+- `ARCHITECTURE_BASELINE`：架构级 Workflow，无代码交付，不要求 CI；
+- `CI_BOOTSTRAP`：项目尚未配置 CI 时，专门建立并验证第一条 CI 管线；
+- `CI_REQUIRED`：普通 Feature/Change Workflow，必须满足当前 Commit 的 CI 门禁。
+
+`completion_mode` 不替代 `intent_level`。例如，一个从零搭建项目骨架并同时建立 CI 的 Feature，可以是：
+
+```text
+intent_level = FEATURE
+completion_mode = CI_BOOTSTRAP
+```
+
+默认映射：
+
+| 条件 | 允许的 `completion_mode` |
+|---|---|
+| `intent_level = ARCHITECTURE` | 只能是 `ARCHITECTURE_BASELINE` |
+| 项目 `ci_status = CI_NOT_CONFIGURED`，且项目尚无成功 Bootstrap | 只有专门建立 CI 的一个 Workflow 可以是 `CI_BOOTSTRAP` |
+| 项目 `ci_status = CI_REQUIRED` 的普通 Feature/Change | `CI_REQUIRED` |
+
+在 `CI_NOT_CONFIGURED` 阶段，普通 Feature/Change 可以被记录为待规划事项，但不能创建可关闭的普通开发交付，除非它本身被 Leader 明确批准为唯一的 CI Bootstrap。
+
 ```text
 INTENT
   -> DESIGN_PROPOSED
@@ -82,6 +111,8 @@ FAILED
 - `DONE` 只能由满足全部完成条件的关闭动作产生。
 - 对 `ARCHITECTURE` Workflow，`PLAN_APPROVED` 表示架构基线已批准，随后可直接进入 `READY_TO_CLOSE`，前提是子 Intent 已创建或明确暂不拆分；
 - 对 `ARCHITECTURE` Workflow，`TASKS_READY`、`IN_PROGRESS`、`DELIVERY_SUBMITTED` 和 `CI_*` 不代表架构本身必须经过代码交付，这些阶段只适用于产生开发 Task 的 Feature/Change。
+- 对 `CI_BOOTSTRAP` Workflow，`CI_PASSED` 指引导 CI 在当前 Bootstrap Commit 上成功，不要求项目在 Bootstrap 开始前已有 CI；
+- Bootstrap 成功关闭后，Project 的 `ci_status` 必须变为 `CI_REQUIRED`。
 
 ## 3. Task 状态
 
@@ -186,6 +217,7 @@ REJECTED
 | `DELIVERY_SUBMITTED` | CI 开始 | 当前 Commit 有 CI | `CI_RUNNING` |
 | `CI_RUNNING` | CI 通过 | 所有必要检查通过 | `CI_PASSED` |
 | `CI_PASSED` | 所有 Task 完成 | 所有必要 Task 为 `DONE` | `READY_TO_CLOSE` |
+| `CI_PASSED`（`CI_BOOTSTRAP`） | Leader 确认引导结果 | CI 配置已识别且 Bootstrap 检查通过 | `READY_TO_CLOSE`，并将 Project 设为 `CI_REQUIRED` |
 | `READY_TO_CLOSE` | Leader 关闭 | 无未解决 Blocker | `DONE` |
 | 任意未完成状态 | 取消 | 操作者有权限 | `CANCELLED` |
 
@@ -222,7 +254,9 @@ Agent、Git 或 CI 失败不自动把 Workflow 改为 `FAILED`。失败结果必
 12. 不允许通过 URL ID 跨项目访问资源；
 13. Architecture 不得创建开发分工或开发 Task；
 14. Feature/Change 的分工建议必须有推荐人数、模式、理由和工作量依据；
-15. 已批准并开始执行的 Task 不因成员工作量变化自动换人。
+15. 已批准并开始执行的 Task 不因成员工作量变化自动换人；
+16. `CI_NOT_CONFIGURED` 项目中，普通 Feature/Change Workflow 不得绕过 `CI_BOOTSTRAP` 关闭；
+17. `CI_BOOTSTRAP` 只能用于建立和验证第一条 CI 管线，不能被重复用于普通功能交付。
 
 ## 12. 任务包过期规则
 

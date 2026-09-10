@@ -6,6 +6,35 @@ MVP 优先支持 GitHub + GitHub Actions。Git Provider 和 CI Provider 使用�
 
 平台只保存和验证 Git/CI 元数据，不修改成员本地仓库，不代替成员执行 Git CLI。
 
+## 1.1 从零项目的 CI Bootstrap
+
+项目创建时可以没有任何 CI 配置：
+
+```text
+Project.ci_status = CI_NOT_CONFIGURED
+```
+
+这时不能让普通 Feature/Change 永久绕过 CI，而应先建立一个 `CI_BOOTSTRAP` Workflow。它的任务包允许成员提交最小 CI 配置、构建入口和测试入口。Bootstrap 的交付可以在“尚未有 CI”的前提下开始，但关闭前必须由新配置自身完成一次有效验证：
+
+```text
+bootstrapCommit 存在且属于目标仓库
+AND CI 配置存在于 bootstrapCommit
+AND Provider 已识别该配置
+AND 至少一个真实引导检查以 bootstrapCommit 为 head SHA 并 PASSED
+```
+
+这里的“真实引导检查”必须由 GitHub Actions 等 Provider 返回，不能由成员在 Final Report 中声称，也不能由 Leader 手工写入 `PASSED`。检查可以是最小的依赖安装、编译或测试命令，但不能只是平台内部的人工标记。
+
+Bootstrap 成功后，平台将项目切换为：
+
+```text
+Project.ci_status = CI_REQUIRED
+```
+
+此后普通 Feature/Change 必须满足当前 Commit 的必要 CI 才能完成。一个 Architecture Workflow 没有代码交付，因此可以不依赖 CI。
+
+若 Provider 只会在默认分支或合并后运行新配置，平台应使用 Provider 支持的分支推送、手动触发或首次合并后的运行完成 Bootstrap 验证，并明确保存实际验证的 Commit SHA。不能为了满足门禁而虚构 PR CI 结果。
+
 ## 2. 本地交付流程
 
 ```text
@@ -166,6 +195,17 @@ AND no open TaskBlocker
 
 否则不能进入 `DONE`。
 
+对 `CI_BOOTSTRAP` Workflow，完成判断还必须增加：
+
+```text
+project.ciStatus == CI_NOT_CONFIGURED
+AND bootstrapCommit 包含 CI 配置
+AND Provider 已识别配置
+AND 至少一个 bootstrap CI check 以 bootstrapCommit 为 head SHA 且 PASSED
+```
+
+Bootstrap 关闭与项目状态切换必须在同一事务中完成；切换成功后不得再次创建第二个 Bootstrap 作为普通交付的替代品。
+
 ### 7.2 新 Commit
 
 如果同一任务分支产生新的 Commit：
@@ -204,4 +244,3 @@ MVP 建议平台使用项目级最小权限 Token：
 | CI 执行中 | `RUNNING` |
 | CI 失败 | `FAILED`，任务可返工 |
 | CI 通过旧 SHA | 不满足完成条件 |
-

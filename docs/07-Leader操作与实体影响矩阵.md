@@ -10,6 +10,7 @@ Leader 权限以 `project_members.project_role = LEADER` 为准。每项操作�
 |---|---|---|---|
 | 创建项目 | Project、ProjectMember | 创建项目并自动加入 Leader | 项目名和仓库配置必填 |
 | 修改项目配置 | Project | 修改名称、仓库、默认分支、CI 策略 | 修改仓库可能使未交付任务需要重新校验 |
+| 发起 CI Bootstrap | Project、Workflow、Task、TaskPackage、AuditLog | 在 `CI_NOT_CONFIGURED` 项目中建立第一条 CI 管线；成功后项目变为 `CI_REQUIRED` | 不能跳过 Provider 实际检查，也不能重复用于普通交付 |
 | 添加成员 | ProjectMember、AuditLog、Notification | 增加项目访问权限 | 用户必须存在 |
 | 移除成员 | ProjectMember、TaskAssignment | 移除访问权 | 未完成任务必须先转派 |
 | 查看成员画像 | ProjectMember、MemberProfileVersion | 查看项目内能力、职责和限制 | 不改变画像 |
@@ -29,7 +30,7 @@ Leader 权限以 `project_members.project_role = LEADER` 为准。每项操作�
 | 批准 Build Plan | Workflow、DocumentVersion、AuditLog | 锁定批准版本；Feature/Change 可创建 Task，Architecture 进入架构基线完成路径 |
 | 创建 Task | Task、TaskAssignment、TaskPackage | 仅适用于 Feature/Change；Architecture 只能创建子 Intent |
 | 取消 Workflow | Workflow、Task、AgentRun、OutboxJob | 未完成任务和后台任务停止；历史 Git/CI 保留 |
-| 关闭 Workflow | Workflow、AuditLog | 必须全部必要 Task 完成且无 Blocker |
+| 关闭 Workflow | Workflow、Project、AuditLog | 普通 Feature/Change 必须满足项目 CI 门禁；`CI_BOOTSTRAP` 关闭时同时切换项目 `ci_status` |
 
 原则：
 
@@ -105,6 +106,7 @@ Leader 默认不能：
 - 自动 Merge PR；
 - 删除成员远程分支；
 - 修改历史 Git/CI 事实。
+- 在 `CI_NOT_CONFIGURED` 项目中将普通 Feature/Change 标记为无需 CI；
 
 MVP 暂不提供强制完成。未来如果支持人工豁免，必须单独的 `MANUAL_OVERRIDE` 动作、原因和审计。
 

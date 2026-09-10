@@ -113,7 +113,16 @@ com.example.agentcollab
 
 ### 5.2 Project / ProjectMember
 
-Project 保存仓库、默认分支和 Git Provider。ProjectMember 保存用户在项目中的 `LEADER/MEMBER` 角色，以及该成员自填的项目能力和职责画像。
+Project 保存仓库、默认分支、Git Provider 和 CI 生命周期状态。ProjectMember 保存用户在项目中的 `LEADER/MEMBER` 角色，以及该成员自填的项目能力和职责画像。
+
+项目 `ci_status` 取值：
+
+```text
+CI_NOT_CONFIGURED
+CI_REQUIRED
+```
+
+新项目默认为 `CI_NOT_CONFIGURED`。第一个负责建立 CI 的 Workflow 使用 `completion_mode = CI_BOOTSTRAP`，验证通过后切换为 `CI_REQUIRED`。
 
 Leader 与 Member 都是开发任务候选人。Leader 的额外权限只来自 `project_role`，不代表 Leader 不参与开发。
 
@@ -135,9 +144,18 @@ Leader 与 Member 都是开发任务候选人。Leader 的额外权限只来自 
 
 ### 5.3 Workflow / WorkflowMember
 
-Workflow 保存 Intent、项目、`intent_level`、可选父 Workflow 和状态；WorkflowMember 保存 OWNER/PARTICIPANT 关系。
+Workflow 保存 Intent、项目、`intent_level`、`completion_mode`、可选父 Workflow 和状态；WorkflowMember 保存 OWNER/PARTICIPANT 关系。
 
 `intent_level` 取值为 `ARCHITECTURE`、`FEATURE`、`CHANGE`。Architecture、Feature 和 Change 使用不同的 Agent 输出 Schema 和后续处理管线，但共享 Workflow 生命周期状态机。
+
+`completion_mode` 取值为 `ARCHITECTURE_BASELINE`、`CI_BOOTSTRAP`、`CI_REQUIRED`。它与 Intent 层级正交，不能把 CI Bootstrap 伪装成新的 Intent 层级。
+
+默认映射规则：
+
+- `ARCHITECTURE` 只能使用 `ARCHITECTURE_BASELINE`；
+- `CI_NOT_CONFIGURED` 项目只能有一个进行中的 `CI_BOOTSTRAP`；
+- `CI_REQUIRED` 项目的普通 Feature/Change 使用 `CI_REQUIRED`；
+- 未完成 Bootstrap 时，普通 Feature/Change 可以保存为需求，但不能创建绕过 CI 的可关闭开发任务。
 
 ### 5.4 DocumentVersion
 
@@ -195,6 +213,20 @@ Agent 生成的分配建议至少包含：
 - AuditLog：不可篡改的操作记录；
 - Notification：任务包更新、阻塞和失败提醒；
 - OutboxJob：异步 Agent、Git、CI 任务。
+
+### 5.12 CI Bootstrap 验证
+
+CI Bootstrap 不是“Leader 手工勾选 CI 已通过”，而是一个受限的完成模式。系统至少验证：
+
+```text
+bootstrapCommit 存在且属于目标仓库
+AND CI 配置存在于 bootstrapCommit
+AND Provider 已识别 CI 配置
+AND bootstrapCommit 的引导检查为 PASSED
+AND 没有未解决 Blocker
+```
+
+验证通过后，系统在事务中将项目 `ci_status` 更新为 `CI_REQUIRED`，并记录 AuditLog。Provider 网络故障只能得到 `PENDING/UNKNOWN`，不能推进项目状态。
 
 ## 6. 关键数据库设计
 
@@ -257,6 +289,7 @@ DELETE /api/projects/{id}/members/{userId}
 GET  /api/projects/{id}/members
 GET  /api/projects/{id}/members/me/profile
 PUT  /api/projects/{id}/members/me/profile
+POST /api/projects/{id}/ci-bootstrap
 ```
 
 ### 7.2 Workflow 和文档
@@ -285,6 +318,10 @@ POST /api/workflows/{id}/cancel
 - Change：局部变更计划和 AI 分工建议。
 
 `approve-plan` 必须校验输出 Schema 与 Intent 层级一致。`create-tasks` 对 Architecture 只能创建子 Intent，不得创建开发 Task。
+
+`POST /api/projects/{id}/ci-bootstrap` 只能由 Leader 在 `ci_status = CI_NOT_CONFIGURED` 时调用。接口创建或登记一个 `CI_BOOTSTRAP` Workflow，并确保项目内同时只有一个进行中的 Bootstrap。也可以由普通 Workflow 创建流程显式声明 `completion_mode = CI_BOOTSTRAP`，但服务端必须执行相同的唯一性和权限校验。
+
+项目创建时不接受客户端直接设置 `ci_status`；服务端固定初始化为 `CI_NOT_CONFIGURED`。`ci_status` 只能由 Bootstrap 成功关闭这一条业务路径更新为 `CI_REQUIRED`。
 
 ### 7.3 AgentRun
 

@@ -19,6 +19,7 @@
 | AT-004A | 成员加入项目后必须填写能力画像 | API/业务规则测试 |
 | AT-004B | Leader 也必须填写能力画像并可成为任务负责人 | 任务分配集成测试 |
 | AT-004C | Agent 分配建议使用项目成员画像 | Agent Prompt/Plan 测试 |
+| AT-004G | 新项目默认处于 `CI_NOT_CONFIGURED` | 数据库/项目创建测试 |
 | AT-004D | Architecture 不生成开发分工、负责人或 TaskAssignment | Schema/状态机测试 |
 | AT-004E | Feature/Change 生成分工模式、推荐人数、理由、工作量依据和警告 | Agent 输出/Schema 测试 |
 | AT-004F | Feature 默认倾向于比 Change 推荐更多成员，但简单 Feature 和复杂 Change 可由 AI 例外裁定并说明理由 | 规则测试 |
@@ -61,6 +62,10 @@
 | AT-035 | 所有必要 Task 完成后 Workflow 才能关闭 | 状态机测试 |
 | AT-036 | 未解决 Blocker 时不能关闭 Workflow | 状态机测试 |
 | AT-037 | Leader 不能手工伪造 CI PASSED | 权限/接口测试 |
+| AT-037A | CI 未配置时普通 Feature/Change 不能直接关闭 | 状态机/API 测试 |
+| AT-037B | CI Bootstrap 可在无初始 CI 时开始，但必须验证当前 Bootstrap Commit 的真实 CI 检查 | Git/CI 集成测试 |
+| AT-037C | Bootstrap 成功后项目切换为 `CI_REQUIRED` 且不能重复绕过门禁 | 事务/状态机测试 |
+| AT-037D | 空流水线或 Final Report 声称通过不能完成 Bootstrap | Git/CI 事实校验测试 |
 | AT-038 | 关键动作均有 AuditLog | 审计集成测试 |
 | AT-039 | 审计日志不可修改和删除 | API 测试 |
 | AT-040 | 敏感凭证不进入日志和响应 | 安全测试 |

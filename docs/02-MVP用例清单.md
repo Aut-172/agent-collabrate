@@ -18,6 +18,7 @@
 | UC-001 | 首次初始化 Leader | System | P0 |
 | UC-002 | 登录平台 | Leader/Member | P0 |
 | UC-003 | 创建项目 | Leader | P0 |
+| UC-003A | 建立项目 CI Bootstrap | Leader/Member/Git Provider/CI Provider | P0 |
 | UC-004 | 管理项目成员 | Leader | P0 |
 | UC-004A | 填写和更新项目能力画像 | Leader/Member | P0 |
 | UC-005 | 创建 Intent | Member/Leader | P0 |
@@ -335,6 +336,42 @@ Leader 可以：
 2. Leader 执行关闭；
 3. Workflow 进入 `DONE`；
 4. 写入关闭人、时间和审计。
+
+### UC-003A 建立项目 CI Bootstrap
+
+前置条件：
+
+- 项目状态为 `ACTIVE`；
+- 项目 `ci_status = CI_NOT_CONFIGURED`；
+- 当前没有其他进行中的 `CI_BOOTSTRAP` Workflow。
+
+主流程：
+
+1. Leader 创建或指定用于搭建 CI 的 Workflow；
+2. 系统将其完成模式设置为 `CI_BOOTSTRAP`；
+3. 成员按任务包添加最小 CI 配置和项目构建/测试入口；
+4. 成员提交 Commit 和 PR；
+5. 平台验证 CI 配置存在于当前 Commit；
+6. 平台通过 Webhook 或轮询等待 Provider 识别并运行引导检查；
+7. 引导检查在当前 Commit 上通过；
+8. Leader 确认 Bootstrap 结果；
+9. 项目 `ci_status` 从 `CI_NOT_CONFIGURED` 变为 `CI_REQUIRED`；
+10. 后续普通 Feature/Change Workflow 使用标准 CI 完成门禁。
+
+异常：
+
+- CI 配置不存在或 Provider 未识别，Bootstrap 保持未完成；
+- 引导检查失败，Task 返回开发/返工状态；
+- 外部网络不可用，状态为 `PENDING/UNKNOWN`，不能视为通过；
+- 不能通过请求参数或人工字段伪造 Bootstrap 成功；
+- CI 尚未配置时，普通 Feature/Change 不能直接关闭。
+
+说明：
+
+- Bootstrap 是完成模式，不是新的 Intent 层级；
+- 一个 Architecture Workflow 可以在没有 CI 的情况下完成，因为它没有代码交付；
+- Bootstrap 可以承载项目从零开始的代码骨架和 CI 配置，但不能把普通后续 Feature 当作 Bootstrap 使用；
+- 如果 Provider 只在默认分支识别新配置，则使用 Provider 支持的手动触发、分支推送或首次合并后的运行完成验证。
 
 ## 4. 权限失败的统一行为
 
