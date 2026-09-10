@@ -92,6 +92,9 @@ class PhaseOneIntegrationTest {
     void leaderAndMemberProfilesAreProjectScopedAndVersioned() throws Exception {
         String leaderToken = initialize("leader", TEST_PASSWORD);
         long projectId = createProject(leaderToken, "core");
+        mvc.perform(get("/api/projects/{id}", projectId).header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ciStatus").value("CI_NOT_CONFIGURED"));
 
         mvc.perform(get("/api/projects/{id}/members/me/profile", projectId)
                         .header("Authorization", bearer(leaderToken)))

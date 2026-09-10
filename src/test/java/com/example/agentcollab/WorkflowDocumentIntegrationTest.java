@@ -5,6 +5,7 @@ import com.example.agentcollab.domain.AgentRun;
 import com.example.agentcollab.domain.AgentRunType;
 import com.example.agentcollab.domain.AgentRunStatus;
 import com.example.agentcollab.domain.OutboxJobStatus;
+import com.example.agentcollab.domain.OutboxJobType;
 import com.example.agentcollab.exception.ApiException;
 import com.example.agentcollab.repository.*;
 import com.example.agentcollab.service.DocumentService;
@@ -72,6 +73,7 @@ class WorkflowDocumentIntegrationTest {
     @Autowired TaskRepository tasks;
     @Autowired com.example.agentcollab.repository.TaskPackageRepository taskPackages;
     @Autowired com.example.agentcollab.repository.TaskPackageConfirmationRepository packageConfirmations;
+    @Autowired com.example.agentcollab.repository.TaskDeliveryRepository taskDeliveries;
     @Autowired JdbcTemplate jdbc;
     @Autowired AgentRunWorker worker;
     @Autowired AgentRunExecutionService executions;
@@ -81,6 +83,7 @@ class WorkflowDocumentIntegrationTest {
         documents.deleteAll();
         outboxJobs.deleteAll();
         agentRuns.deleteAll();
+        taskDeliveries.deleteAll();
         packageConfirmations.deleteAll();
         taskPackages.deleteAll();
         taskAssignments.deleteAll();
@@ -152,7 +155,11 @@ class WorkflowDocumentIntegrationTest {
         mvc.perform(get("/api/workflows/{id}", childId).header("Authorization", bearer(leaderToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.intentLevel").value("FEATURE"))
+                .andExpect(jsonPath("$.completionMode").value("CI_REQUIRED"))
                 .andExpect(jsonPath("$.parentWorkflowId").value(architectureId));
+        mvc.perform(get("/api/workflows/{id}", architectureId).header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.completionMode").value("ARCHITECTURE_BASELINE"));
         mvc.perform(get("/api/workflows/{id}", changeId).header("Authorization", bearer(leaderToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextAction").value("GENERATE_BUILD_PLAN"));
@@ -182,6 +189,49 @@ class WorkflowDocumentIntegrationTest {
                         .content(json.writeValueAsString(Map.of(
                                 "title", "missing level", "description", "invalid"))))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createsOneLeaderApprovedCiBootstrapAndRejectsBypasses() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "bootstrap");
+        long memberId = createUser(leaderToken, "member");
+        addMember(leaderToken, projectId, memberId);
+        String memberToken = login("member");
+
+        mvc.perform(post("/api/projects/{id}/workflows", projectId)
+                        .header("Authorization", bearer(memberToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "title", "unauthorized bootstrap",
+                                "description", "must be leader approved",
+                                "intentLevel", "CHANGE",
+                                "completionMode", "CI_BOOTSTRAP"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("LEADER_REQUIRED"));
+
+        long bootstrapId = createCiBootstrap(leaderToken, projectId, "establish CI", "CHANGE");
+        mvc.perform(get("/api/workflows/{id}", bootstrapId).header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.intentLevel").value("CHANGE"))
+                .andExpect(jsonPath("$.completionMode").value("CI_BOOTSTRAP"));
+
+        mvc.perform(post("/api/projects/{id}/ci-bootstrap", projectId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "title", "duplicate bootstrap",
+                                "description", "must be unique",
+                                "intentLevel", "FEATURE"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CI_BOOTSTRAP_EXISTS"));
+
+        mvc.perform(post("/api/projects/{id}/ci-bootstrap", projectId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "title", "invalid architecture bootstrap",
+                                "description", "architecture has no code delivery",
+                                "intentLevel", "ARCHITECTURE"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_COMPLETION_MODE"));
     }
 
     @Test
@@ -425,7 +475,7 @@ class WorkflowDocumentIntegrationTest {
         addMember(leaderToken, projectId, memberId);
         String memberToken = login("member");
         updateProfile(memberToken, projectId, 8);
-        long workflowId = createWorkflow(leaderToken, projectId, "assignable change", "CHANGE", null);
+        long workflowId = createCiBootstrap(leaderToken, projectId, "assignable change", "CHANGE");
 
         requestRun(leaderToken, workflowId, "generate-build-plan");
         assertThat(worker.processNext()).isTrue();
@@ -599,6 +649,110 @@ class WorkflowDocumentIntegrationTest {
     }
 
     @Test
+    void validatesAndRegistersFinalReportWithoutTrustingItsCiClaims() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "delivery");
+        updateProfile(leaderToken, projectId, 13);
+        long reviewerId = createUser(leaderToken, "reviewer");
+        addMember(leaderToken, projectId, reviewerId);
+        String reviewerToken = login("reviewer");
+        long workflowId = createCiBootstrap(leaderToken, projectId, "delivery change", "CHANGE");
+
+        requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
+        confirm(leaderToken, workflowId, "approve-plan", 1).andExpect(status().isOk());
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk());
+
+        var task = tasks.findByWorkflowIdOrderById(workflowId).get(0);
+        var taskPackage = taskPackages.findByTaskIdAndStatus(task.getId(),
+                com.example.agentcollab.domain.TaskPackageStatus.CURRENT).orElseThrow();
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", taskPackage.getId(),
+                                "contentHash", taskPackage.getContentHash()))))
+                .andExpect(status().isOk());
+
+        String commitSha = "0123456789abcdef0123456789abcdef01234567";
+        var validReport = finalReport(task, taskPackage, commitSha);
+        var validRequest = deliveryRequest(taskPackage, validReport, task.getBranchName(), commitSha);
+
+        mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
+                        .header("Authorization", bearer(reviewerToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(validRequest)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TASK_ASSIGNEE_REQUIRED"));
+
+        var invalidReport = validReport.deepCopy();
+        invalidReport.remove("summary");
+        mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(deliveryRequest(
+                                taskPackage, invalidReport, task.getBranchName(), commitSha))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_FINAL_REPORT"));
+
+        var staleReport = validReport.deepCopy();
+        staleReport.put("packageVersion", 2);
+        mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(deliveryRequest(
+                                taskPackage, staleReport, task.getBranchName(), commitSha))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TASK_PACKAGE_STALE"))
+                .andExpect(jsonPath("$.currentVersion").value(1))
+                .andExpect(jsonPath("$.submittedVersion").value(2));
+
+        var mismatchedGitReport = validReport.deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) mismatchedGitReport.path("git"))
+                .put("commitSha", "abcdefabcdefabcdefabcdefabcdefabcdefabcd");
+        mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(deliveryRequest(
+                                taskPackage, mismatchedGitReport, task.getBranchName(), commitSha))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("FINAL_REPORT_GIT_MISMATCH"));
+
+        String response = mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(validRequest)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("SUBMITTED"))
+                .andExpect(jsonPath("$.packageId").value(taskPackage.getId()))
+                .andExpect(jsonPath("$.packageVersion").value(1))
+                .andExpect(jsonPath("$.commitSha").value(commitSha))
+                .andReturn().getResponse().getContentAsString();
+        long deliveryId = json.readTree(response).path("id").asLong();
+
+        assertThat(tasks.findById(task.getId()).orElseThrow().getStatus().name())
+                .isEqualTo("DELIVERY_SUBMITTED");
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus().name())
+                .isEqualTo("DELIVERY_SUBMITTED");
+        var saved = taskDeliveries.findById(deliveryId).orElseThrow();
+        assertThat(saved.getPackageId()).isEqualTo(taskPackage.getId());
+        assertThat(saved.getPackageVersion()).isEqualTo(1);
+        assertThat(saved.getReportJson().path("tests").get(0).path("status").asText()).isEqualTo("PASSED");
+        assertThat(saved.getStatus().name()).isEqualTo("SUBMITTED");
+        assertThat(outboxJobs.findByJobTypeAndReferenceId(OutboxJobType.GIT_SYNC, deliveryId))
+                .get().extracting(job -> job.getStatus()).isEqualTo(OutboxJobStatus.PENDING);
+
+        mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(validRequest)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(deliveryId));
+        assertThat(taskDeliveries.count()).isEqualTo(1);
+        assertThat(outboxJobs.findByJobTypeAndReferenceId(OutboxJobType.GIT_SYNC, deliveryId)).isPresent();
+
+        mvc.perform(get("/api/tasks/{id}/deliveries", task.getId())
+                        .header("Authorization", bearer(reviewerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(deliveryId));
+    }
+
+    @Test
     void rejectsInvalidPlanAndPlanWithOutdatedMemberProfile() throws Exception {
         String leaderToken = initialize("leader");
         long projectId = createProject(leaderToken, "core");
@@ -634,6 +788,10 @@ class WorkflowDocumentIntegrationTest {
         requestRun(leaderToken, workflowId, "generate-build-plan");
         assertThat(worker.processNext()).isTrue();
         confirm(leaderToken, workflowId, "approve-plan", 2).andExpect(status().isOk());
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CI_BOOTSTRAP_REQUIRED"));
     }
 
     @Test
@@ -723,7 +881,7 @@ class WorkflowDocumentIntegrationTest {
     }
 
     private long createWorkflow(String token, long projectId, String title,
-                                String intentLevel, Long parentWorkflowId) throws Exception {
+                                 String intentLevel, Long parentWorkflowId) throws Exception {
         var request = new java.util.LinkedHashMap<String, Object>();
         request.put("title", title);
         request.put("description", "workflow description");
@@ -733,6 +891,19 @@ class WorkflowDocumentIntegrationTest {
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(request)))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return json.readTree(body).get("id").asLong();
+    }
+
+    private long createCiBootstrap(String token, long projectId, String title, String intentLevel) throws Exception {
+        String body = mvc.perform(post("/api/projects/{id}/ci-bootstrap", projectId)
+                        .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "title", title,
+                                "description", "bootstrap workflow description",
+                                "intentLevel", intentLevel))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.completionMode").value("CI_BOOTSTRAP"))
+                .andReturn().getResponse().getContentAsString();
         return json.readTree(body).get("id").asLong();
     }
 
@@ -768,6 +939,53 @@ class WorkflowDocumentIntegrationTest {
                                 "weeklyCapacityPoints", weeklyCapacityPoints,
                                 "notes", "test profile"))))
                 .andExpect(status().isOk());
+    }
+
+    private com.fasterxml.jackson.databind.node.ObjectNode finalReport(
+            com.example.agentcollab.domain.Task task,
+            com.example.agentcollab.domain.TaskPackage taskPackage,
+            String commitSha) {
+        var report = json.createObjectNode();
+        report.put("schemaVersion", "1.0");
+        report.put("taskId", task.getExternalKey());
+        report.put("packageId", taskPackage.getId());
+        report.put("packageVersion", taskPackage.getPackageVersion());
+        report.put("packageHash", taskPackage.getContentHash());
+        report.put("outcome", "READY_FOR_REVIEW");
+        report.put("summary", "Implemented and locally verified the assigned task.");
+        report.putArray("changedFiles").add("src/main/java/example/Delivery.java");
+        report.putArray("tests").addObject()
+                .put("command", "mvn test")
+                .put("status", "PASSED")
+                .put("summary", "Local tests passed");
+        report.putObject("git")
+                .put("branchName", task.getBranchName())
+                .put("commitSha", commitSha)
+                .putNull("pullRequestUrl");
+        report.putArray("acceptanceCriteria").addObject()
+                .put("criterion", "Delivery is recorded")
+                .put("status", "PASSED")
+                .put("evidence", "Local test output");
+        report.putArray("unresolvedIssues");
+        report.putArray("outOfScopeChanges");
+        report.putArray("blockers");
+        return report;
+    }
+
+    private Map<String, Object> deliveryRequest(
+            com.example.agentcollab.domain.TaskPackage taskPackage,
+            com.fasterxml.jackson.databind.JsonNode report,
+            String branchName,
+            String commitSha) {
+        var request = new java.util.LinkedHashMap<String, Object>();
+        request.put("packageId", taskPackage.getId());
+        request.put("packageVersion", taskPackage.getPackageVersion());
+        request.put("packageHash", taskPackage.getContentHash());
+        request.put("finalReport", report);
+        request.put("branchName", branchName);
+        request.put("commitSha", commitSha);
+        request.put("pullRequestUrl", null);
+        return request;
     }
 
     private void advanceToBuildPlan(String token, long workflowId) throws Exception {

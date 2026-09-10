@@ -10,7 +10,8 @@ class WorkflowStateMachineTest {
 
     @Test
     void followsTheFrozenForwardTransitions() {
-        Workflow workflow = new Workflow(1L, "workflow", "description", IntentLevel.FEATURE, null, 1L);
+        Workflow workflow = new Workflow(1L, "workflow", "description", IntentLevel.FEATURE,
+                WorkflowCompletionMode.CI_REQUIRED, null, 1L);
         WorkflowStatus[] states = {
                 WorkflowStatus.DESIGN_PROPOSED,
                 WorkflowStatus.SPEC_PROPOSED,
@@ -33,7 +34,8 @@ class WorkflowStateMachineTest {
 
     @Test
     void rejectsSkippedTransitionAndCancellingTerminalWorkflow() {
-        Workflow workflow = new Workflow(1L, "workflow", "description", IntentLevel.FEATURE, null, 1L);
+        Workflow workflow = new Workflow(1L, "workflow", "description", IntentLevel.FEATURE,
+                WorkflowCompletionMode.CI_REQUIRED, null, 1L);
 
         assertThatThrownBy(() -> stateMachine.transition(workflow, WorkflowStatus.DONE))
                 .isInstanceOf(ApiException.class)
@@ -48,7 +50,8 @@ class WorkflowStateMachineTest {
 
     @Test
     void usesIntentSpecificPathsWithoutAddingNewStatuses() {
-        Workflow change = new Workflow(1L, "change", "description", IntentLevel.CHANGE, null, 1L);
+        Workflow change = new Workflow(1L, "change", "description", IntentLevel.CHANGE,
+                WorkflowCompletionMode.CI_REQUIRED, null, 1L);
         stateMachine.transition(change, WorkflowStatus.BUILD_PLAN_PROPOSED);
         assertThatThrownBy(() -> stateMachine.transition(change, WorkflowStatus.SPEC_PROPOSED))
                 .isInstanceOf(ApiException.class);
@@ -56,7 +59,7 @@ class WorkflowStateMachineTest {
         stateMachine.transition(change, WorkflowStatus.TASKS_READY);
 
         Workflow architecture = new Workflow(1L, "architecture", "description",
-                IntentLevel.ARCHITECTURE, null, 1L);
+                IntentLevel.ARCHITECTURE, WorkflowCompletionMode.ARCHITECTURE_BASELINE, null, 1L);
         WorkflowStatus[] planningStates = {
                 WorkflowStatus.DESIGN_PROPOSED,
                 WorkflowStatus.SPEC_PROPOSED,

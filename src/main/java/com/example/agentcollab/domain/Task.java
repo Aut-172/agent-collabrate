@@ -72,6 +72,14 @@ public class Task {
         updatedAt = Instant.now();
     }
 
+    public void submitDelivery() {
+        if (status != TaskStatus.IN_PROGRESS) {
+            throw new IllegalStateException("Task cannot submit delivery from " + status);
+        }
+        status = TaskStatus.DELIVERY_SUBMITTED;
+        updatedAt = Instant.now();
+    }
+
     public boolean isTerminal() {
         return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELLED;
     }

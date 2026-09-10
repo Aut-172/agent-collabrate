@@ -25,6 +25,7 @@ public class TaskService {
     private final ProjectMemberRepository members;
     private final UserRepository users;
     private final WorkflowRepository workflows;
+    private final ProjectRepository projects;
     private final WorkflowService workflowService;
     private final ProjectAccessService access;
     private final WorkflowStateMachine stateMachine;
@@ -34,7 +35,7 @@ public class TaskService {
 
     public TaskService(TaskRepository tasks, TaskAssignmentRepository assignments,
                        DocumentVersionRepository documents, ProjectMemberRepository members,
-                       UserRepository users, WorkflowRepository workflows,
+                       UserRepository users, WorkflowRepository workflows, ProjectRepository projects,
                        WorkflowService workflowService, ProjectAccessService access,
                        WorkflowStateMachine stateMachine, PlanService plans, ObjectMapper json,
                        TaskPackageService taskPackages) {
@@ -44,6 +45,7 @@ public class TaskService {
         this.members = members;
         this.users = users;
         this.workflows = workflows;
+        this.projects = projects;
         this.workflowService = workflowService;
         this.access = access;
         this.stateMachine = stateMachine;
@@ -68,6 +70,7 @@ public class TaskService {
         if (workflow.getStatus() != WorkflowStatus.PLAN_APPROVED) {
             throw conflict("WORKFLOW_STATE_CONFLICT", "只有已批准的 Build Plan 可以创建任务");
         }
+        requireDevelopmentEnabled(workflow);
 
         DocumentVersion approvedPlan = latestApprovedPlan(workflowId);
         JsonNode plan = plans.validateForWorkflow(workflow, approvedPlan.getContent());
@@ -141,8 +144,24 @@ public class TaskService {
         for (JsonNode child : plan.path("childIntents")) {
             workflowService.create(actorId, workflow.getProjectId(), new WorkflowDtos.CreateWorkflowRequest(
                     child.path("title").asText(), child.path("description").asText(),
-                    IntentLevel.valueOf(child.path("intentLevel").asText()), workflow.getId()));
+                    IntentLevel.valueOf(child.path("intentLevel").asText()), workflow.getId(), null));
         }
+    }
+
+    private void requireDevelopmentEnabled(Workflow workflow) {
+        if (workflow.getIntentLevel() == IntentLevel.ARCHITECTURE
+                || workflow.getCompletionMode() == WorkflowCompletionMode.CI_BOOTSTRAP) {
+            return;
+        }
+        Project project = projectsForWorkflow(workflow);
+        if (project.getCiStatus() != ProjectCiStatus.CI_REQUIRED) {
+            throw conflict("CI_BOOTSTRAP_REQUIRED", "项目必须先完成 CI Bootstrap 才能创建普通开发任务");
+        }
+    }
+
+    private Project projectsForWorkflow(Workflow workflow) {
+        return projects.findById(workflow.getProjectId())
+                .orElseThrow(() -> notFound("PROJECT_NOT_FOUND", "项目不存在"));
     }
 
     private TaskAssignment createAssignment(Task task, Long projectId, Long assigneeUserId, Long actorId,

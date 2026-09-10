@@ -18,6 +18,9 @@ public class Workflow {
     @Enumerated(EnumType.STRING)
     @Column(name = "intent_level", nullable = false, length = 20)
     private IntentLevel intentLevel;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "completion_mode", nullable = false, length = 30)
+    private WorkflowCompletionMode completionMode;
     @Column(name = "parent_workflow_id")
     private Long parentWorkflowId;
     @Enumerated(EnumType.STRING)
@@ -38,11 +41,12 @@ public class Workflow {
     protected Workflow() {}
 
     public Workflow(Long projectId, String title, String description, IntentLevel intentLevel,
-                    Long parentWorkflowId, Long createdBy) {
+                    WorkflowCompletionMode completionMode, Long parentWorkflowId, Long createdBy) {
         this.projectId = projectId;
         this.title = title;
         this.description = description;
         this.intentLevel = intentLevel;
+        this.completionMode = completionMode;
         this.parentWorkflowId = parentWorkflowId;
         this.createdBy = createdBy;
         this.createdAt = Instant.now();
@@ -59,6 +63,7 @@ public class Workflow {
     public String getTitle() { return title; }
     public String getDescription() { return description; }
     public IntentLevel getIntentLevel() { return intentLevel; }
+    public WorkflowCompletionMode getCompletionMode() { return completionMode; }
     public Long getParentWorkflowId() { return parentWorkflowId; }
     public WorkflowStatus getStatus() { return status; }
     public WorkflowHealth getHealth() { return health; }

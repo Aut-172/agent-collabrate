@@ -11,9 +11,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class WorkflowService {
+    private static final Set<WorkflowStatus> TERMINAL_STATUSES = Set.of(
+            WorkflowStatus.DONE, WorkflowStatus.CANCELLED, WorkflowStatus.FAILED);
     private final WorkflowRepository workflows;
     private final WorkflowMemberRepository workflowMembers;
     private final ProjectRepository projects;
@@ -41,16 +44,26 @@ public class WorkflowService {
     @Transactional
     public Workflow create(Long actorId, Long projectId, WorkflowDtos.CreateWorkflowRequest request) {
         access.requireMember(projectId, actorId);
-        Project project = projects.findById(projectId)
+        Project project = projects.findByIdForUpdate(projectId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "项目不存在"));
         if (project.getStatus() != Project.Status.ACTIVE) {
             throw new ApiException(HttpStatus.CONFLICT, "PROJECT_ARCHIVED", "归档项目不能创建 Workflow");
         }
         Long parentWorkflowId = validateParent(projectId, request.parentWorkflowId());
+        WorkflowCompletionMode completionMode = resolveCompletionMode(
+                actorId, project, request.intentLevel(), request.completionMode());
         Workflow workflow = workflows.save(new Workflow(projectId, request.title(), request.description(),
-                request.intentLevel(), parentWorkflowId, actorId));
+                request.intentLevel(), completionMode, parentWorkflowId, actorId));
         workflowMembers.save(new WorkflowMember(workflow.getId(), actorId, WorkflowMember.Role.OWNER));
         return workflow;
+    }
+
+    @Transactional
+    public Workflow createCiBootstrap(Long actorId, Long projectId,
+                                      WorkflowDtos.CreateCiBootstrapRequest request) {
+        return create(actorId, projectId, new WorkflowDtos.CreateWorkflowRequest(
+                request.title(), request.description(), request.intentLevel(), null,
+                WorkflowCompletionMode.CI_BOOTSTRAP));
     }
 
     @Transactional(readOnly = true)
@@ -125,5 +138,38 @@ public class WorkflowService {
             throw new ApiException(HttpStatus.NOT_FOUND, "PARENT_WORKFLOW_NOT_FOUND", "父 Workflow 不存在");
         }
         return parent.getId();
+    }
+
+    private WorkflowCompletionMode resolveCompletionMode(Long actorId, Project project, IntentLevel intentLevel,
+                                                          WorkflowCompletionMode requested) {
+        if (intentLevel == IntentLevel.ARCHITECTURE) {
+            if (requested != null && requested != WorkflowCompletionMode.ARCHITECTURE_BASELINE) {
+                throw badRequest("INVALID_COMPLETION_MODE", "Architecture 只能使用 ARCHITECTURE_BASELINE");
+            }
+            return WorkflowCompletionMode.ARCHITECTURE_BASELINE;
+        }
+        if (requested == WorkflowCompletionMode.ARCHITECTURE_BASELINE) {
+            throw badRequest("INVALID_COMPLETION_MODE", "Feature/Change 不能使用 ARCHITECTURE_BASELINE");
+        }
+        if (requested != WorkflowCompletionMode.CI_BOOTSTRAP) {
+            return WorkflowCompletionMode.CI_REQUIRED;
+        }
+        access.requireLeader(project.getId(), actorId);
+        if (project.getCiStatus() != ProjectCiStatus.CI_NOT_CONFIGURED) {
+            throw conflict("CI_ALREADY_CONFIGURED", "项目已经启用 CI 门禁，不能创建 CI Bootstrap");
+        }
+        if (workflows.existsByProjectIdAndCompletionModeAndStatusNotIn(
+                project.getId(), WorkflowCompletionMode.CI_BOOTSTRAP, TERMINAL_STATUSES)) {
+            throw conflict("CI_BOOTSTRAP_EXISTS", "项目已有进行中的 CI Bootstrap");
+        }
+        return WorkflowCompletionMode.CI_BOOTSTRAP;
+    }
+
+    private ApiException badRequest(String code, String message) {
+        return new ApiException(HttpStatus.BAD_REQUEST, code, message);
+    }
+
+    private ApiException conflict(String code, String message) {
+        return new ApiException(HttpStatus.CONFLICT, code, message);
     }
 }

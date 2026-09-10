@@ -2,6 +2,7 @@ package com.example.agentcollab.dto;
 
 import com.example.agentcollab.domain.Project;
 import com.example.agentcollab.domain.ProjectMember;
+import com.example.agentcollab.domain.ProjectCiStatus;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -22,10 +23,11 @@ public final class ProjectDtos {
     public record AddMemberRequest(@NotNull Long userId) {}
 
     public record ProjectResponse(Long id, String name, String repositoryUrl, String gitProvider,
-                                  String defaultBranch, Project.Status status, Long createdBy) {
+                                  String defaultBranch, ProjectCiStatus ciStatus,
+                                  Project.Status status, Long createdBy) {
         public static ProjectResponse from(Project p) {
             return new ProjectResponse(p.getId(), p.getName(), p.getRepositoryUrl(), p.getGitProvider(),
-                    p.getDefaultBranch(), p.getStatus(), p.getCreatedBy());
+                    p.getDefaultBranch(), p.getCiStatus(), p.getStatus(), p.getCreatedBy());
         }
     }
 

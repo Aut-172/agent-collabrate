@@ -93,6 +93,15 @@ public class WorkflowController {
         return WorkflowDtos.WorkflowResponse.from(workflowService.create(currentUserId(), projectId, request));
     }
 
+    @PostMapping("/projects/{projectId}/ci-bootstrap")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkflowDtos.WorkflowResponse createCiBootstrap(
+            @PathVariable Long projectId,
+            @Valid @RequestBody WorkflowDtos.CreateCiBootstrapRequest request) {
+        return WorkflowDtos.WorkflowResponse.from(
+                workflowService.createCiBootstrap(currentUserId(), projectId, request));
+    }
+
     @GetMapping("/workflows")
     public List<WorkflowDtos.WorkflowResponse> list() {
         return workflowService.listForUser(currentUserId()).stream().map(WorkflowDtos.WorkflowResponse::from).toList();

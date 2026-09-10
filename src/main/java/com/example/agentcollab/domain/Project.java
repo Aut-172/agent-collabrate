@@ -20,6 +20,9 @@ public class Project {
     @Column(name = "default_branch", nullable = false, length = 100)
     private String defaultBranch;
     @Enumerated(EnumType.STRING)
+    @Column(name = "ci_status", nullable = false, length = 30)
+    private ProjectCiStatus ciStatus = ProjectCiStatus.CI_NOT_CONFIGURED;
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Status status = Status.ACTIVE;
     @Column(name = "created_by", nullable = false)
@@ -51,6 +54,7 @@ public class Project {
     public String getRepositoryUrl() { return repositoryUrl; }
     public String getGitProvider() { return gitProvider; }
     public String getDefaultBranch() { return defaultBranch; }
+    public ProjectCiStatus getCiStatus() { return ciStatus; }
     public Status getStatus() { return status; }
     public Long getCreatedBy() { return createdBy; }
     public Long getVersion() { return version; }

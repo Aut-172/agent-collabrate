@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-collab.local/schema/final-report-v1.schema.json",
+  "title": "Local Agent Final Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "packageId", "packageVersion", "packageHash", "outcome", "summary", "changedFiles", "tests", "git", "acceptanceCriteria", "unresolvedIssues", "outOfScopeChanges", "blockers"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "taskId": { "type": "string", "minLength": 1, "maxLength": 50 },
+    "packageId": { "type": "integer", "minimum": 1 },
+    "packageVersion": { "type": "integer", "minimum": 1 },
+    "packageHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "outcome": { "enum": ["READY_FOR_REVIEW", "BLOCKED", "FAILED"] },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 10000 },
+    "changedFiles": { "$ref": "#/$defs/stringList" },
+    "tests": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/testResult" } },
+    "git": { "$ref": "#/$defs/gitResult" },
+    "acceptanceCriteria": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/criterionResult" } },
+    "unresolvedIssues": { "$ref": "#/$defs/stringList" },
+    "outOfScopeChanges": { "$ref": "#/$defs/stringList" },
+    "blockers": { "type": "array", "maxItems": 100 }
+  },
+  "$defs": {
+    "stringList": { "type": "array", "maxItems": 500, "items": { "type": "string", "minLength": 1, "maxLength": 2000 } },
+    "testResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["command", "status", "summary"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "status": { "enum": ["PASSED", "FAILED", "SKIPPED", "NOT_RUN"] },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      }
+    },
+    "gitResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["branchName", "commitSha", "pullRequestUrl"],
+      "properties": {
+        "branchName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "commitSha": { "type": "string", "pattern": "^[a-fA-F0-9]{7,64}$" },
+        "pullRequestUrl": { "type": ["string", "null"], "format": "uri", "maxLength": 500 }
+      }
+    },
+    "criterionResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["criterion", "status", "evidence"],
+      "properties": {
+        "criterion": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "status": { "enum": ["PASSED", "FAILED", "NOT_VERIFIED"] },
+        "evidence": { "type": "string", "maxLength": 4000 }
+      }
+    }
+  }
+}

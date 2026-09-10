@@ -19,8 +19,9 @@ AI Agent 协作开发编排平台后端。平台负责项目治理、Intent 规�
 - Leader 和 Member 均可成为任务负责人，Architecture 不创建开发 Task 或 TaskAssignment。
 - Task Package v1：任务创建后生成不可变 Markdown + JSON 包，保存 SHA-256 哈希并提供当前/历史/差异读取。
 - 任务包确认：当前负责人按 package ID、版本和哈希确认后开始开发；重新分配会保留旧包并生成新版本。
+- Final Report/TaskDelivery：按 Schema 校验并保存不可变交付记录，强校验当前任务包和确认记录，异步排队 Git 事实校验。
 
-尚未实现 Blocker、Final Report/TaskDelivery、Git/PR/CI Provider、Commit SHA 校验、审计通知和管理前端。
+尚未实现 Blocker、Git/PR/CI Provider、Commit SHA 事实校验、审计通知和管理前端。
 
 ## 核心流程
 
@@ -66,6 +67,8 @@ GET  /api/tasks/{id}/packages/current
 GET  /api/tasks/{id}/packages/{version}
 GET  /api/tasks/{id}/packages/diff?from={from}&to={to}
 POST /api/tasks/{id}/packages/{version}/confirm
+POST /api/tasks/{id}/delivery
+GET  /api/tasks/{id}/deliveries
 ```
 
 ## 环境要求

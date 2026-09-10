@@ -14,7 +14,13 @@ public final class WorkflowDtos {
             @NotBlank @Size(max = 200) String title,
             @NotBlank @Size(max = 20000) String description,
             @NotNull IntentLevel intentLevel,
-            Long parentWorkflowId) {}
+            Long parentWorkflowId,
+            WorkflowCompletionMode completionMode) {}
+
+    public record CreateCiBootstrapRequest(
+            @NotBlank @Size(max = 200) String title,
+            @NotBlank @Size(max = 20000) String description,
+            @NotNull IntentLevel intentLevel) {}
 
     public record SaveDocumentRequest(@NotBlank @Size(max = 1000000) String content) {}
 
@@ -26,6 +32,7 @@ public final class WorkflowDtos {
             String title,
             String description,
             IntentLevel intentLevel,
+            WorkflowCompletionMode completionMode,
             Long parentWorkflowId,
             WorkflowStatus status,
             WorkflowHealth health,
@@ -36,7 +43,8 @@ public final class WorkflowDtos {
             String nextAction) {
         public static WorkflowResponse from(Workflow workflow) {
             return new WorkflowResponse(workflow.getId(), workflow.getProjectId(), workflow.getTitle(),
-                    workflow.getDescription(), workflow.getIntentLevel(), workflow.getParentWorkflowId(),
+                    workflow.getDescription(), workflow.getIntentLevel(), workflow.getCompletionMode(),
+                    workflow.getParentWorkflowId(),
                     workflow.getStatus(), workflow.getHealth(), workflow.getCreatedBy(), workflow.getVersion(),
                     workflow.getCreatedAt(), workflow.getUpdatedAt(), nextAction(workflow));
         }
