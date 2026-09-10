@@ -80,6 +80,7 @@ class WorkflowDocumentIntegrationTest {
     @Autowired RepoInventoryVersionRepository inventories;
     @Autowired CodeContextPlanRepository contextPlans;
     @Autowired CodeContextVersionRepository codeContexts;
+    @Autowired CodeContextFileRepository codeContextFiles;
 
     @BeforeEach
     void clearDatabase() {
@@ -563,7 +564,15 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(jsonPath("$.contentJson.task.taskId").value("TASK-001"))
                 .andExpect(jsonPath("$.contentJson.task.packageId").isNumber())
                 .andExpect(jsonPath("$.contentJson.task.packageHash").value(org.hamcrest.Matchers.startsWith("sha256:")))
-                .andExpect(jsonPath("$.contentJson.context.baseCommit").value("UNKNOWN"))
+                .andExpect(jsonPath("$.baseCommit").value("1111111111111111111111111111111111111111"))
+                .andExpect(jsonPath("$.codeContextVersionId").isNumber())
+                .andExpect(jsonPath("$.contextPlanId").isNumber())
+                .andExpect(jsonPath("$.contentJson.context.baseCommitSha")
+                        .value("1111111111111111111111111111111111111111"))
+                .andExpect(jsonPath("$.contentJson.context.codeContextVersionId").isNumber())
+                .andExpect(jsonPath("$.contentJson.context.contextPlanId").isNumber())
+                .andExpect(jsonPath("$.contentJson.context.relevantPaths[0]").value("src/main/java/example/App.java"))
+                .andExpect(jsonPath("$.contentJson.context.codeEvidence[0].reason").value("Existing application entry point"))
                 .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("Agent Task Package")));
         var initialPackage = taskPackages.findByTaskIdAndStatus(task.getId(),
                 com.example.agentcollab.domain.TaskPackageStatus.CURRENT).orElseThrow();
@@ -865,6 +874,36 @@ class WorkflowDocumentIntegrationTest {
     }
 
     @Test
+    void staleCodeContextPreventsTaskPackageConfirmation() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "stale-package-context");
+        updateProfile(leaderToken, projectId, 13);
+        long workflowId = createCiBootstrap(leaderToken, projectId, "stale package", "CHANGE");
+        requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
+        confirm(leaderToken, workflowId, "approve-plan", 1).andExpect(status().isOk());
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk());
+
+        Task task = tasks.findByWorkflowIdOrderById(workflowId).get(0);
+        TaskPackage taskPackage = taskPackages.findByTaskIdAndStatus(task.getId(), TaskPackageStatus.CURRENT)
+                .orElseThrow();
+        CodeContextVersion context = codeContexts.findById(taskPackage.getCodeContextVersionId()).orElseThrow();
+        context.markStale();
+        codeContexts.save(context);
+
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", taskPackage.getId(), "contentHash", taskPackage.getContentHash()))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TASK_PACKAGE_CONTEXT_STALE"));
+        assertThat(tasks.findById(task.getId()).orElseThrow().getStatus()).isEqualTo(TaskStatus.ASSIGNED);
+        assertThat(packageConfirmations.count()).isZero();
+    }
+
+    @Test
     void rejectsInvalidPlanAndPlanWithOutdatedMemberProfile() throws Exception {
         String leaderToken = initialize("leader");
         long projectId = createProject(leaderToken, "core");
@@ -1152,9 +1191,13 @@ class WorkflowDocumentIntegrationTest {
         var evidence = json.createObjectNode();
         evidence.put("baseCommitSha", inventory.getCommitSha());
         evidence.putArray("relatedFiles");
-        return codeContexts.save(new CodeContextVersion(project.getId(), inventory.getId(), plan.getId(),
+        CodeContextVersion context = codeContexts.save(new CodeContextVersion(project.getId(), inventory.getId(), plan.getId(),
                 project.getRepositoryUrl(), inventory.getBranchName(), inventory.getCommitSha(),
-                inventory.getRepositoryProfile(), evidence, null)).getId();
+                inventory.getRepositoryProfile(), evidence, null));
+        codeContextFiles.save(new CodeContextFile(context.getId(), "src/main/java/example/App.java",
+                "hash-app", CodeEvidenceType.SOURCE_FILE, "Existing application entry point",
+                json.createArrayNode(), "package example; public class App {}"));
+        return context.getId();
     }
 
     private void assertDocumentVersions(long workflowId, DocumentType type, Long... runIds) {

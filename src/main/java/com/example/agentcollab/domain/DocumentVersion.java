@@ -44,7 +44,14 @@ public class DocumentVersion {
 
     public static DocumentVersion byUser(Long workflowId, DocumentType type, int versionNo,
                                          String content, DocumentFormat format, Long createdBy) {
-        return new DocumentVersion(workflowId, type, versionNo, content, format, DocumentSource.USER, createdBy, null);
+        return byUser(workflowId, type, versionNo, content, format, createdBy, null);
+    }
+
+    public static DocumentVersion byUser(Long workflowId, DocumentType type, int versionNo,
+                                         String content, DocumentFormat format, Long createdBy,
+                                         Long codeContextVersionId) {
+        return new DocumentVersion(workflowId, type, versionNo, content, format, DocumentSource.USER, createdBy,
+                null, codeContextVersionId);
     }
 
     public static DocumentVersion byAgent(Long workflowId, DocumentType type, int versionNo,

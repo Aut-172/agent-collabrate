@@ -45,9 +45,11 @@ public class PlanService {
         Workflow workflow = requireProposedPlan(actorId, workflowId);
         JsonNode plan = validate(content, workflow.getIntentLevel());
         validateAssignees(workflow, plan, true);
-        int version = latest(workflowId).getVersionNo() + 1;
+        DocumentVersion previous = latest(workflowId);
+        int version = previous.getVersionNo() + 1;
         return documents.save(DocumentVersion.byUser(
-                workflowId, DocumentType.BUILD_PLAN, version, content, DocumentFormat.JSON, actorId));
+                workflowId, DocumentType.BUILD_PLAN, version, content, DocumentFormat.JSON, actorId,
+                previous.getCodeContextVersionId()));
     }
 
     @Transactional

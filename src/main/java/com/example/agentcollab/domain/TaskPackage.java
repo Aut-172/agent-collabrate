@@ -22,16 +22,21 @@ public class TaskPackage {
     @Column(name = "source_spec_version", updatable = false) private Integer sourceSpecVersion;
     @Column(name = "source_profile_version", updatable = false) private Integer sourceProfileVersion;
     @Column(name = "base_commit", nullable = false, length = 100, updatable = false) private String baseCommit;
+    @Column(name = "code_context_version_id", updatable = false) private Long codeContextVersionId;
+    @Column(name = "context_plan_id", updatable = false) private Long contextPlanId;
     @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
     @Column(name = "superseded_by") private Long supersededBy;
 
     protected TaskPackage() {}
     public TaskPackage(Long id, Long taskId, int packageVersion, String markdown, JsonNode contentJson, String hash,
-                       Long taskVersion, int planVersion, Integer specVersion, Integer profileVersion, String baseCommit) {
+                       Long taskVersion, int planVersion, Integer specVersion, Integer profileVersion,
+                       String baseCommit, Long codeContextVersionId, Long contextPlanId) {
         this.id = id; this.taskId = taskId; this.packageVersion = packageVersion; this.status = TaskPackageStatus.CURRENT;
         this.contentMarkdown = markdown; this.contentJson = contentJson.deepCopy(); this.contentHash = hash;
         this.sourceTaskVersion = taskVersion; this.sourcePlanVersion = planVersion; this.sourceSpecVersion = specVersion;
-        this.sourceProfileVersion = profileVersion; this.baseCommit = baseCommit; this.createdAt = Instant.now();
+        this.sourceProfileVersion = profileVersion; this.baseCommit = baseCommit;
+        this.codeContextVersionId = codeContextVersionId; this.contextPlanId = contextPlanId;
+        this.createdAt = Instant.now();
     }
     public void markStale() {
         if (status != TaskPackageStatus.CURRENT) throw new IllegalStateException("TaskPackage is not current");
@@ -56,6 +61,8 @@ public class TaskPackage {
     public Integer getSourceSpecVersion() { return sourceSpecVersion; }
     public Integer getSourceProfileVersion() { return sourceProfileVersion; }
     public String getBaseCommit() { return baseCommit; }
+    public Long getCodeContextVersionId() { return codeContextVersionId; }
+    public Long getContextPlanId() { return contextPlanId; }
     public Instant getCreatedAt() { return createdAt; }
     public Long getSupersededBy() { return supersededBy; }
 }

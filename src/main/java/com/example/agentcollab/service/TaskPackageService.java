@@ -27,6 +27,10 @@ public class TaskPackageService {
     private final ProjectMemberRepository members;
     private final TaskAssignmentRepository assignments;
     private final DocumentVersionRepository documents;
+    private final CodeContextVersionRepository contexts;
+    private final CodeContextPlanRepository contextPlans;
+    private final RepoInventoryVersionRepository inventories;
+    private final CodeContextFileRepository contextFiles;
     private final WorkflowService workflowService;
     private final ObjectMapper json;
     private final JsonSchema packageSchema;
@@ -35,10 +39,14 @@ public class TaskPackageService {
     public TaskPackageService(TaskPackageRepository packages, TaskRepository tasks, WorkflowRepository workflows,
                               ProjectRepository projects, ProjectMemberRepository members,
                               TaskAssignmentRepository assignments, DocumentVersionRepository documents,
+                              CodeContextVersionRepository contexts, CodeContextPlanRepository contextPlans,
+                              RepoInventoryVersionRepository inventories, CodeContextFileRepository contextFiles,
                               WorkflowService workflowService, ObjectMapper json, EntityManager entityManager) {
         this.packages = packages; this.tasks = tasks; this.workflows = workflows; this.projects = projects;
         this.members = members;
-        this.assignments = assignments; this.documents = documents; this.workflowService = workflowService; this.json = json;
+        this.assignments = assignments; this.documents = documents; this.contexts = contexts;
+        this.contextPlans = contextPlans; this.inventories = inventories;
+        this.contextFiles = contextFiles; this.workflowService = workflowService; this.json = json;
         this.entityManager = entityManager;
         this.packageSchema = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012)
                 .getSchema(getClass().getResourceAsStream("/schema/task-package-v1.schema.json"));
@@ -71,7 +79,9 @@ public class TaskPackageService {
         Workflow workflow = workflows.findById(task.getWorkflowId()).orElseThrow();
         Project project = projects.findById(workflow.getProjectId()).orElseThrow();
         TaskAssignment assignment = assignments.findByTaskIdAndCurrentTrue(task.getId()).orElse(null);
-        JsonNode details = taskDetails(task);
+        DocumentVersion plan = sourcePlan(task);
+        CodeContextVersion codeContext = requireCurrentContext(workflow, plan);
+        JsonNode details = taskDetails(task, plan);
         var root = json.createObjectNode();
         root.put("schemaVersion", "1.0");
         var meta = root.putObject("task");
@@ -87,7 +97,20 @@ public class TaskPackageService {
         context.put("designVersion", latestVersion(task.getWorkflowId(), DocumentType.DESIGN));
         context.put("specVersion", task.getSourceSpecVersion() == null ? 0 : task.getSourceSpecVersion());
         context.put("buildPlanVersion", task.getSourcePlanVersion()); context.put("baseBranch", project.getDefaultBranch());
-        context.put("baseCommit", "UNKNOWN"); context.putArray("relevantPaths");
+        context.put("codeContextVersionId", codeContext.getId());
+        context.put("contextPlanId", codeContext.getContextPlanId());
+        context.put("baseCommitSha", codeContext.getBaseCommitSha());
+        context.put("baseCommit", codeContext.getBaseCommitSha());
+        var relevantPaths = context.putArray("relevantPaths");
+        var codeEvidence = context.putArray("codeEvidence");
+        contextFiles.findByContextVersionIdOrderByPath(codeContext.getId()).forEach(file -> {
+            relevantPaths.add(file.getPath());
+            var evidence = codeEvidence.addObject();
+            evidence.put("path", file.getPath());
+            evidence.put("reason", file.getSummary());
+            evidence.put("summary", file.getEvidenceType().name() + " evidence; contentHash="
+                    + (file.getContentHash() == null ? "unknown" : file.getContentHash()));
+        });
         if (assignment != null) {
             var a = root.putObject("assignee"); a.put("userId", assignment.getAssigneeUserId());
             members.findByProjectIdAndUserId(workflow.getProjectId(), assignment.getAssigneeUserId())
@@ -122,7 +145,8 @@ public class TaskPackageService {
         String markdown = markdown(task, workflow, project, root, packageVersion, hash);
         TaskPackage pack = packages.save(new TaskPackage(packageId, task.getId(), packageVersion, markdown, root, "sha256:" + hash,
                 task.getVersion() == null ? 0L : task.getVersion(), task.getSourcePlanVersion(), task.getSourceSpecVersion(),
-                assignment == null ? null : assignment.getProfileVersion(), "UNKNOWN"));
+                assignment == null ? null : assignment.getProfileVersion(), codeContext.getBaseCommitSha(),
+                codeContext.getId(), codeContext.getContextPlanId()));
         task.setCurrentPackageVersion(packageVersion);
         tasks.save(task);
         return pack;
@@ -157,10 +181,40 @@ public class TaskPackageService {
         return task;
     }
 
-    private JsonNode taskDetails(Task task) {
-        DocumentVersion plan = documents.findByWorkflowIdAndDocumentTypeAndVersionNo(
+    private DocumentVersion sourcePlan(Task task) {
+        return documents.findByWorkflowIdAndDocumentTypeAndVersionNo(
                         task.getWorkflowId(), DocumentType.BUILD_PLAN, task.getSourcePlanVersion())
                 .orElseThrow(() -> new IllegalStateException("Approved Build Plan is missing"));
+    }
+
+    private CodeContextVersion requireCurrentContext(Workflow workflow, DocumentVersion plan) {
+        if (plan.getCodeContextVersionId() == null) {
+            throw conflict("CODE_CONTEXT_REQUIRED", "批准的 Build Plan 缺少 Code Context");
+        }
+        CodeContextVersion context = contexts.findByIdForUpdate(plan.getCodeContextVersionId())
+                .orElseThrow(() -> conflict("CODE_CONTEXT_REQUIRED", "批准的 Build Plan 对应的 Code Context 不存在"));
+        if (context.getInventoryVersionId() == null || context.getContextPlanId() == null) {
+            throw conflict("CODE_CONTEXT_STALE", "批准的 Build Plan 对应的 Code Context 缺少取证链路");
+        }
+        RepoInventoryVersion inventory = inventories.findById(context.getInventoryVersionId())
+                .orElseThrow(() -> conflict("CODE_CONTEXT_STALE", "Code Context 对应的 Repo Inventory 不存在"));
+        CodeContextPlan contextPlan = contextPlans.findById(context.getContextPlanId())
+                .orElseThrow(() -> conflict("CODE_CONTEXT_STALE", "Code Context 对应的 Context Plan 不存在"));
+        if (!workflow.getProjectId().equals(context.getProjectId())
+                || !workflow.getProjectId().equals(inventory.getProjectId())
+                || !workflow.getProjectId().equals(contextPlan.getProjectId())
+                || !workflow.getId().equals(contextPlan.getWorkflowId())
+                || !context.getInventoryVersionId().equals(contextPlan.getInventoryVersionId())
+                || context.getStatus() != CodeContextStatus.CURRENT
+                || inventory.getStatus() != RepoInventoryStatus.CURRENT
+                || contextPlan.getStatus() != CodeContextPlanStatus.USED
+                || !context.getBaseCommitSha().equalsIgnoreCase(inventory.getCommitSha())) {
+            throw conflict("CODE_CONTEXT_STALE", "批准的 Build Plan 对应的 Code Context 已过期");
+        }
+        return context;
+    }
+
+    private JsonNode taskDetails(Task task, DocumentVersion plan) {
         try {
             for (JsonNode candidate : json.readTree(plan.getContent()).path("tasks")) {
                 if (task.getExternalKey().equals(candidate.path("taskKey").asText())) return candidate;
@@ -190,12 +244,20 @@ public class TaskPackageService {
                 .append("- Design version: ").append(content.path("context").path("designVersion").asInt()).append('\n')
                 .append("- Spec version: ").append(content.path("context").path("specVersion").asInt()).append('\n')
                 .append("- Build plan version: ").append(task.getSourcePlanVersion()).append('\n')
+                .append("- Code context version: ").append(content.path("context").path("codeContextVersionId").asLong()).append('\n')
+                .append("- Context plan: ").append(content.path("context").path("contextPlanId").asLong()).append('\n')
                 .append("- Base branch: ").append(project.getDefaultBranch()).append('\n')
-                .append("- Base commit: UNKNOWN\n")
+                .append("- Base commit SHA: ").append(content.path("context").path("baseCommitSha").asText()).append('\n')
                 .append("- Package hash: sha256:").append(hash).append("\n\n")
                 .append("## Objective\n\n").append(task.getDescription()).append("\n\n");
         appendList(result, "Scope", content.path("scope"), false);
         appendList(result, "Non-goals", content.path("nonGoals"), false);
+        result.append("## Relevant Context\n\n")
+                .append("- Code Context v").append(content.path("context").path("codeContextVersionId").asLong())
+                .append("; Context Plan ").append(content.path("context").path("contextPlanId").asLong()).append(".\n");
+        content.path("context").path("codeEvidence").forEach(item -> result.append("- ")
+                .append(item.path("path").asText()).append(": ").append(item.path("reason").asText()).append('\n'));
+        result.append('\n');
         appendList(result, "Acceptance Criteria", content.path("acceptanceCriteria"), true);
         result.append("## Verification\n\n```bash\n");
         content.path("verificationCommands").forEach(item -> result.append(item.asText()).append('\n'));
@@ -229,5 +291,9 @@ public class TaskPackageService {
 
     private ApiException notFound(String code, String message) {
         return new ApiException(HttpStatus.NOT_FOUND, code, message);
+    }
+
+    private ApiException conflict(String code, String message) {
+        return new ApiException(HttpStatus.CONFLICT, code, message);
     }
 }

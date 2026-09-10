@@ -63,6 +63,7 @@ TASK-001.json
     "codeContextVersionId": 18,
     "contextPlanId": 12,
     "baseBranch": "main",
+    "baseCommitSha": "abcdef1234567890",
     "baseCommit": "abcdef1234567890",
     "relevantPaths": [
       "src/main/java/example/auth",
@@ -146,6 +147,8 @@ TASK-001.json
   ]
 }
 ```
+
+`baseCommitSha` 是任务包的规范字段；MVP v1 同时输出值相同的 `baseCommit` 兼容字段，后续消费者应优先读取 `baseCommitSha`。
 
 ## 4. Markdown 模板
 
@@ -299,7 +302,7 @@ specVersion
 buildPlanVersion
 codeContextVersionId
 contextPlanId
-baseCommit
+baseCommitSha
 contentHash
 ```
 
@@ -320,7 +323,7 @@ contentHash
 Code Context 过期并不一定立刻取消已经开始的本地开发，但以下情况必须生成新任务包或要求成员重新确认：
 
 - Design、Spec 或 Build Plan 因新上下文被修改；
-- 当前任务包的 `baseCommit` 已不再是推荐开发基线；
+- 当前任务包的 `baseCommitSha` 已不再是推荐开发基线；
 - Context Plan 或 Code Evidence 指出的关键文件已变化；
 - Leader 明确要求基于新 Code Context 重新生成任务包。
 

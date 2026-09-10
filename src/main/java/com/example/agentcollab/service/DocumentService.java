@@ -132,8 +132,10 @@ public class DocumentService {
         if (content == null || content.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "EMPTY_DOCUMENT", "文档内容不能为空");
         }
+        Long contextId = documents.findTopByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(workflow.getId(), type)
+                .map(DocumentVersion::getCodeContextVersionId).orElse(null);
         return documents.save(DocumentVersion.byUser(workflow.getId(), type, nextVersion(workflow.getId(), type),
-                content, format, actorId));
+                content, format, actorId, contextId));
     }
 
     private DocumentVersion saveAgentVersion(Workflow workflow, DocumentType type, DocumentFormat format,

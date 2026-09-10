@@ -18,11 +18,17 @@ public class TaskPackageConfirmationService {
     private final WorkflowService workflowService;
     private final WorkflowRepository workflows;
     private final WorkflowStateMachine stateMachine;
+    private final CodeContextVersionRepository contexts;
+    private final CodeContextPlanRepository contextPlans;
+    private final RepoInventoryVersionRepository inventories;
 
     public TaskPackageConfirmationService(TaskRepository tasks, TaskPackageRepository packages,
                                           TaskPackageConfirmationRepository confirmations,
                                           TaskAssignmentRepository assignments, WorkflowService workflowService,
-                                          WorkflowRepository workflows, WorkflowStateMachine stateMachine) {
+                                          WorkflowRepository workflows, WorkflowStateMachine stateMachine,
+                                          CodeContextVersionRepository contexts,
+                                          CodeContextPlanRepository contextPlans,
+                                          RepoInventoryVersionRepository inventories) {
         this.tasks = tasks;
         this.packages = packages;
         this.confirmations = confirmations;
@@ -30,6 +36,9 @@ public class TaskPackageConfirmationService {
         this.workflowService = workflowService;
         this.workflows = workflows;
         this.stateMachine = stateMachine;
+        this.contexts = contexts;
+        this.contextPlans = contextPlans;
+        this.inventories = inventories;
     }
 
     @Transactional
@@ -47,6 +56,7 @@ public class TaskPackageConfirmationService {
 
         TaskPackage current = packages.findByTaskIdAndStatus(taskId, TaskPackageStatus.CURRENT)
                 .orElseThrow(() -> notFound("TASK_PACKAGE_NOT_FOUND", "当前任务包不存在"));
+        requireCurrentCodeContext(current, workflow);
         if (current.getPackageVersion() != packageVersion
                 || !current.getId().equals(request.packageId())
                 || !current.getContentHash().equals(request.contentHash())
@@ -77,6 +87,34 @@ public class TaskPackageConfirmationService {
             workflows.save(workflow);
         }
         return response(confirmation, task);
+    }
+
+    private void requireCurrentCodeContext(TaskPackage taskPackage, Workflow workflow) {
+        if (taskPackage.getCodeContextVersionId() == null || taskPackage.getContextPlanId() == null) {
+            throw conflict("TASK_PACKAGE_CONTEXT_STALE", "任务包缺少可追溯 Code Context，请重新生成");
+        }
+        CodeContextVersion context = contexts.findById(taskPackage.getCodeContextVersionId())
+                .orElseThrow(() -> conflict("TASK_PACKAGE_CONTEXT_STALE", "任务包的 Code Context 不存在"));
+        if (context.getInventoryVersionId() == null || context.getContextPlanId() == null) {
+            throw conflict("TASK_PACKAGE_CONTEXT_STALE", "任务包的 Code Context 缺少取证链路");
+        }
+        RepoInventoryVersion inventory = inventories.findById(context.getInventoryVersionId())
+                .orElseThrow(() -> conflict("TASK_PACKAGE_CONTEXT_STALE", "任务包的 Repo Inventory 不存在"));
+        CodeContextPlan contextPlan = contextPlans.findById(taskPackage.getContextPlanId())
+                .orElseThrow(() -> conflict("TASK_PACKAGE_CONTEXT_STALE", "任务包的 Context Plan 不存在"));
+        if (!workflow.getProjectId().equals(context.getProjectId())
+                || !workflow.getProjectId().equals(inventory.getProjectId())
+                || !workflow.getProjectId().equals(contextPlan.getProjectId())
+                || !workflow.getId().equals(contextPlan.getWorkflowId())
+                || context.getStatus() != CodeContextStatus.CURRENT
+                || inventory.getStatus() != RepoInventoryStatus.CURRENT
+                || !taskPackage.getContextPlanId().equals(context.getContextPlanId())
+                || !context.getInventoryVersionId().equals(contextPlan.getInventoryVersionId())
+                || contextPlan.getStatus() != CodeContextPlanStatus.USED
+                || !taskPackage.getBaseCommit().equalsIgnoreCase(context.getBaseCommitSha())
+                || !taskPackage.getBaseCommit().equalsIgnoreCase(inventory.getCommitSha())) {
+            throw conflict("TASK_PACKAGE_CONTEXT_STALE", "任务包的 Code Context 已过期，请重新生成");
+        }
     }
 
     private TaskPackageDtos.ConfirmationResponse response(TaskPackageConfirmation confirmation, Task task) {
