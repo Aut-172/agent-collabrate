@@ -19,6 +19,7 @@ AI Agent 协作开发编排平台后端。平台负责项目治理、Intent 规�
 - Leader 和 Member 均可成为任务负责人，Architecture 不创建开发 Task 或 TaskAssignment。
 - Task Package v1：任务创建后生成不可变 Markdown + JSON 包，保存 SHA-256 哈希并提供当前/历史/差异读取。
 - 任务包确认：当前负责人按 package ID、版本和哈希确认后开始开发；重新分配会保留旧包并生成新版本。
+- Task Blocker：当前负责人可提交结构化阻塞，Task 进入 `BLOCKED`、Workflow 标记 `NEEDS_ATTENTION`；Leader/Workflow 创建者关闭阻塞后生成包含解决历史的新任务包，负责人确认后恢复开发。
 - Final Report/TaskDelivery：按 Schema 校验并保存不可变交付记录，强校验当前任务包和确认记录，并固化任务包的 Code Context、Context Plan 和基线 SHA 后异步排队 Git 事实校验。
 - Git/CI 同步骨架：GitOperation 保存 Provider 实际验证的 Commit/PR head SHA，CIRun 绑定 TaskDelivery 的同一 Commit SHA；Provider 调用在事务外执行，结果通过独立 Outbox Worker 事务落库并支持退避重试。
 - CI Bootstrap 完成门禁：保存 CI 配置存在/Provider 识别证据，当前 SHA 通过后由 Leader 关闭 Workflow，并在同一事务启用项目 CI 门禁。
@@ -29,7 +30,7 @@ AI Agent 协作开发编排平台后端。平台负责项目治理、Intent 规�
 
 确定性 Mock Git/CI Provider 只在 `test` 或显式 `mock-provider` Profile 下启用，不能作为生产事实来源。
 
-尚未实现 Blocker、真实 GitHub/Actions Adapter、Webhook、审计通知和管理前端。
+尚未实现真实 GitHub/Actions Adapter、Webhook、审计通知和管理前端。
 
 ## 核心流程
 
@@ -83,6 +84,10 @@ GET  /api/tasks/{id}/packages/current
 GET  /api/tasks/{id}/packages/{version}
 GET  /api/tasks/{id}/packages/diff?from={from}&to={to}
 POST /api/tasks/{id}/packages/{version}/confirm
+POST /api/tasks/{id}/block
+GET  /api/tasks/{id}/blockers
+POST /api/tasks/{id}/blockers/{blockerId}/resolve
+POST /api/tasks/{id}/blockers/{blockerId}/cancel
 POST /api/tasks/{id}/delivery
 GET  /api/tasks/{id}/deliveries
 ```

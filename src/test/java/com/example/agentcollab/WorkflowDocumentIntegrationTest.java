@@ -69,6 +69,7 @@ class WorkflowDocumentIntegrationTest {
     @Autowired com.example.agentcollab.repository.TaskPackageRepository taskPackages;
     @Autowired com.example.agentcollab.repository.TaskPackageConfirmationRepository packageConfirmations;
     @Autowired com.example.agentcollab.repository.TaskDeliveryRepository taskDeliveries;
+    @Autowired com.example.agentcollab.repository.TaskBlockerRepository taskBlockers;
     @Autowired com.example.agentcollab.repository.GitOperationRepository gitOperations;
     @Autowired com.example.agentcollab.repository.CiRunRepository ciRuns;
     @Autowired com.example.agentcollab.service.GitSyncService gitSync;
@@ -684,6 +685,125 @@ class WorkflowDocumentIntegrationTest {
         assertThat(tasks.findById(task.getId()).orElseThrow().getStatus().name()).isEqualTo("CANCELLED");
         assertThat(taskPackages.findById(replacementPackage.getId()).orElseThrow().getStatus().name())
                 .isEqualTo("RETIRED");
+    }
+
+    @Test
+    void reportsResolvesAndResumesTaskBlockerWithANewTaskPackage() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "blocker");
+        updateProfile(leaderToken, projectId, 13);
+        long memberId = createUser(leaderToken, "member");
+        addMember(leaderToken, projectId, memberId);
+        String memberToken = login("member");
+        long workflowId = createCiBootstrap(leaderToken, projectId, "blocked change", "CHANGE");
+
+        requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
+        confirm(leaderToken, workflowId, "approve-plan", 1).andExpect(status().isOk());
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk());
+        Task task = tasks.findByWorkflowIdOrderById(workflowId).get(0);
+        TaskPackage firstPackage = taskPackages.findByTaskIdAndStatus(
+                task.getId(), TaskPackageStatus.CURRENT).orElseThrow();
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", firstPackage.getId(),
+                                "contentHash", firstPackage.getContentHash()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.confirmationType").value("START_DEVELOPMENT"));
+
+        var report = new java.util.LinkedHashMap<String, Object>();
+        report.put("reasonCode", "SPEC_CONFLICT");
+        report.put("summary", "The approved specification conflicts with the repository contract");
+        report.put("details", "The current API requires an immutable identifier.");
+        report.put("evidence", java.util.List.of("src/main/java/example/App.java"));
+        report.put("question", "Should the task preserve the existing identifier contract?");
+
+        mvc.perform(post("/api/tasks/{id}/block", task.getId())
+                        .header("Authorization", bearer(memberToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(report)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TASK_ASSIGNEE_REQUIRED"));
+
+        String blockerBody = mvc.perform(post("/api/tasks/{id}/block", task.getId())
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(report)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("OPEN"))
+                .andExpect(jsonPath("$.taskStatus").value("BLOCKED"))
+                .andExpect(jsonPath("$.workflowHealth").value("NEEDS_ATTENTION"))
+                .andReturn().getResponse().getContentAsString();
+        long blockerId = json.readTree(blockerBody).path("id").asLong();
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus())
+                .isEqualTo(WorkflowStatus.IN_PROGRESS);
+
+        mvc.perform(post("/api/tasks/{id}/block", task.getId())
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(report)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TASK_BLOCKER_ALREADY_OPEN"));
+        mvc.perform(post("/api/tasks/{taskId}/blockers/{blockerId}/resolve", task.getId(), blockerId)
+                        .header("Authorization", bearer(memberToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("resolution", "Keep the contract"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("TASK_BLOCKER_RESOLVE_FORBIDDEN"));
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", firstPackage.getId(),
+                                "contentHash", firstPackage.getContentHash()))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TASK_BLOCKER_OPEN"));
+
+        jdbc.update("UPDATE workflows SET status = 'READY_TO_CLOSE' WHERE id = ?", workflowId);
+        mvc.perform(post("/api/workflows/{id}/close", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("WORKFLOW_HAS_OPEN_BLOCKERS"));
+        jdbc.update("UPDATE workflows SET status = 'IN_PROGRESS' WHERE id = ?", workflowId);
+
+        mvc.perform(post("/api/tasks/{taskId}/blockers/{blockerId}/resolve", task.getId(), blockerId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "resolution", "Preserve the immutable identifier contract"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RESOLVED"))
+                .andExpect(jsonPath("$.taskStatus").value("BLOCKED"))
+                .andExpect(jsonPath("$.workflowHealth").value("HEALTHY"))
+                .andExpect(jsonPath("$.currentPackageVersion").value(2));
+
+        TaskPackage secondPackage = taskPackages.findByTaskIdAndStatus(
+                task.getId(), TaskPackageStatus.CURRENT).orElseThrow();
+        assertThat(secondPackage.getPackageVersion()).isEqualTo(2);
+        assertThat(taskPackages.findById(firstPackage.getId()).orElseThrow().getStatus())
+                .isEqualTo(TaskPackageStatus.STALE);
+        assertThat(secondPackage.getContentJson().path("blockerHistory")).singleElement().satisfies(item -> {
+            assertThat(item.path("reasonCode").asText()).isEqualTo("SPEC_CONFLICT");
+            assertThat(item.path("status").asText()).isEqualTo("RESOLVED");
+            assertThat(item.path("resolution").asText()).isEqualTo("Preserve the immutable identifier contract");
+        });
+        assertThat(secondPackage.getContentMarkdown()).contains("## Resolved Blockers", "SPEC_CONFLICT");
+
+        mvc.perform(get("/api/tasks/{id}/blockers", task.getId())
+                        .header("Authorization", bearer(memberToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(blockerId))
+                .andExpect(jsonPath("$[0].status").value("RESOLVED"));
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 2)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", secondPackage.getId(),
+                                "contentHash", secondPackage.getContentHash()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.confirmationType").value("RESUME_AFTER_BLOCKER"))
+                .andExpect(jsonPath("$.taskStatus").value("IN_PROGRESS"));
+        assertThat(taskBlockers.findByTaskIdOrderByCreatedAtDesc(task.getId())).singleElement()
+                .satisfies(blocker -> {
+                    assertThat(blocker.getResolvedBy()).isEqualTo(users.findByUsername("leader").orElseThrow().getId());
+                    assertThat(blocker.getResolvedAt()).isNotNull();
+                });
     }
 
     @Test

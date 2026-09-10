@@ -21,6 +21,7 @@ public class TaskPackageConfirmationService {
     private final CodeContextVersionRepository contexts;
     private final CodeContextPlanRepository contextPlans;
     private final RepoInventoryVersionRepository inventories;
+    private final TaskBlockerRepository blockers;
 
     public TaskPackageConfirmationService(TaskRepository tasks, TaskPackageRepository packages,
                                           TaskPackageConfirmationRepository confirmations,
@@ -28,7 +29,8 @@ public class TaskPackageConfirmationService {
                                           WorkflowRepository workflows, WorkflowStateMachine stateMachine,
                                           CodeContextVersionRepository contexts,
                                           CodeContextPlanRepository contextPlans,
-                                          RepoInventoryVersionRepository inventories) {
+                                          RepoInventoryVersionRepository inventories,
+                                          TaskBlockerRepository blockers) {
         this.tasks = tasks;
         this.packages = packages;
         this.confirmations = confirmations;
@@ -39,6 +41,7 @@ public class TaskPackageConfirmationService {
         this.contexts = contexts;
         this.contextPlans = contextPlans;
         this.inventories = inventories;
+        this.blockers = blockers;
     }
 
     @Transactional
@@ -72,14 +75,19 @@ public class TaskPackageConfirmationService {
         if (task.getStatus() == TaskStatus.IN_PROGRESS && existing.isPresent()) {
             return response(existing.orElseThrow(), task);
         }
-        if (task.getStatus() != TaskStatus.ASSIGNED) {
+        boolean resumeAfterBlocker = task.getStatus() == TaskStatus.BLOCKED;
+        if (resumeAfterBlocker && blockers.existsByTaskIdAndStatus(taskId, TaskBlockerStatus.OPEN)) {
+            throw conflict("TASK_BLOCKER_OPEN", "Task 仍有未解决的 Blocker");
+        }
+        if (task.getStatus() != TaskStatus.ASSIGNED && !resumeAfterBlocker) {
             throw conflict("TASK_STATE_CONFLICT", "当前 Task 状态不允许开始开发");
         }
 
         TaskPackageConfirmation confirmation = existing
                 .orElseGet(() -> confirmations.save(new TaskPackageConfirmation(
                         taskId, current.getId(), packageVersion, current.getContentHash(), actorId,
-                        TaskPackageConfirmation.Type.START_DEVELOPMENT)));
+                        resumeAfterBlocker ? TaskPackageConfirmation.Type.RESUME_AFTER_BLOCKER
+                                : TaskPackageConfirmation.Type.START_DEVELOPMENT)));
         task.startDevelopment();
         tasks.save(task);
         if (workflow.getStatus() == WorkflowStatus.TASKS_READY) {

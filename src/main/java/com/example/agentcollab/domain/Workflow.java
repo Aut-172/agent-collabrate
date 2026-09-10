@@ -58,6 +58,16 @@ public class Workflow {
         this.updatedAt = Instant.now();
     }
 
+    public void markNeedsAttention() {
+        this.health = WorkflowHealth.NEEDS_ATTENTION;
+        this.updatedAt = Instant.now();
+    }
+
+    public void markHealthy() {
+        this.health = WorkflowHealth.HEALTHY;
+        this.updatedAt = Instant.now();
+    }
+
     public Long getId() { return id; }
     public Long getProjectId() { return projectId; }
     public String getTitle() { return title; }

@@ -3,10 +3,12 @@ package com.example.agentcollab.controller;
 import com.example.agentcollab.dto.TaskDtos;
 import com.example.agentcollab.dto.TaskDeliveryDtos;
 import com.example.agentcollab.dto.DeliveryEvidenceDtos;
+import com.example.agentcollab.dto.TaskBlockerDtos;
 import com.example.agentcollab.security.CurrentUser;
 import com.example.agentcollab.service.TaskService;
 import com.example.agentcollab.service.TaskDeliveryService;
 import com.example.agentcollab.service.DeliveryEvidenceService;
+import com.example.agentcollab.service.TaskBlockerService;
 import com.example.agentcollab.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -20,13 +22,15 @@ public class TaskController {
     private final UserService users;
     private final TaskDeliveryService deliveries;
     private final DeliveryEvidenceService evidence;
+    private final TaskBlockerService blockers;
 
     public TaskController(TaskService tasks, UserService users, TaskDeliveryService deliveries,
-                          DeliveryEvidenceService evidence) {
+                          DeliveryEvidenceService evidence, TaskBlockerService blockers) {
         this.tasks = tasks;
         this.users = users;
         this.deliveries = deliveries;
         this.evidence = evidence;
+        this.blockers = blockers;
     }
 
     @GetMapping("/{taskId}")
@@ -60,6 +64,32 @@ public class TaskController {
     @GetMapping("/{taskId}/ci-runs")
     public List<DeliveryEvidenceDtos.CiRunResponse> ciRuns(@PathVariable Long taskId) {
         return evidence.listCiRuns(currentUserId(), taskId);
+    }
+
+    @PostMapping("/{taskId}/block")
+    @ResponseStatus(HttpStatus.CREATED)
+    public TaskBlockerDtos.BlockerResponse reportBlocker(
+            @PathVariable Long taskId, @Valid @RequestBody TaskBlockerDtos.ReportRequest request) {
+        return blockers.report(currentUserId(), taskId, request);
+    }
+
+    @GetMapping("/{taskId}/blockers")
+    public List<TaskBlockerDtos.BlockerResponse> blockers(@PathVariable Long taskId) {
+        return blockers.list(currentUserId(), taskId);
+    }
+
+    @PostMapping("/{taskId}/blockers/{blockerId}/resolve")
+    public TaskBlockerDtos.BlockerResponse resolveBlocker(
+            @PathVariable Long taskId, @PathVariable Long blockerId,
+            @Valid @RequestBody TaskBlockerDtos.CloseRequest request) {
+        return blockers.resolve(currentUserId(), taskId, blockerId, request);
+    }
+
+    @PostMapping("/{taskId}/blockers/{blockerId}/cancel")
+    public TaskBlockerDtos.BlockerResponse cancelBlocker(
+            @PathVariable Long taskId, @PathVariable Long blockerId,
+            @Valid @RequestBody TaskBlockerDtos.CloseRequest request) {
+        return blockers.cancel(currentUserId(), taskId, blockerId, request);
     }
 
     private Long currentUserId() {

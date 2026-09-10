@@ -282,11 +282,11 @@ Agent、Git 或 CI 失败不自动把 Workflow 改为 `FAILED`。失败结果必
 
 ## 13. Blocker 规则
 
-### 12.1 触发方式
+### 13.1 触发方式
 
 本地 Agent 可以按照任务包输出结构化阻塞报告，但平台无法自动知道本地执行结果。成员确认后，通过平台提交 Blocker，Task 才进入 `BLOCKED`。
 
-### 12.2 Blocker 原因
+### 13.2 Blocker 原因
 
 ```text
 REQUIREMENT_CLARIFICATION
@@ -299,9 +299,13 @@ TASK_PACKAGE_UPDATED
 OTHER
 ```
 
-### 12.3 Blocker 解决
+### 13.3 Blocker 解决
 
 Leader/创建者可以回复、修改文档、修改任务、换人或取消任务。任何影响开发上下文的变更都必须产生新版本和新任务包。
+
+MVP 中关闭 `OPEN` Blocker 本身即触发任务包重新生成：旧包变为 `STALE`，新包记录已关闭 Blocker 的原因、摘要、状态和解决说明。Task 保持 `BLOCKED`，直到当前负责人确认新包；该确认记录类型为 `RESUME_AFTER_BLOCKER`，确认成功后 Task 才回到 `IN_PROGRESS`。
+
+同一 Task 同时最多存在一个 `OPEN` Blocker。任一 Task 存在 `OPEN` Blocker 时 Workflow 主状态保持不变，健康度为 `NEEDS_ATTENTION`，且 Workflow 不能关闭；最后一个 `OPEN` Blocker 关闭后健康度恢复为 `HEALTHY`。
 
 ## 14. 看板映射
 

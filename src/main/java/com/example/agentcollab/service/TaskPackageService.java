@@ -31,6 +31,7 @@ public class TaskPackageService {
     private final CodeContextPlanRepository contextPlans;
     private final RepoInventoryVersionRepository inventories;
     private final CodeContextFileRepository contextFiles;
+    private final TaskBlockerRepository blockers;
     private final WorkflowService workflowService;
     private final ObjectMapper json;
     private final JsonSchema packageSchema;
@@ -41,12 +42,14 @@ public class TaskPackageService {
                               TaskAssignmentRepository assignments, DocumentVersionRepository documents,
                               CodeContextVersionRepository contexts, CodeContextPlanRepository contextPlans,
                               RepoInventoryVersionRepository inventories, CodeContextFileRepository contextFiles,
-                              WorkflowService workflowService, ObjectMapper json, EntityManager entityManager) {
+                              TaskBlockerRepository blockers, WorkflowService workflowService,
+                              ObjectMapper json, EntityManager entityManager) {
         this.packages = packages; this.tasks = tasks; this.workflows = workflows; this.projects = projects;
         this.members = members;
         this.assignments = assignments; this.documents = documents; this.contexts = contexts;
         this.contextPlans = contextPlans; this.inventories = inventories;
-        this.contextFiles = contextFiles; this.workflowService = workflowService; this.json = json;
+        this.contextFiles = contextFiles; this.blockers = blockers;
+        this.workflowService = workflowService; this.json = json;
         this.entityManager = entityManager;
         this.packageSchema = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012)
                 .getSchema(getClass().getResourceAsStream("/schema/task-package-v1.schema.json"));
@@ -120,6 +123,17 @@ public class TaskPackageService {
         root.put("objective", task.getTitle());
         copyArray(root, "scope", details, "scope"); copyArray(root, "nonGoals", details, "nonGoals");
         copyArray(root, "acceptanceCriteria", details, "acceptanceCriteria"); copyArray(root, "verificationCommands", details, "verificationCommands");
+        var blockerHistory = root.putArray("blockerHistory");
+        blockers.findByTaskIdOrderByCreatedAtDesc(task.getId()).stream()
+                .filter(blocker -> blocker.getStatus() != TaskBlockerStatus.OPEN)
+                .forEach(blocker -> {
+                    var item = blockerHistory.addObject();
+                    item.put("id", blocker.getId());
+                    item.put("reasonCode", blocker.getReasonCode().name());
+                    item.put("summary", blocker.getSummary());
+                    item.put("status", blocker.getStatus().name());
+                    item.put("resolution", blocker.getResolution());
+                });
         var policy = root.putObject("executionPolicy");
         policy.put("mode", "LOCAL_AGENT");
         policy.put("workingDirectory", "repository-root");
@@ -258,6 +272,15 @@ public class TaskPackageService {
         content.path("context").path("codeEvidence").forEach(item -> result.append("- ")
                 .append(item.path("path").asText()).append(": ").append(item.path("reason").asText()).append('\n'));
         result.append('\n');
+        if (!content.path("blockerHistory").isEmpty()) {
+            result.append("## Resolved Blockers\n\n");
+            content.path("blockerHistory").forEach(item -> result.append("- [")
+                    .append(item.path("status").asText()).append("] ")
+                    .append(item.path("reasonCode").asText()).append(": ")
+                    .append(item.path("summary").asText()).append("; resolution: ")
+                    .append(item.path("resolution").asText()).append('\n'));
+            result.append('\n');
+        }
         appendList(result, "Acceptance Criteria", content.path("acceptanceCriteria"), true);
         result.append("## Verification\n\n```bash\n");
         content.path("verificationCommands").forEach(item -> result.append(item.asText()).append('\n'));

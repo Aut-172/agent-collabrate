@@ -5,6 +5,7 @@ import com.example.agentcollab.dto.WorkflowDtos;
 import com.example.agentcollab.exception.ApiException;
 import com.example.agentcollab.repository.ProjectMemberRepository;
 import com.example.agentcollab.repository.ProjectRepository;
+import com.example.agentcollab.repository.TaskBlockerRepository;
 import com.example.agentcollab.repository.WorkflowMemberRepository;
 import com.example.agentcollab.repository.WorkflowRepository;
 import org.springframework.http.HttpStatus;
@@ -25,12 +26,14 @@ public class WorkflowService {
     private final WorkflowStateMachine stateMachine;
     private final AgentRunCancellationService runCancellation;
     private final TaskCancellationService taskCancellation;
+    private final TaskBlockerRepository blockers;
 
     public WorkflowService(WorkflowRepository workflows, WorkflowMemberRepository workflowMembers,
                            ProjectRepository projects, ProjectMemberRepository projectMembers,
                            ProjectAccessService access, WorkflowStateMachine stateMachine,
                            AgentRunCancellationService runCancellation,
-                           TaskCancellationService taskCancellation) {
+                           TaskCancellationService taskCancellation,
+                           TaskBlockerRepository blockers) {
         this.workflows = workflows;
         this.workflowMembers = workflowMembers;
         this.projects = projects;
@@ -39,6 +42,7 @@ public class WorkflowService {
         this.stateMachine = stateMachine;
         this.runCancellation = runCancellation;
         this.taskCancellation = taskCancellation;
+        this.blockers = blockers;
     }
 
     @Transactional
@@ -99,6 +103,9 @@ public class WorkflowService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "项目不存在"));
         if (workflow.getStatus() != WorkflowStatus.READY_TO_CLOSE) {
             throw conflict("WORKFLOW_NOT_READY_TO_CLOSE", "Workflow 尚未满足关闭条件");
+        }
+        if (blockers.existsByWorkflowIdAndStatus(workflowId, TaskBlockerStatus.OPEN)) {
+            throw conflict("WORKFLOW_HAS_OPEN_BLOCKERS", "Workflow 存在未解决的 Task Blocker");
         }
         if (workflow.getCompletionMode() == WorkflowCompletionMode.CI_BOOTSTRAP) {
             if (project.getCiStatus() != ProjectCiStatus.CI_NOT_CONFIGURED) {

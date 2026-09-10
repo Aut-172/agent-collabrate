@@ -32,6 +32,7 @@
     "nonGoals": { "$ref": "#/$defs/stringList" },
     "acceptanceCriteria": { "$ref": "#/$defs/nonEmptyStringList" },
     "verificationCommands": { "$ref": "#/$defs/nonEmptyStringList" },
+    "blockerHistory": { "type": "array", "items": { "$ref": "#/$defs/blockerHistory" } },
     "executionPolicy": { "type": "object", "required": ["mode", "git"], "additionalProperties": true },
     "allowedPaths": { "type": "array" },
     "forbiddenPaths": { "type": "array" },
@@ -47,6 +48,18 @@
         "path": { "type": "string", "minLength": 1 },
         "reason": { "type": "string", "minLength": 1 },
         "summary": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "blockerHistory": {
+      "type": "object",
+      "required": ["id", "reasonCode", "summary", "status", "resolution"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "reasonCode": { "enum": ["REQUIREMENT_CLARIFICATION", "SPEC_CONFLICT", "DEPENDENCY", "ENVIRONMENT", "PERMISSION", "CI_FAILURE", "TASK_PACKAGE_UPDATED", "OTHER"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["RESOLVED", "CANCELLED"] },
+        "resolution": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     }

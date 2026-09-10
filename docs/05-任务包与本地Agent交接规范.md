@@ -107,6 +107,15 @@ TASK-001.json
   "verificationCommands": [
     "mvn test"
   ],
+  "blockerHistory": [
+    {
+      "id": 27,
+      "reasonCode": "SPEC_CONFLICT",
+      "summary": "规格与现有认证契约冲突",
+      "status": "RESOLVED",
+      "resolution": "保留现有契约并按补充规格实现"
+    }
+  ],
   "executionPolicy": {
     "mode": "LOCAL_AGENT",
     "workingDirectory": "repository-root",
@@ -150,6 +159,8 @@ TASK-001.json
 
 `baseCommitSha` 是任务包的规范字段；MVP v1 同时输出值相同的 `baseCommit` 兼容字段，后续消费者应优先读取 `baseCommitSha`。
 
+`blockerHistory` 只包含已经 `RESOLVED` 或 `CANCELLED` 的历史 Blocker。新生成的初始任务包使用空数组；关闭 Blocker 后生成的新任务包必须写入原因、摘要、关闭状态和解决说明，不能只递增版本号或哈希。为兼容已经固化且不可覆盖的早期 v1 任务包，Schema 读取时允许该字段缺失。
+
 ## 4. Markdown 模板
 
 ```markdown
@@ -192,6 +203,10 @@ TASK-001.json
 - 遵循项目现有错误响应格式；
 - 不假设任务包中没有写出的接口已经存在；
 - 以本地仓库实际代码为准检查文件和类名。
+
+## Resolved Blockers
+
+- [RESOLVED] SPEC_CONFLICT: 规格与现有认证契约冲突；resolution: 保留现有契约并按补充规格实现。
 
 ## Acceptance Criteria
 
@@ -345,6 +360,15 @@ Code Context 过期并不一定立刻取消已经开始的本地开发，但以�
 ```
 
 成员提交阻塞后，平台创建 TaskBlocker 并通知 Leader。Leader 的回复或上下文修改可能生成新的任务包版本。这里的成员可以是普通 Member，也可以是承担开发任务的 Leader。
+
+平台侧约束如下：
+
+1. 只有当前 Task 负责人可以提交 Blocker，且同一 Task 同时最多有一个 `OPEN` Blocker；
+2. 提交后 Task 从 `IN_PROGRESS` 进入 `BLOCKED`，Workflow 主状态不变，健康度变为 `NEEDS_ATTENTION`；
+3. 只有项目 Leader 或 Workflow 创建者可以将 Blocker 标记为 `RESOLVED` 或 `CANCELLED`；
+4. 关闭 Blocker 必须使旧任务包变为 `STALE`，并生成带 `blockerHistory` 的新 `CURRENT` 任务包；
+5. Task 在关闭 Blocker 后仍保持 `BLOCKED`，当前负责人确认新包后才以 `RESUME_AFTER_BLOCKER` 恢复为 `IN_PROGRESS`；
+6. 存在 `OPEN` Blocker 时禁止恢复开发和关闭 Workflow。
 
 ## 9. 凭证边界
 
