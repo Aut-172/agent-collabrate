@@ -84,11 +84,21 @@ public class GitSyncService {
             reject(operation, delivery, job, safeMessage(result.errorMessage(), "Git facts do not match delivery"));
             return;
         }
+        if (result.verifiedCommitSha() == null
+                || !delivery.getCommitSha().equalsIgnoreCase(result.verifiedCommitSha())) {
+            reject(operation, delivery, job, "Git Provider returned a different Commit SHA");
+            return;
+        }
+        if (delivery.getPullRequestUrl() != null && (result.pullRequestHeadSha() == null
+                || !delivery.getCommitSha().equalsIgnoreCase(result.pullRequestHeadSha()))) {
+            reject(operation, delivery, job, "Pull Request head SHA does not match delivery");
+            return;
+        }
 
         Project project = projects.findById(operation.getProjectId()).orElseThrow();
         Task task = tasks.findByIdForUpdate(operation.getTaskId()).orElseThrow();
         Workflow workflow = workflows.findByIdForUpdate(operation.getWorkflowId()).orElseThrow();
-        operation.succeed(result.externalId());
+        operation.succeed(result.externalId(), result.verifiedCommitSha(), result.pullRequestHeadSha());
         CiRun run = ciRuns.findByDeliveryIdAndCommitSha(delivery.getId(), delivery.getCommitSha())
                 .orElseGet(() -> ciRuns.save(new CiRun(project.getId(), workflow.getId(), task.getId(),
                         delivery.getId(), delivery.getCommitSha())));

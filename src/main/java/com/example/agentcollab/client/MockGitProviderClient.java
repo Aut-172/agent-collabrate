@@ -14,6 +14,7 @@ public class MockGitProviderClient implements GitProviderClient {
         boolean validBranch = delivery.getBranchName() != null && !delivery.getBranchName().equals(project.getDefaultBranch());
         boolean validPr = delivery.getPullRequestUrl() == null || delivery.getPullRequestUrl().startsWith("https://");
         return new GitValidationResult(true, validSha, validBranch, validPr,
+                delivery.getCommitSha(), delivery.getPullRequestUrl() == null ? null : delivery.getCommitSha(),
                 "mock-git:" + delivery.getCommitSha(), validSha ? null : "Commit 不存在或 SHA 格式无效");
     }
 }

@@ -79,6 +79,8 @@ listWorkflowRuns(owner, repo, filters)
 - PR head SHA 与提交的 Commit SHA 一致；
 - CI Run 的 head SHA 与当前交付 SHA 一致。
 
+Git Provider 的校验结果必须返回实际解析到的 Commit SHA，以及存在 PR 时的 PR head SHA。平台不能只保存一个“匹配”布尔值；服务端必须把这些观测值与 TaskDelivery 的 `commit_sha` 比较并保存到 GitOperation，完全一致后才能创建同一 SHA 的 CIRun。
+
 用于 Code Context 时，Git Provider 还需要支持：
 
 - 首次同步完整目录树和文件元数据；

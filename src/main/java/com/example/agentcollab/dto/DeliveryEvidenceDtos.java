@@ -10,12 +10,14 @@ public final class DeliveryEvidenceDtos {
     public record GitOperationResponse(
             Long id, Long projectId, Long workflowId, Long taskId, Long deliveryId, GitOperationType operationType,
             String branchName, String commitSha, String pullRequestUrl, String externalId,
+            String verifiedCommitSha, String pullRequestHeadSha, Instant verifiedAt,
             GitOperationStatus status, String errorMessage, Instant createdAt) {
         public static GitOperationResponse from(GitOperation operation) {
             return new GitOperationResponse(operation.getId(), operation.getProjectId(), operation.getWorkflowId(),
                     operation.getTaskId(), operation.getDeliveryId(),
                     operation.getOperationType(), operation.getBranchName(), operation.getCommitSha(),
-                    operation.getPullRequestUrl(), operation.getExternalId(), operation.getStatus(),
+                    operation.getPullRequestUrl(), operation.getExternalId(), operation.getVerifiedCommitSha(),
+                    operation.getPullRequestHeadSha(), operation.getVerifiedAt(), operation.getStatus(),
                     operation.getErrorMessage(), operation.getCreatedAt());
         }
     }

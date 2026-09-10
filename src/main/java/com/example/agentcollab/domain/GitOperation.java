@@ -16,7 +16,10 @@ public class GitOperation {
     @Column(name = "commit_sha", length = 100, updatable = false) private String commitSha;
     @Column(name = "pull_request_number", updatable = false) private Integer pullRequestNumber;
     @Column(name = "pull_request_url", length = 500, updatable = false) private String pullRequestUrl;
-    @Column(name = "external_id", length = 200, updatable = false) private String externalId;
+    @Column(name = "external_id", length = 200) private String externalId;
+    @Column(name = "verified_commit_sha", length = 100) private String verifiedCommitSha;
+    @Column(name = "pull_request_head_sha", length = 100) private String pullRequestHeadSha;
+    @Column(name = "verified_at") private Instant verifiedAt;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 30) private GitOperationStatus status;
     @Column(name = "error_message", columnDefinition = "text") private String errorMessage;
     @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
@@ -32,7 +35,12 @@ public class GitOperation {
         this.createdAt = Instant.now();
     }
 
-    public void succeed(String externalId) { status = GitOperationStatus.SUCCEEDED; this.externalId = externalId; errorMessage = null; }
+    public void succeed(String externalId, String verifiedCommitSha, String pullRequestHeadSha) {
+        status = GitOperationStatus.SUCCEEDED; this.externalId = externalId;
+        this.verifiedCommitSha = verifiedCommitSha.toLowerCase();
+        this.pullRequestHeadSha = pullRequestHeadSha == null ? null : pullRequestHeadSha.toLowerCase();
+        this.verifiedAt = Instant.now(); errorMessage = null;
+    }
     public void fail(String message) { status = GitOperationStatus.FAILED; errorMessage = message; }
     public Long getId() { return id; }
     public Long getProjectId() { return projectId; }
@@ -44,6 +52,9 @@ public class GitOperation {
     public String getCommitSha() { return commitSha; }
     public String getPullRequestUrl() { return pullRequestUrl; }
     public String getExternalId() { return externalId; }
+    public String getVerifiedCommitSha() { return verifiedCommitSha; }
+    public String getPullRequestHeadSha() { return pullRequestHeadSha; }
+    public Instant getVerifiedAt() { return verifiedAt; }
     public GitOperationStatus getStatus() { return status; }
     public String getErrorMessage() { return errorMessage; }
     public Instant getCreatedAt() { return createdAt; }

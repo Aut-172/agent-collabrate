@@ -20,7 +20,7 @@ AI Agent 协作开发编排平台后端。平台负责项目治理、Intent 规�
 - Task Package v1：任务创建后生成不可变 Markdown + JSON 包，保存 SHA-256 哈希并提供当前/历史/差异读取。
 - 任务包确认：当前负责人按 package ID、版本和哈希确认后开始开发；重新分配会保留旧包并生成新版本。
 - Final Report/TaskDelivery：按 Schema 校验并保存不可变交付记录，强校验当前任务包和确认记录，并固化任务包的 Code Context、Context Plan 和基线 SHA 后异步排队 Git 事实校验。
-- Git/CI 同步骨架：GitOperation 和 CIRun 均绑定 TaskDelivery 的 Commit SHA，Provider 调用在事务外执行，结果通过独立 Outbox Worker 事务落库并支持退避重试。
+- Git/CI 同步骨架：GitOperation 保存 Provider 实际验证的 Commit/PR head SHA，CIRun 绑定 TaskDelivery 的同一 Commit SHA；Provider 调用在事务外执行，结果通过独立 Outbox Worker 事务落库并支持退避重试。
 - CI Bootstrap 完成门禁：保存 CI 配置存在/Provider 识别证据，当前 SHA 通过后由 Leader 关闭 Workflow，并在同一事务启用项目 CI 门禁。
 - 交付事实查询：项目成员可以按 Task 查询历史 GitOperation 和 CIRun，不使用 Final Report 代替 Provider 事实。
 - Git Code Context：异步同步默认分支事实并建立版本化 Repo Inventory，过滤敏感路径、二进制和超限文件。

@@ -811,6 +811,8 @@ class WorkflowDocumentIntegrationTest {
         assertThat(gitSyncWorker.processGitNext()).isTrue();
         var gitOperation = gitOperations.findByDeliveryId(deliveryId).orElseThrow();
         assertThat(gitOperation.getStatus()).isEqualTo(com.example.agentcollab.domain.GitOperationStatus.SUCCEEDED);
+        assertThat(gitOperation.getVerifiedCommitSha()).isEqualTo(commitSha);
+        assertThat(gitOperation.getVerifiedAt()).isNotNull();
         var ciRun = ciRuns.findByDeliveryIdAndCommitSha(deliveryId, commitSha).orElseThrow();
         assertThat(ciRun.getCommitSha()).isEqualTo(saved.getCommitSha());
         assertThat(ciRun.getExternalId()).isNull();
@@ -856,6 +858,7 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].deliveryId").value(deliveryId))
                 .andExpect(jsonPath("$[0].commitSha").value(commitSha))
+                .andExpect(jsonPath("$[0].verifiedCommitSha").value(commitSha))
                 .andExpect(jsonPath("$[0].status").value("SUCCEEDED"));
         mvc.perform(get("/api/tasks/{id}/ci-runs", task.getId())
                         .header("Authorization", bearer(reviewerToken)))
@@ -916,6 +919,56 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(jsonPath("$.code").value("TASK_PACKAGE_CONTEXT_STALE"));
         assertThat(tasks.findById(task.getId()).orElseThrow().getStatus()).isEqualTo(TaskStatus.ASSIGNED);
         assertThat(packageConfirmations.count()).isZero();
+    }
+
+    @Test
+    void rejectsGitValidationThatReportsADifferentCommitSha() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "git-sha-binding");
+        updateProfile(leaderToken, projectId, 13);
+        long workflowId = createCiBootstrap(leaderToken, projectId, "bind git sha", "CHANGE");
+        requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
+        confirm(leaderToken, workflowId, "approve-plan", 1).andExpect(status().isOk());
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk());
+
+        Task task = tasks.findByWorkflowIdOrderById(workflowId).get(0);
+        TaskPackage taskPackage = taskPackages.findByTaskIdAndStatus(task.getId(), TaskPackageStatus.CURRENT)
+                .orElseThrow();
+        mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "packageId", taskPackage.getId(), "contentHash", taskPackage.getContentHash()))))
+                .andExpect(status().isOk());
+
+        String commitSha = "0123456789abcdef0123456789abcdef01234567";
+        var report = finalReport(task, taskPackage, commitSha);
+        String response = mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(deliveryRequest(
+                                taskPackage, report, task.getBranchName(), commitSha))))
+                .andExpect(status().isAccepted())
+                .andReturn().getResponse().getContentAsString();
+        long deliveryId = json.readTree(response).path("id").asLong();
+
+        var claimed = gitSync.claimNext().orElseThrow();
+        gitSync.complete(claimed, new com.example.agentcollab.client.GitProviderClient.GitValidationResult(
+                true, true, true, true,
+                "abcdefabcdefabcdefabcdefabcdefabcdefabcd", null, "git-fact-1", null));
+
+        assertThat(gitOperations.findByDeliveryId(deliveryId)).get()
+                .satisfies(operation -> {
+                    assertThat(operation.getStatus()).isEqualTo(GitOperationStatus.FAILED);
+                    assertThat(operation.getVerifiedCommitSha()).isNull();
+                });
+        assertThat(taskDeliveries.findById(deliveryId).orElseThrow().getStatus())
+                .isEqualTo(TaskDeliveryStatus.REJECTED);
+        assertThat(tasks.findById(task.getId()).orElseThrow().getStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+        assertThat(ciRuns.count()).isZero();
+        assertThat(outboxJobs.findByJobTypeAndReferenceId(OutboxJobType.GIT_SYNC, deliveryId))
+                .get().extracting(OutboxJob::getStatus).isEqualTo(OutboxJobStatus.FAILED);
     }
 
     @Test
