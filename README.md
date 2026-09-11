@@ -95,6 +95,7 @@ mvn test
 
 ```powershell
 cd frontend
+npm test
 npm run build
 ```
 
