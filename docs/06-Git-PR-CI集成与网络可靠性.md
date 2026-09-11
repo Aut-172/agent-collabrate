@@ -6,6 +6,8 @@ MVP 优先支持 GitHub + GitHub Actions。Git Provider 和 CI Provider 使用�
 
 平台只保存和验证 Git/CI 元数据，不修改成员本地仓库，不代替成员执行 Git CLI。
 
+当前生产 GitHub Git/Actions Adapter 已接入，使用 `GIT_API_URL` 和 `GIT_TOKEN` 环境变量；Mock Git/CI 仅在 `test` 或 `mock-provider` Profile 加载。Agent 文档生成的 Mock Provider 也仅在这两个 Profile 加载，生产环境未配置真实 Agent Adapter 时会显式返回配置错误。
+
 Git Provider 同时为 Code Context 机制提供仓库事实，但它只负责读取 tree、file、diff、commit 等原始数据，不负责判断哪些文件与 Intent 有关。相关性判断由平台 Agent 生成 Context Plan 后交给 Code Context Orchestrator 执行。
 
 ## 1.1 从零项目的 CI Bootstrap

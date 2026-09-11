@@ -539,9 +539,10 @@ jobs:
 2. Project、ProjectMember、能力画像和画像版本；
 3. 文档版本和状态机；
 4. Code Context Provider、Repo Inventory、Context Plan 和 Git 仓库上下文同步；
-5. AgentRun、OutboxJob 和 Mock Provider；
+5. AgentRun、OutboxJob 和 Mock Provider（仅 `test/mock-provider` Profile）；生产环境使用未配置占位适配器，真实 Agent Provider 待后续接入；
 6. Plan Schema、Task、TaskAssignment；
 7. TaskPackage、Blocker 和看板；
 8. Git/PR/CI 同步；
-9. 审计、通知和错误恢复；
-10. 最小前端和完整验收测试。
+9. Webhook、通知和 V19 审计日志；
+10. Vite + React 最小管理界面和验收回归（当前已完成基础页面）；
+11. 后续补齐管理编辑交互、细粒度异步错误恢复和更完整验收覆盖。

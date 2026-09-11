@@ -353,7 +353,27 @@ Leader 和 Member 都可以编辑自己的画像。Leader 可以查看项目成�
 - 文本超长时换行或折叠，不覆盖相邻内容；
 - 不使用随视口宽度线性缩放的字体。
 
-## 8. 前端技术建议
+## 8. 当前技术实现
+
+仓库已固定使用 Vite + React + JavaScript，并使用 `lucide-react` 图标。前端工程位于 `frontend/`：
+
+```text
+frontend/
+  index.html
+  vite.config.js       # /api 代理到后端 8080
+  src/main.jsx         # 登录、项目、Workflow、看板、成员、通知、审计
+  src/styles.css       # 桌面/移动响应式样式
+```
+
+启动命令：`cd frontend; npm install; npm run dev`。生产构建命令：`npm run build`。
+
+当前已实现登录、项目切换、项目概览、Workflow 列表、8 列只读看板、成员列表、通知列表/标记已读和审计日志页面。任务卡展示负责人、任务包版本、分支、CI 和更新时间；状态变更仍通过后端具名业务 API。
+
+## 8.1 后续页面补齐项
+
+以下页面规范仍是后续迭代目标，当前 React MVP 尚未提供完整编辑交互：Workflow 文档版本编辑/确认、Build Plan 表单审批、任务包复制/下载/差异、Blocker 报告和处理、Final Report/TaskDelivery 分步提交、Git/PR/CI 详情和完整审计时间线。
+
+## 8.2 前端技术建议（历史）
 
 如果项目尚未固定前端技术栈，建议：
 

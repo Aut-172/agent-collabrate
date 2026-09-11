@@ -1,5 +1,15 @@
 # AI Agent 协作开发平台 MVP 文档
 
+代码仓库当前实现基线和启动命令请先阅读根目录 [README.md](../README.md)。
+
+## 当前实现基线
+
+当前 `main` 已完成后端核心 MVP 与最小管理前端：User/JWT、Project/ProjectMember/能力画像、Workflow/DocumentVersion/状态机、Code Context、AgentRun/Outbox、Build Plan/Task/TaskPackage/TaskDelivery、GitHub Git/Actions Adapter、8 列任务看板、站内通知、Task Blocker、签名 Webhook、V19 不可变 AuditLog，以及 `frontend/` 下的 Vite + React 管理界面。
+
+数据库已执行到 Flyway V19。V1-V19 不得修改，后续 migration 从 V20 开始。
+
+后端使用 `mvn spring-boot:run` 启动，前端使用 `cd frontend; npm install; npm run dev` 启动；详细环境变量和测试命令见根目录 README。
+
 ## 文档用途
 
 这组文档用于指导 MVP 的产品确认、后端开发、前端开发、集成测试和验收。
@@ -37,7 +47,7 @@
 |---|---|
 | 应用形态 | Java 17+、Spring Boot 3.x 单体应用 |
 | 数据库 | PostgreSQL，使用 Flyway 管理结构 |
-| Agent 文档生成 | 平台服务端调用 Agent Provider API |
+| Agent 文档生成 | 测试使用 Mock Provider；生产环境当前为显式未配置占位适配器，真实 Agent Adapter 待后续阶段接入 |
 | 代码上下文 | 引入 Code Context Provider；MVP 当前扩展先用 Git Provider 建立 Repo Inventory，再由 Context Plan 引导多轮取证，预留 Local Agent Provider |
 | Agent 代码执行 | 成员本地使用 Codex CLI 或其他 Agent |
 | 本地 Agent Key | 只保存在成员本机，不上传平台 |
@@ -67,3 +77,9 @@
 - 关键架构取舍写入 ADR；
 - 所有新增需求必须同步增加验收测试条目；
 - 已批准文档和任务包不直接覆盖，必须产生新版本。
+
+## 当前已知边界
+
+- 生产 GitHub Git/Actions Adapter、Webhook、通知和审计已经可用；真实 Agent Provider Adapter 尚未接入。
+- 生产 Profile 启动时使用 `UnavailableAgentProviderClient`，调用生成接口会返回可解释的未配置错误，不会误用 Mock 数据。
+- Vite + React 当前提供查询型管理页面；文档编辑、Plan 审批、任务包下载/差异、Blocker 操作和交付分步表单仍在后续迭代。

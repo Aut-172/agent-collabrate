@@ -81,6 +81,8 @@
 | AT-042 | 初始分配、重新分配和任务包更新通知当前负责人 | 服务/集成测试 |
 | AT-043 | Blocker 创建通知 Leader 与 Workflow 创建者并去重，关闭后通知当前负责人 | 服务/集成测试 |
 
+当前回归基线：后端全量测试 61/61 通过，Flyway V1-V19 在 PostgreSQL Testcontainers 空库迁移通过；前端 `npm run build` 通过。已覆盖实现包括看板、通知、Webhook、审计和 Profile 隔离。尚未覆盖的前端交互详见 docs/12 的“后续页面补齐项”。
+
 ## 3. 关键状态机测试
 
 ### 正向流程

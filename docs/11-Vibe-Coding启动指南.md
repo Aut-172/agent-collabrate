@@ -1,5 +1,25 @@
 # Vibe Coding 启动指南
 
+## 当前仓库启动
+
+后端和前端已经分别落地。后端要求 Java 17+、Maven 3.9+ 和 PostgreSQL；前端位于 `frontend/`，使用 Vite + React。
+
+```powershell
+# 终端 1：后端
+$env:DB_URL = "jdbc:postgresql://localhost:5432/agent_collab"
+$env:DB_USERNAME = "agent_collab"
+$env:DB_PASSWORD = "change-me"
+$env:JWT_SECRET = "replace-with-at-least-32-random-bytes"
+mvn spring-boot:run
+
+# 终端 2：前端
+cd frontend
+npm install
+npm run dev
+```
+
+前端地址为 `http://localhost:5173`，Vite 将 `/api` 代理到 `http://localhost:8080`。全量后端测试使用 `mvn test`，需要 Docker Desktop 供 Testcontainers 启动 PostgreSQL。生产凭证只能通过环境变量或密钥管理服务提供。
+
 ## 1. 是否建议新开会话
 
 建议为正式开发新开一个 Codex 会话或任务。
@@ -107,7 +127,8 @@
 9. TaskPackage、版本确认和 Blocker；
 10. 看板和通知；
 11. Git/PR/CI 同步；
-12. 审计、集成测试和最小前端。
+12. Webhook、审计、错误恢复和 Vite + React 最小前端（当前已完成）；
+13. 后续阶段补充更完整的管理交互和验收覆盖。
 
 ## 5. 开发会话的停止条件
 
