@@ -469,17 +469,17 @@ spring:
     enabled: true
 
 app:
+  agent:
+    provider: ${AGENT_PROVIDER:unconfigured}
+    api-url: ${AGENT_API_URL:https://api.openai.com/v1/responses}
+    api-key: ${AGENT_API_KEY:}
+    model: ${AGENT_MODEL:}
+    timeout-seconds: ${AGENT_TIMEOUT_SECONDS:120}
+    max-output-tokens: ${AGENT_MAX_OUTPUT_TOKENS:12000}
+    diagnostics-enabled: ${AGENT_DIAGNOSTICS_ENABLED:false}
   jwt:
     secret: ${JWT_SECRET}
     access-token-expiration: 3600000
-
-agent:
-  provider: ${AGENT_PROVIDER:openai}
-  api-url: ${AGENT_API_URL}
-  api-key: ${AGENT_API_KEY}
-  model: ${AGENT_MODEL}
-  timeout-seconds: 120
-  max-retries: 1
 
 git:
   provider: ${GIT_PROVIDER:github}
@@ -508,6 +508,8 @@ jobs:
   poll-interval-seconds: 5
   max-concurrency: 4
 ```
+
+当 `app.agent.provider=openai` 时，后端使用 OpenAI Responses API 适配器；API Key 只从后端环境变量 `AGENT_API_KEY` 读取，不进入前端、任务包、日志或数据库。默认 `unconfigured` 使用显式失败占位适配器。为隔离验证而提供的 `POST /api/agent-diagnostics/generate` 仅在 `agent-diagnostics` Profile 且 `app.agent.diagnostics-enabled=true` 时注册；它直接返回结构化请求和原始模型输出，不创建 AgentRun 或修改业务状态。
 
 仓库提供三服务 Docker Compose 编排：PostgreSQL、Spring Boot 后端，以及提供 Vite 构建产物和 `/api` 反向代理的 Nginx 前端。后端与前端都使用多阶段构建，最终镜像不包含 Maven、Node.js、源码或本地依赖目录。Flyway 随后端启动执行；数据库使用命名卷持久化并应定期备份。生产环境在 Compose 或同等编排基础上配置 HTTPS，凭证只能通过环境变量或密钥管理服务注入，不能写入镜像。
 

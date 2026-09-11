@@ -65,6 +65,30 @@ mvn spring-boot:run
 
 可选配置：`GIT_PROVIDER`、`GIT_API_URL`、`GIT_TOKEN`、`CI_WEBHOOK_SECRET`、Agent Provider 相关环境变量。生产环境必须通过环境变量或密钥管理服务提供凭证，不要写入代码、任务包、日志或数据库。
 
+当前支持通过 OpenAI Responses API 调用平台 Agent。启用真实 Provider 时配置：
+
+```powershell
+$env:AGENT_PROVIDER = "openai"
+$env:AGENT_API_URL = "https://api.openai.com/v1/responses"
+$env:AGENT_API_KEY = "<server-side-api-key>"
+$env:AGENT_MODEL = "<model-id>"
+mvn spring-boot:run
+```
+
+API Key 只应存在于后端环境变量或密钥管理服务，不要放入前端、任务包、日志或数据库。未设置 `AGENT_PROVIDER=openai` 时，生产环境使用显式未配置占位 Provider；仅设置 API Key 不会自动启用真实调用。
+
+在正式 Workflow 之外做一次单独 Provider 验证时，可显式启用诊断接口：
+
+```powershell
+$env:AGENT_DIAGNOSTICS_ENABLED = "true"
+$env:SPRING_PROFILES_ACTIVE = "agent-diagnostics"
+mvn spring-boot:run
+```
+
+然后向 `POST /api/agent-diagnostics/generate` 发送一个 `AgentGenerationRequest` JSON。接口直接返回回显的结构化输入、Provider 输出格式和原始输出文本，不创建 AgentRun、不修改 Workflow；仍需要登录 JWT。该接口默认关闭，不建议在公网生产环境启用。
+
+Build Plan 的 Prompt 会明确要求使用后端 `build-plan-v1.schema.json` 的字段：顶层必须是 `intentLevel`、`staffingRecommendation`、`tasks`、`assignments`、`alternatives`、`warnings`；任务使用 `effortPoints`、`verificationCommands`，分配使用 `userId`、`fitReason` 等字段。模型输出仍会经过服务端 JSON Schema 校验，不符合协议的结果会使 AgentRun 失败，不会创建任务。
+
 后端 API：<http://localhost:8080>。OpenAPI：<http://localhost:8080/api/openapi>，Swagger UI：<http://localhost:8080/api/swagger-ui>。
 
 首次使用可在前端登录页切换到“注册”，或调用 `POST /api/auth/register` 创建账号；注册成功会直接返回 JWT。用户名长度为 3-50 个字符，密码长度为 8-128 个字符。

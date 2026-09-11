@@ -18,6 +18,17 @@ spring:
 
 app:
   agent:
+    provider: ${AGENT_PROVIDER:unconfigured}
+    api-url: ${AGENT_API_URL:https://api.openai.com/v1/responses}
+    api-key: ${AGENT_API_KEY:}
+    model: ${AGENT_MODEL:}
+    review-model: ${AGENT_REVIEW_MODEL:}
+    reasoning-effort: ${AGENT_REASONING_EFFORT:}
+    disable-response-storage: ${AGENT_DISABLE_RESPONSE_STORAGE:true}
+    network-access: ${AGENT_NETWORK_ACCESS:enabled}
+    timeout-seconds: ${AGENT_TIMEOUT_SECONDS:120}
+    max-output-tokens: ${AGENT_MAX_OUTPUT_TOKENS:12000}
+    diagnostics-enabled: ${AGENT_DIAGNOSTICS_ENABLED:false}
     worker:
       scheduling-enabled: true
       poll-delay-ms: 1000
