@@ -7,3 +7,5 @@ target/
 .env.*
 !.env.example
 *.log
+frontend/node_modules/
+frontend/dist/
