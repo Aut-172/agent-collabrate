@@ -25,6 +25,9 @@ app:
       lock-timeout-ms: 300000
       max-attempts: 2
   git:
+    provider: ${GIT_PROVIDER:github}
+    api-url: ${GIT_API_URL:https://api.github.com}
+    token: ${GIT_TOKEN:}
     worker:
       poll-delay-ms: 1000
       retry-delay-ms: 1000
