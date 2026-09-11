@@ -26,4 +26,10 @@ public class AuthController {
         return authService.login(request.username(), request.password());
     }
 
+    @PostMapping("/register")
+    @ResponseStatus(HttpStatus.CREATED)
+    public AuthDtos.AuthResponse register(@Valid @RequestBody AuthDtos.RegisterRequest request) {
+        return authService.register(request.username(), request.password());
+    }
+
 }

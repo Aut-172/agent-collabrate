@@ -36,6 +36,11 @@ public class AuthService {
         return issue(user);
     }
 
+    @Transactional
+    public AuthResponse register(String username, String password) {
+        return issue(userService.create(username, password));
+    }
+
     private AuthResponse issue(User user) {
         return new AuthResponse(user.getId(), user.getUsername(), jwtService.createToken(user), "Bearer", jwtService.expirationMs());
     }

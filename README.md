@@ -37,6 +37,8 @@ mvn spring-boot:run
 
 后端 API：<http://localhost:8080>。OpenAPI：<http://localhost:8080/api/openapi>，Swagger UI：<http://localhost:8080/api/swagger-ui>。
 
+首次使用可在前端登录页切换到“注册”，或调用 `POST /api/auth/register` 创建账号；注册成功会直接返回 JWT。用户名长度为 3-50 个字符，密码长度为 8-128 个字符。
+
 ### 前端
 
 ```powershell

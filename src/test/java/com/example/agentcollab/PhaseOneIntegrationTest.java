@@ -89,6 +89,36 @@ class PhaseOneIntegrationTest {
     }
 
     @Test
+    void registrationCreatesAccountAndReturnsUsableToken() throws Exception {
+        String body = mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(java.util.Map.of(
+                                "username", "new-member", "password", TEST_PASSWORD))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.username").value("new-member"))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
+
+        String token = json.readTree(body).get("accessToken").asText();
+        mvc.perform(get("/api/me").header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("new-member"));
+
+        assertThat(users.findByUsername("new-member").orElseThrow().getPasswordHash())
+                .startsWith("$2").doesNotContain(TEST_PASSWORD);
+
+        mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(java.util.Map.of(
+                                "username", "new-member", "password", TEST_PASSWORD))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("USERNAME_EXISTS"));
+        mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"short-password\",\"password\":\"short\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
     void leaderAndMemberProfilesAreProjectScopedAndVersioned() throws Exception {
         String leaderToken = initialize("leader", TEST_PASSWORD);
         long projectId = createProject(leaderToken, "core");
