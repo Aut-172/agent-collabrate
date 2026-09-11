@@ -278,7 +278,7 @@ ci_runs
 audit_logs
 notifications
 outbox_jobs
-webhook_deliveries
+webhook_events
 ```
 
 关键约束：
@@ -295,7 +295,7 @@ webhook_deliveries
 - TaskPackage 必须绑定 `contextPlanId`、`codeContextVersionId` 和 `baseCommitSha`；
 - `task_packages(task_id, version)` 唯一；
 - `task_package_confirmations(task_id, user_id, package_version)` 唯一；
-- `webhook_deliveries(provider, delivery_id)` 唯一；
+- `webhook_events(provider, delivery_id)` 唯一；
 - Task 和 Workflow 使用乐观锁；
 - 审计日志不提供修改和删除 API。
 

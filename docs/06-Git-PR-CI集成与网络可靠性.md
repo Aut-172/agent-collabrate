@@ -116,7 +116,7 @@ Webhook 接收流程：
 2. 使用配置的 Secret 验证签名；
 3. 读取 Provider 事件类型；
 4. 使用 delivery ID 去重；
-5. 保存 `WebhookDelivery`；
+5. 保存脱敏的 `WebhookEvent`（事件元数据和 payload hash，不保存完整 payload）；
 6. 快速返回 2xx；
 7. 后台异步处理事件；
 8. 根据 Commit SHA 关联 Task 和 CIRun。

@@ -11,6 +11,7 @@ import java.util.Optional;
 
 public interface ProjectRepository extends JpaRepository<Project, Long> {
     List<Project> findByIdIn(List<Long> ids);
+    List<Project> findByGitProviderIgnoreCase(String gitProvider);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Project p where p.id = :id")
