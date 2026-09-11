@@ -13,6 +13,8 @@ docker compose ps
 
 前端地址为 `http://localhost:5173`，后端地址为 `http://localhost:8080`。前端容器由 Nginx 提供静态资源并将 `/api` 反向代理到后端。Flyway 在后端容器启动时自动执行，PostgreSQL 数据保存在命名卷中。
 
+`POSTGRES_PASSWORD` 只在空数据卷首次初始化时生效。已有卷在修改 `.env` 的 `DB_PASSWORD` 后如出现密码认证失败，运行 `.\scripts\sync-compose-db-password.ps1` 可保留数据并同步数据库角色密码。只有确认数据可以永久删除时，才使用 `docker compose down --volumes` 重建空卷。
+
 需要直接调试源码时，后端要求 Java 17+、Maven 3.9+ 和 PostgreSQL；前端位于 `frontend/`，使用 Vite + React：
 
 ```powershell

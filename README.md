@@ -43,6 +43,14 @@ docker compose down
 
 PostgreSQL 数据保存在 `agent-collab-postgres` 命名卷中，普通 `docker compose down` 不会删除数据。不要在 `.env` 中使用示例密码部署生产环境，也不要提交 `.env`。
 
+如果该 Compose 项目以前已经创建过 PostgreSQL 卷，之后修改 `.env` 中的 `DB_PASSWORD` 不会自动修改数据库角色密码。出现 `password authentication failed for user "agent_collab"` 时，可保留现有数据并同步密码：
+
+```powershell
+.\scripts\sync-compose-db-password.ps1
+```
+
+脚本从 PostgreSQL 容器环境读取当前配置，不会在命令行或日志中输出密码。它会更新数据库角色密码，并等待后端和前端恢复健康。若确认本地数据库内容可以全部丢弃，也可以执行 `docker compose down --volumes` 后重新启动；该命令会永久删除 Compose 数据卷及其中的数据。
+
 ### 后端
 
 不使用容器时，要求 Java 17+、Maven 3.9+、PostgreSQL 14+。使用 PowerShell 时可按以下步骤启动：
