@@ -19,8 +19,7 @@ public final class WorkflowDtos {
 
     public record CreateCiBootstrapRequest(
             @NotBlank @Size(max = 200) String title,
-            @NotBlank @Size(max = 20000) String description,
-            @NotNull IntentLevel intentLevel) {}
+            @NotBlank @Size(max = 20000) String description) {}
 
     public record SaveDocumentRequest(@NotBlank @Size(max = 1000000) String content) {}
 

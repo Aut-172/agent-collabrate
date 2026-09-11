@@ -61,7 +61,7 @@ public class AgentRequestFactory {
                         "WORKFLOW_NOT_FOUND", "Workflow 不存在", false));
         List<AgentGenerationRequest.MemberContext> assignableMembers =
                 workflow.getIntentLevel() == IntentLevel.ARCHITECTURE
-                        ? List.of() : assignableMembers(workflow.getProjectId());
+                        ? List.of() : assignableMembers(workflow);
         if (run.getRunType() == AgentRunType.GENERATE_BUILD_PLAN
                 && workflow.getIntentLevel() != IntentLevel.ARCHITECTURE
                 && assignableMembers.isEmpty()) {
@@ -116,8 +116,10 @@ public class AgentRequestFactory {
                 context.getEvidenceJson(), files);
     }
 
-    private List<AgentGenerationRequest.MemberContext> assignableMembers(Long projectId) {
-        return members.findByProjectIdAndStatus(projectId, ProjectMember.Status.ACTIVE).stream()
+    private List<AgentGenerationRequest.MemberContext> assignableMembers(Workflow workflow) {
+        return members.findByProjectIdAndStatus(workflow.getProjectId(), ProjectMember.Status.ACTIVE).stream()
+                .filter(member -> workflow.getCompletionMode() != WorkflowCompletionMode.CI_BOOTSTRAP
+                        || member.getUserId().equals(workflow.getCreatedBy()))
                 .filter(ProjectMember::isProfileCompleted)
                 .filter(member -> member.getCapabilityProfile() != null)
                 .filter(member -> member.getWeeklyCapacityPoints() != null)
@@ -126,7 +128,7 @@ public class AgentRequestFactory {
                 .map(member -> new AgentGenerationRequest.MemberContext(
                         member.getUserId(), member.getProjectRole(), member.getProfileVersion(),
                         member.getCapabilityProfile().deepCopy(),
-                        tasks.sumOpenEffortPoints(projectId, member.getUserId()),
+                        tasks.sumOpenEffortPoints(workflow.getProjectId(), member.getUserId()),
                         member.getWeeklyCapacityPoints(),
                         member.getAvailability()))
                 .toList();

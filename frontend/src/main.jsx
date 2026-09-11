@@ -38,6 +38,73 @@ function CreateProjectDialog({onClose,onCreated}){
   }
   return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget&&!submitting)onClose()}}><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="create-project-title"><header><div><h2 id="create-project-title">创建项目</h2><p>登记 GitHub 仓库并初始化项目空间</p></div><button type="button" className="icon" onClick={onClose} disabled={submitting} aria-label="关闭创建项目窗口"><X size={18}/></button></header><form onSubmit={submit}><label>项目名称<input autoFocus required maxLength={100} name="name" value={form.name} onChange={update} placeholder="例如：订单服务"/></label><label>Git 仓库地址<input required maxLength={500} type="url" name="repositoryUrl" value={form.repositoryUrl} onChange={update} placeholder="https://github.com/org/repository"/></label><div className="form-grid"><label>Git Provider<select name="gitProvider" value={form.gitProvider} onChange={update}><option value="github">GitHub</option></select></label><label>默认分支<input required maxLength={100} name="defaultBranch" value={form.defaultBranch} onChange={update} placeholder="main"/></label></div>{error&&<p className="error dialog-error" role="alert">{error}</p>}<footer><button type="button" className="button" onClick={onClose} disabled={submitting}>取消</button><button className="primary" disabled={submitting}>{submitting?'正在创建':'创建项目'}</button></footer></form></section></div>
 }
+
+const intentOptions={
+  ARCHITECTURE:{label:'Architecture',summary:'系统边界、模块划分和技术约束',path:'Intent -> Design -> Spec -> 子 Intent 规划',policy:'架构基线，不创建代码交付任务，不要求 CI'},
+  FEATURE:{label:'Feature',summary:'可独立验收的新能力',path:'Intent -> Design -> Spec -> Build Plan -> 任务分配 -> 开发交付 -> CI',policy:'完整设计、规格、分工、任务与 CI'},
+  CHANGE:{label:'Change',summary:'局部代码、配置或行为修改',path:'Intent -> Build Plan -> 任务分配 -> 开发交付 -> CI',policy:'精简实施计划、分工、任务与 CI'}
+}
+const terminalWorkflowStatuses=new Set(['DONE','CANCELLED','FAILED'])
+function CreateWorkflowDialog({project,user,workflows,onClose,onCreated}){
+  const [form,setForm]=useState({workflowKind:'STANDARD',title:'',description:'',intentLevel:'FEATURE'})
+  const [role,setRole]=useState(project.createdBy===user.userId?'LEADER':'')
+  const [roleLoading,setRoleLoading]=useState(true)
+  const [submitting,setSubmitting]=useState(false)
+  const [error,setError]=useState('')
+  const projectHasNoCi=project.ciStatus==='CI_NOT_CONFIGURED'
+  const needsCi=form.intentLevel!=='ARCHITECTURE'
+  const activeBootstrap=workflows.find(workflow=>workflow.completionMode==='CI_BOOTSTRAP'&&!terminalWorkflowStatuses.has(workflow.status))
+  const canBootstrap=role==='LEADER'&&projectHasNoCi&&!activeBootstrap
+  const bootstrapSelected=form.workflowKind==='CI_BOOTSTRAP'
+  const selectedIntent=intentOptions[form.intentLevel]
+
+  useEffect(()=>{
+    const controller=new AbortController()
+    api(`/api/projects/${project.id}/members`,{signal:controller.signal}).then(members=>{
+      const own=(Array.isArray(members)?members:[]).find(member=>member.userId===user.userId)
+      setRole(own?.projectRole||'MEMBER')
+      setRoleLoading(false)
+    }).catch(requestError=>{
+      if(requestError?.name!=='AbortError'){
+        setRole(project.createdBy===user.userId?'LEADER':'MEMBER')
+        setRoleLoading(false)
+      }
+    })
+    return()=>controller.abort()
+  },[project.id,project.createdBy,user.userId])
+  useEffect(()=>{
+    if(!canBootstrap&&form.workflowKind==='CI_BOOTSTRAP'){
+      setForm(current=>({...current,workflowKind:'STANDARD'}))
+    }
+  },[canBootstrap,form.workflowKind])
+  useEffect(()=>{
+    const closeOnEscape=event=>{if(event.key==='Escape'&&!submitting)onClose()}
+    document.addEventListener('keydown',closeOnEscape)
+    return()=>document.removeEventListener('keydown',closeOnEscape)
+  },[onClose,submitting])
+
+  const update=event=>setForm(current=>({...current,[event.target.name]:event.target.value}))
+  const submit=async event=>{
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try{
+      const path=bootstrapSelected?`/api/projects/${project.id}/ci-bootstrap`:`/api/projects/${project.id}/workflows`
+      const body=bootstrapSelected
+        ?{title:form.title.trim(),description:form.description.trim()}
+        :{title:form.title.trim(),description:form.description.trim(),intentLevel:form.intentLevel,parentWorkflowId:null}
+      const created=await api(path,{method:'POST',body:JSON.stringify(body)})
+      if(!created||typeof created!=='object'||created.id==null)throw new Error('创建工作流响应无效')
+      onCreated(created)
+    }catch(requestError){
+      setError(requestError instanceof Error?requestError.message:'创建工作流失败')
+      setSubmitting(false)
+    }
+  }
+
+  const bootstrapHint=roleLoading?'正在确认项目角色':role!=='LEADER'?'只有项目 Leader 可以初始化工程与 CI。':!projectHasNoCi?'项目已经启用 CI；后续 CI 修改请创建普通 Change 工作流。':activeBootstrap?`已有进行中的工程与 CI 初始化工作流：${activeBootstrap.title}`:'建立最小工程骨架、构建测试入口和第一条 CI；任务将直接分配给你。'
+  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget&&!submitting)onClose()}}><section className="dialog workflow-dialog" role="dialog" aria-modal="true" aria-labelledby="create-workflow-title"><header><div><h2 id="create-workflow-title">创建工作流</h2><p>{project.name} · {project.repositoryUrl}</p></div><button type="button" className="icon" onClick={onClose} disabled={submitting} aria-label="关闭创建工作流窗口"><X size={18}/></button></header><form onSubmit={submit}><div className="workflow-context"><div><small>默认分支</small><strong>{project.defaultBranch||'未设置'}</strong></div><div><small>项目 CI</small><Status value={project.ciStatus}/></div><div><small>当前身份</small><strong>{roleLoading?'正在确认':roleLabel(role)}</strong></div></div><fieldset className="workflow-kind-fieldset"><legend>工作流类别</legend><label className={form.workflowKind==='STANDARD'?'selected':''}><input type="radio" name="workflowKind" value="STANDARD" checked={form.workflowKind==='STANDARD'} onChange={update}/><span><strong>普通工作流</strong><small>功能、架构、代码或配置变更；后续修改 CI 也属于普通工作流。</small></span></label><label className={bootstrapSelected?'selected':''}><input type="radio" name="workflowKind" value="CI_BOOTSTRAP" checked={bootstrapSelected} onChange={update} disabled={roleLoading||!canBootstrap}/><span><strong>初始化工程与 CI</strong><small>{bootstrapHint}</small></span></label></fieldset><label>工作流标题<input autoFocus required maxLength={200} name="title" value={form.title} onChange={update} placeholder={bootstrapSelected?'例如：建立 Spring Boot 工程与 GitHub Actions':'例如：支持订单批量导出'}/></label><label>目标与验收描述<textarea required maxLength={20000} rows={5} name="description" value={form.description} onChange={update} placeholder={bootstrapSelected?'说明工程骨架、构建测试入口、CI 检查和通过标准':'说明要解决的问题、期望结果、主要约束和验收方式'}/></label>{!bootstrapSelected&&<fieldset className="intent-fieldset"><legend>Intent 级别</legend><div className="intent-options">{Object.entries(intentOptions).map(([value,option])=><label className={form.intentLevel===value?'selected':''} key={value}><input type="radio" name="intentLevel" value={value} checked={form.intentLevel===value} onChange={update}/><strong>{option.label}</strong><small>{option.summary}</small></label>)}</div></fieldset>}<label>父级 Intent<input readOnly value="无" aria-readonly="true"/></label><section className="workflow-preview" aria-live="polite"><strong>预计流程</strong><p>{bootstrapSelected?'初始化目标 -> Design -> Spec -> Build Plan -> Leader 执行 -> 引导检查 -> 启用 CI 门禁':selectedIntent.path}</p><small>{bootstrapSelected?'仅用于建立初始工程与首条 CI，初始任务固定分配给创建该工作流的 Leader。':selectedIntent.policy}</small></section>{!bootstrapSelected&&projectHasNoCi&&needsCi&&<div className="profile-impact-note"><CircleAlert size={17}/><span>项目尚未初始化工程与 CI；普通 Feature/Change 可以保存，但完成初始化前不能创建可关闭的开发交付。</span></div>}{project.status&&project.status!=='ACTIVE'&&<p className="error dialog-error" role="alert">归档项目不能创建工作流</p>}{error&&<p className="error dialog-error" role="alert">{error}</p>}<footer><button type="button" className="button" onClick={onClose} disabled={submitting}>取消</button><button className="primary" disabled={submitting||(bootstrapSelected&&!canBootstrap)||(project.status&&project.status!=='ACTIVE')}>{submitting?'正在创建':bootstrapSelected?'初始化工程与 CI':'创建工作流'}</button></footer></form></section></div>
+}
 export function App(){
   const [user,setUser]=useState(null)
   const [projects,setProjects]=useState([])
@@ -47,6 +114,7 @@ export function App(){
   const [mobile,setMobile]=useState(false)
   const [error,setError]=useState('')
   const [createProjectOpen,setCreateProjectOpen]=useState(false)
+  const [createWorkflowOpen,setCreateWorkflowOpen]=useState(false)
 
   useEffect(()=>{if(localStorage.getItem('ac_token'))load()},[])
 
@@ -74,24 +142,29 @@ export function App(){
     setPage('overview')
     setCreateProjectOpen(false)
   }
+  function workflowCreated(created){
+    setWorkflows(current=>[created,...current.filter(item=>item.id!==created.id)])
+    setCreateWorkflowOpen(false)
+  }
 
   if(!user)return <Login onLogin={result=>{setUser({userId:result.userId,username:result.username});load()}}/>
 
   const nav=[['overview','项目概览',LayoutDashboard],['workflows','工作流',WorkflowIcon],['board','任务看板',LayoutDashboard],['members','项目成员',Users],['notifications','通知',Bell],['audit','审计日志',FileText]]
+  const projectWorkflows=project?workflows.filter(workflow=>workflow.projectId===project.id):[]
   const pages={
-    overview:<Overview project={project} workflows={workflows}/>,
-    workflows:<Workflows workflows={workflows} onBoard={()=>setPage('board')}/>,
-    board:<Board workflows={workflows}/>,
+    overview:<Overview project={project} workflows={projectWorkflows}/>,
+    workflows:<Workflows project={project} workflows={projectWorkflows} onCreate={()=>setCreateWorkflowOpen(true)} onBoard={()=>setPage('board')}/>,
+    board:<Board workflows={projectWorkflows}/>,
     members:<Members project={project} user={user}/>,
     notifications:<Notifications/>,
     audit:<Audit project={project}/>
   }
 
-  return <div className="shell"><header className="top"><button className="icon mobile" onClick={()=>setMobile(!mobile)} aria-label="打开导航"><Menu size={20}/></button><strong className="brand">Agent Collaborate</strong><span className="heading">{nav.find(n=>n[0]===page)?.[1]}</span><select value={project?.id||''} disabled={!projects.length} aria-label="当前项目" onChange={e=>setProject(projects.find(p=>String(p.id)===e.target.value)||null)}>{!projects.length&&<option value="">暂无项目</option>}{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><button className="primary top-create" onClick={()=>setCreateProjectOpen(true)} aria-label="创建项目" title="创建项目"><Plus size={16}/><span>创建项目</span></button><button className="icon refresh" onClick={load} aria-label="刷新"><RefreshCw size={17}/></button><button className="user" onClick={logout}><LogOut size={15}/>{user.username}</button></header><aside className={`side ${mobile?'open':''}`}><nav>{nav.map(([key,label,Icon])=><button key={key} className={page===key?'active':''} onClick={()=>{setPage(key);setMobile(false)}}><Icon size={17}/><span>{label}</span></button>)}</nav><footer>状态以服务端事实为准<br/><small>MVP 管理工作台</small></footer></aside><main className="content">{error&&<div className="alert"><CircleAlert size={16}/>{error}<button className="icon" onClick={()=>setError('')}><XCircle size={15}/></button></div>}<PageErrorBoundary resetKey={page}>{pages[page]||pages.overview}</PageErrorBoundary></main>{createProjectOpen&&<CreateProjectDialog onClose={()=>setCreateProjectOpen(false)} onCreated={projectCreated}/>}</div>
+  return <div className="shell"><header className="top"><button className="icon mobile" onClick={()=>setMobile(!mobile)} aria-label="打开导航"><Menu size={20}/></button><strong className="brand">Agent Collaborate</strong><span className="heading">{nav.find(n=>n[0]===page)?.[1]}</span><select value={project?.id||''} disabled={!projects.length} aria-label="当前项目" onChange={e=>{setProject(projects.find(p=>String(p.id)===e.target.value)||null);setCreateWorkflowOpen(false)}}>{!projects.length&&<option value="">暂无项目</option>}{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><button className="primary top-create" onClick={()=>setCreateProjectOpen(true)} aria-label="创建项目" title="创建项目"><Plus size={16}/><span>创建项目</span></button><button className="icon refresh" onClick={load} aria-label="刷新"><RefreshCw size={17}/></button><button className="user" onClick={logout}><LogOut size={15}/>{user.username}</button></header><aside className={`side ${mobile?'open':''}`}><nav>{nav.map(([key,label,Icon])=><button key={key} className={page===key?'active':''} onClick={()=>{setPage(key);setMobile(false)}}><Icon size={17}/><span>{label}</span></button>)}</nav><footer>状态以服务端事实为准<br/><small>MVP 管理工作台</small></footer></aside><main className="content">{error&&<div className="alert"><CircleAlert size={16}/>{error}<button className="icon" onClick={()=>setError('')}><XCircle size={15}/></button></div>}<PageErrorBoundary resetKey={page}>{pages[page]||pages.overview}</PageErrorBoundary></main>{createProjectOpen&&<CreateProjectDialog onClose={()=>setCreateProjectOpen(false)} onCreated={projectCreated}/>} {createWorkflowOpen&&project&&<CreateWorkflowDialog project={project} user={user} workflows={projectWorkflows} onClose={()=>setCreateWorkflowOpen(false)} onCreated={workflowCreated}/>}</div>
 }
 function Overview({project,workflows}){const active=workflows.filter(w=>!['DONE','CANCELLED','FAILED'].includes(w.status));return <><div className="page-head"><div><h1>{project?.name||'项目概览'}</h1><p>{project?.repositoryUrl||'请选择项目'}</p></div><Status value={project?.ciStatus}/></div><div className="metrics"><Metric label="进行中 Workflow" value={active.length}/><Metric label="项目 CI" value={stateLabel(project?.ciStatus)}/><Metric label="阻塞任务" value="--"/><Metric label="最近同步" value="--"/></div><section className="panel"><h2>当前工作流</h2>{active.length?active.map(w=><div className="list-row" key={w.id}><div><strong>{w.title}</strong><small>{w.intentLevel} · {w.completionMode}</small></div><Status value={w.status}/></div>):<Empty text="暂无进行中的 Workflow"/>}</section></>}
 function Metric({label,value}){return <div className="metric"><small>{label}</small><strong>{value}</strong></div>}
-function Workflows({workflows,onBoard}){return <><div className="page-head"><div><h1>工作流</h1><p>意图、文档版本和交付状态</p></div></div><section className="panel">{workflows.length?workflows.map(w=><div className="list-row" key={w.id}><div><strong>{w.title}</strong><small>{w.intentLevel} · {w.description}</small></div><Status value={w.status}/><button className="button" onClick={onBoard}>看板</button></div>):<Empty text="暂无 Workflow"/>}</section></>}
+function Workflows({project,workflows,onCreate,onBoard}){return <><div className="page-head"><div><h1>工作流</h1><p>{project?'意图、文档版本和交付状态':'请选择项目后查看工作流'}</p></div>{project&&<button className="primary" onClick={onCreate} disabled={project.status&&project.status!=='ACTIVE'} title={project.status&&project.status!=='ACTIVE'?'归档项目不能创建工作流':'创建工作流'}><Plus size={16}/>创建工作流</button>}</div><section className="panel">{workflows.length?workflows.map(w=><div className="list-row" key={w.id}><div><strong>{w.title}</strong><small>{w.intentLevel} · {w.description}</small></div><Status value={w.status}/><button className="button" onClick={onBoard}>看板</button></div>):<Empty text={project?'暂无 Workflow':'暂无项目，请先创建项目'}/>}</section></>}
 function Board({workflows}){const [data,setData]=useState(null);const wf=workflows[0];useEffect(()=>{if(wf)api(`/api/workflows/${wf.id}/board`).then(setData).catch(()=>{})},[wf?.id]);const groups=useMemo(()=>Object.fromEntries((data?.columns||[]).map(c=>[c.key,c.cards])),[data]);return <><div className="page-head"><div><h1>任务看板</h1><p>只读聚合 · 看板不直接修改状态</p></div></div><div className="board-scroll"><div className="board">{columns.map(([key,label])=><section className="column" key={key}><h3>{label}<b>{(groups[key]||[]).length}</b></h3>{(groups[key]||[]).map(t=><article className="task" key={t.id}><strong>{t.externalKey||t.taskKey} · {t.title}</strong><Status value={t.status}/><small>负责人：{t.assignee?.username||'未分配'}</small><small>任务包 v{t.currentPackageVersion||'-'} · {t.branchName||'无分支'}</small><small>CI：{t.ciStatus||'--'} · {t.updatedAt||'--'}</small></article>)}{!(groups[key]||[]).length&&<Empty text="暂无任务"/>}</section>)}</div></div></>}
 const emptyCollectionState={items:[],loading:false,error:''}
 function useProjectCollection(projectId,path,selectItems=value=>value){

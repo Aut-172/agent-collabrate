@@ -139,8 +139,14 @@ public class TaskService {
         }
         for (JsonNode assignment : plan.path("assignments")) {
             Task task = created.get(assignment.path("taskKey").asText());
-            TaskAssignment createdAssignment = createAssignment(task, workflow.getProjectId(), assignment.path("userId").asLong(), actorId,
-                    1, assignment.path("fitReason").asText(), assignment.path("assignmentScore").decimalValue());
+            boolean ciBootstrap = workflow.getCompletionMode() == WorkflowCompletionMode.CI_BOOTSTRAP;
+            Long assigneeUserId = ciBootstrap ? workflow.getCreatedBy() : assignment.path("userId").asLong();
+            String reason = ciBootstrap
+                    ? "工程与 CI 初始化任务由创建该 Workflow 的项目 Leader 直接负责"
+                    : assignment.path("fitReason").asText();
+            BigDecimal score = ciBootstrap ? null : assignment.path("assignmentScore").decimalValue();
+            TaskAssignment createdAssignment = createAssignment(task, workflow.getProjectId(), assigneeUserId, actorId,
+                    1, reason, score);
             task.markAssigned();
             tasks.save(task);
             taskPackages.createInitial(task);

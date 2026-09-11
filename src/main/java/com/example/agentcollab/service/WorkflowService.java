@@ -50,6 +50,14 @@ public class WorkflowService {
 
     @Transactional
     public Workflow create(Long actorId, Long projectId, WorkflowDtos.CreateWorkflowRequest request) {
+        if (request.completionMode() == WorkflowCompletionMode.CI_BOOTSTRAP) {
+            throw badRequest("CI_BOOTSTRAP_ENDPOINT_REQUIRED",
+                    "工程与 CI 初始化必须使用专用 Bootstrap 接口");
+        }
+        return createInternal(actorId, projectId, request);
+    }
+
+    private Workflow createInternal(Long actorId, Long projectId, WorkflowDtos.CreateWorkflowRequest request) {
         access.requireMember(projectId, actorId);
         Project project = projects.findByIdForUpdate(projectId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "项目不存在"));
@@ -69,8 +77,8 @@ public class WorkflowService {
     @Transactional
     public Workflow createCiBootstrap(Long actorId, Long projectId,
                                       WorkflowDtos.CreateCiBootstrapRequest request) {
-        return create(actorId, projectId, new WorkflowDtos.CreateWorkflowRequest(
-                request.title(), request.description(), request.intentLevel(), null,
+        return createInternal(actorId, projectId, new WorkflowDtos.CreateWorkflowRequest(
+                request.title(), request.description(), IntentLevel.FEATURE, null,
                 WorkflowCompletionMode.CI_BOOTSTRAP));
     }
 

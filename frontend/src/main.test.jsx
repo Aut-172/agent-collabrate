@@ -104,6 +104,97 @@ describe('project-scoped navigation',()=>{
     expect(JSON.parse(createCall[1].body)).toEqual({name:'订单服务',repositoryUrl:'https://github.com/example/orders',defaultBranch:'main',gitProvider:'github'})
   })
 
+  it('creates a root workflow with a read-only empty parent Intent',async()=>{
+    const project={id:7,name:'测试项目',repositoryUrl:'https://github.com/example/repo',defaultBranch:'main',ciStatus:'CI_REQUIRED',status:'ACTIVE',createdBy:1}
+    const created={id:21,projectId:7,title:'服务边界设计',description:'明确服务边界和验收约束',intentLevel:'ARCHITECTURE',completionMode:'ARCHITECTURE_BASELINE',parentWorkflowId:null,status:'INTENT',nextAction:'GENERATE_DESIGN'}
+    const fetchMock=vi.fn((path,options={})=>{
+      if(path==='/api/projects/7/workflows'&&options.method==='POST')return okResponse(created)
+      if(path==='/api/projects/7/members')return okResponse([{userId:1,username:'leader',projectRole:'LEADER'}])
+      if(path==='/api/projects')return okResponse([project])
+      if(path==='/api/workflows')return okResponse([{id:99,projectId:8,title:'其他项目工作流',status:'INTENT'}])
+      if(path==='/api/me')return okResponse({userId:1,username:'leader'})
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    const user=userEvent.setup()
+
+    render(<App/>)
+    await screen.findByRole('heading',{name:'测试项目'})
+    await user.click(screen.getByRole('button',{name:'工作流'}))
+    expect(screen.queryByText('其他项目工作流')).toBeNull()
+    await user.click(screen.getByRole('button',{name:'创建工作流'}))
+    const dialog=screen.getByRole('dialog',{name:'创建工作流'})
+    const parent=within(dialog).getByRole('textbox',{name:'父级 Intent'})
+    expect(parent.value).toBe('无')
+    expect(parent.readOnly).toBe(true)
+    await user.click(within(dialog).getByRole('radio',{name:/^Architecture/}))
+    await user.type(within(dialog).getByRole('textbox',{name:'工作流标题'}),'服务边界设计')
+    await user.type(within(dialog).getByRole('textbox',{name:'目标与验收描述'}),'明确服务边界和验收约束')
+    await user.click(within(dialog).getByRole('button',{name:'创建工作流'}))
+
+    await screen.findByText('服务边界设计')
+    expect(screen.queryByRole('dialog',{name:'创建工作流'})).toBeNull()
+    const createCall=fetchMock.mock.calls.find(([path,options])=>path==='/api/projects/7/workflows'&&options.method==='POST')
+    expect(JSON.parse(createCall[1].body)).toEqual({title:'服务边界设计',description:'明确服务边界和验收约束',intentLevel:'ARCHITECTURE',parentWorkflowId:null})
+  })
+
+  it('lets a leader initialize the project scaffold and CI without choosing Intent level',async()=>{
+    const project={id:7,name:'测试项目',repositoryUrl:'https://github.com/example/repo',defaultBranch:'main',ciStatus:'CI_NOT_CONFIGURED',status:'ACTIVE',createdBy:1}
+    const created={id:22,projectId:7,title:'初始化 Actions',description:'建立项目 CI 门禁',intentLevel:'FEATURE',completionMode:'CI_BOOTSTRAP',parentWorkflowId:null,status:'INTENT'}
+    const fetchMock=vi.fn((path,options={})=>{
+      if(path==='/api/projects/7/ci-bootstrap'&&options.method==='POST')return okResponse(created)
+      if(path==='/api/projects/7/members')return okResponse([{userId:1,username:'leader',projectRole:'LEADER'}])
+      if(path==='/api/projects')return okResponse([project])
+      if(path==='/api/workflows')return okResponse([])
+      if(path==='/api/me')return okResponse({userId:1,username:'leader'})
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    const user=userEvent.setup()
+
+    render(<App/>)
+    await screen.findByRole('heading',{name:'测试项目'})
+    await user.click(screen.getByRole('button',{name:'工作流'}))
+    await user.click(screen.getByRole('button',{name:'创建工作流'}))
+    const dialog=screen.getByRole('dialog',{name:'创建工作流'})
+    const bootstrap=within(dialog).getByRole('radio',{name:/^初始化工程与 CI/})
+    await waitFor(()=>expect(bootstrap.disabled).toBe(false))
+    await user.click(bootstrap)
+    expect(within(dialog).queryByRole('group',{name:'Intent 级别'})).toBeNull()
+    expect(within(dialog).getByText(/仅用于建立初始工程与首条 CI/)).toBeTruthy()
+    await user.type(within(dialog).getByRole('textbox',{name:'工作流标题'}),'初始化 Actions')
+    await user.type(within(dialog).getByRole('textbox',{name:'目标与验收描述'}),'建立项目 CI 门禁')
+    await user.click(within(dialog).getByRole('button',{name:'初始化工程与 CI'}))
+
+    await screen.findByText('初始化 Actions')
+    const createCall=fetchMock.mock.calls.find(([path,options])=>path==='/api/projects/7/ci-bootstrap'&&options.method==='POST')
+    expect(JSON.parse(createCall[1].body)).toEqual({title:'初始化 Actions',description:'建立项目 CI 门禁'})
+  })
+
+  it('shows CI initialization to members without allowing selection',async()=>{
+    const project={id:7,name:'测试项目',repositoryUrl:'https://github.com/example/repo',defaultBranch:'main',ciStatus:'CI_NOT_CONFIGURED',status:'ACTIVE',createdBy:1}
+    const fetchMock=vi.fn((path)=>{
+      if(path==='/api/projects/7/members')return okResponse([{userId:2,username:'member',projectRole:'MEMBER'}])
+      if(path==='/api/projects')return okResponse([project])
+      if(path==='/api/workflows')return okResponse([])
+      if(path==='/api/me')return okResponse({userId:2,username:'member'})
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    const user=userEvent.setup()
+
+    render(<App/>)
+    await screen.findByRole('heading',{name:'测试项目'})
+    await user.click(screen.getByRole('button',{name:'工作流'}))
+    await user.click(screen.getByRole('button',{name:'创建工作流'}))
+    const dialog=screen.getByRole('dialog',{name:'创建工作流'})
+    const bootstrap=within(dialog).getByRole('radio',{name:/^初始化工程与 CI/})
+    await waitFor(()=>expect(within(dialog).getByText('只有项目 Leader 可以初始化工程与 CI。')).toBeTruthy())
+    expect(bootstrap.disabled).toBe(true)
+    expect(within(dialog).getByRole('radio',{name:/^普通工作流/}).checked).toBe(true)
+    expect(within(dialog).getByRole('group',{name:'Intent 级别'})).toBeTruthy()
+  })
+
   it('lets a project leader invite a registered user by username',async()=>{
     const leader={id:11,userId:1,username:'leader',projectRole:'LEADER',profileCompleted:false,profileVersion:0}
     const invited={id:12,userId:2,username:'member',projectRole:'MEMBER',profileCompleted:false,profileVersion:0}

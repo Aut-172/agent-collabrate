@@ -55,8 +55,10 @@ CI_REQUIRED
 ```
 
 - `ARCHITECTURE_BASELINE`：架构级 Workflow，无代码交付，不要求 CI；
-- `CI_BOOTSTRAP`：项目尚未配置 CI 时，专门建立并验证第一条 CI 管线；
+- `CI_BOOTSTRAP`：项目尚未配置 CI 时，专门建立最小工程骨架、构建测试入口并验证第一条 CI 管线；
 - `CI_REQUIRED`：普通 Feature/Change Workflow，必须满足当前 Commit 的 CI 门禁。
+
+`CI_BOOTSTRAP` 只能通过专用接口由项目 Leader 创建，服务端固定其 `intent_level = FEATURE`，开发任务固定初始分配给该 Workflow 的创建者 Leader。它不用于后续 CI 配置维护；CI 已初始化后的配置修改属于普通 Change Workflow。
 
 `completion_mode` 不替代 `intent_level`。例如，一个从零搭建项目骨架并同时建立 CI 的 Feature，可以是：
 
@@ -70,10 +72,10 @@ completion_mode = CI_BOOTSTRAP
 | 条件 | 允许的 `completion_mode` |
 |---|---|
 | `intent_level = ARCHITECTURE` | 只能是 `ARCHITECTURE_BASELINE` |
-| 项目 `ci_status = CI_NOT_CONFIGURED`，且项目尚无成功 Bootstrap | 只有专门建立 CI 的一个 Workflow 可以是 `CI_BOOTSTRAP` |
+| 项目 `ci_status = CI_NOT_CONFIGURED`，且项目尚无成功 Bootstrap | 只有专门初始化工程与 CI 的一个 Feature Workflow 可以是 `CI_BOOTSTRAP` |
 | 项目 `ci_status = CI_REQUIRED` 的普通 Feature/Change | `CI_REQUIRED` |
 
-在 `CI_NOT_CONFIGURED` 阶段，普通 Feature/Change 可以被记录为待规划事项，但不能创建可关闭的普通开发交付，除非它本身被 Leader 明确批准为唯一的 CI Bootstrap。
+在 `CI_NOT_CONFIGURED` 阶段，普通 Feature/Change 可以被记录为待规划事项，但在专用的工程与 CI 初始化 Workflow 完成前，不能创建可关闭的普通开发交付。
 
 ```text
 INTENT

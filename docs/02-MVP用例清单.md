@@ -381,7 +381,7 @@ Leader 可以：
 3. Workflow 进入 `DONE`；
 4. 写入关闭人、时间和审计。
 
-### UC-003A 建立项目 CI Bootstrap
+### UC-003A 初始化工程与 CI
 
 前置条件：
 
@@ -391,10 +391,10 @@ Leader 可以：
 
 主流程：
 
-1. Leader 创建或指定用于搭建 CI 的 Workflow；
-2. 系统将其完成模式设置为 `CI_BOOTSTRAP`；
-3. 成员按任务包添加最小 CI 配置和项目构建/测试入口；
-4. 成员提交 Commit 和 PR；
+1. Leader 通过专用入口创建“初始化工程与 CI”Workflow；
+2. 系统固定设置 `intent_level = FEATURE`、`completion_mode = CI_BOOTSTRAP`；
+3. 系统将 Bootstrap 任务直接分配给该 Workflow 的创建者 Leader；
+4. 该 Leader 按任务包添加最小工程骨架、构建/测试入口和第一条 CI 配置，并提交 Commit 和 PR；
 5. 平台验证 CI 配置存在于当前 Commit；
 6. 平台通过 Webhook 或轮询等待 Provider 识别并运行引导检查；
 7. 引导检查在当前 Commit 上通过；
@@ -413,6 +413,7 @@ Leader 可以：
 说明：
 
 - Bootstrap 是完成模式，不是新的 Intent 层级；
+- Bootstrap 只用于建立初始工程入口和第一条 CI；后续修改 CI 配置使用普通 Change Workflow；
 - 一个 Architecture Workflow 可以在没有 CI 的情况下完成，因为它没有代码交付；
 - Bootstrap 可以承载项目从零开始的代码骨架和 CI 配置，但不能把普通后续 Feature 当作 Bootstrap 使用；
 - 如果 Provider 只在默认分支识别新配置，则使用 Provider 支持的手动触发、分支推送或首次合并后的运行完成验证。

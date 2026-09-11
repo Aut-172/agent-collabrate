@@ -102,6 +102,11 @@ public class PlanService {
         if (workflow.getIntentLevel() == IntentLevel.ARCHITECTURE) return;
         for (JsonNode assignment : plan.path("assignments")) {
             Long userId = assignment.path("userId").asLong();
+            if (workflow.getCompletionMode() == WorkflowCompletionMode.CI_BOOTSTRAP
+                    && !workflow.getCreatedBy().equals(userId)) {
+                throw conflict("CI_BOOTSTRAP_LEADER_ASSIGNEE_REQUIRED",
+                        "工程与 CI 初始化任务必须分配给创建该 Workflow 的项目 Leader");
+            }
             ProjectMember member = members.findByProjectIdAndUserIdForUpdate(workflow.getProjectId(), userId)
                     .filter(value -> value.getStatus() == ProjectMember.Status.ACTIVE)
                     .orElseThrow(() -> conflict("ASSIGNEE_NOT_ACTIVE", "负责人不是当前项目的有效成员"));
@@ -111,6 +116,11 @@ public class PlanService {
                     || member.getWeeklyCapacityPoints() == null
                     || member.getAvailability() == null) {
                 throw conflict("ASSIGNEE_NOT_ASSIGNABLE", "负责人尚未完成可分配画像");
+            }
+            if (workflow.getCompletionMode() == WorkflowCompletionMode.CI_BOOTSTRAP
+                    && member.getProjectRole() != ProjectMember.Role.LEADER) {
+                throw conflict("CI_BOOTSTRAP_LEADER_ASSIGNEE_REQUIRED",
+                        "工程与 CI 初始化任务必须分配给创建该 Workflow 的项目 Leader");
             }
             if (requireCurrentPlanSnapshot
                     && !member.getProjectRole().name().equals(assignment.path("projectRole").asText())) {

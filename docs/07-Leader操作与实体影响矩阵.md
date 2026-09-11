@@ -10,7 +10,7 @@ Leader 权限以 `project_members.project_role = LEADER` 为准。每项操作�
 |---|---|---|---|
 | 创建项目 | Project、ProjectMember | 创建项目并自动加入 Leader | 项目名和仓库配置必填 |
 | 修改项目配置 | Project | 修改名称、仓库、默认分支、CI 策略 | 修改仓库可能使未交付任务需要重新校验 |
-| 发起 CI Bootstrap | Project、Workflow、Task、TaskPackage、AuditLog | 在 `CI_NOT_CONFIGURED` 项目中建立第一条 CI 管线；成功后项目变为 `CI_REQUIRED` | 不能跳过 Provider 实际检查，也不能重复用于普通交付 |
+| 初始化工程与 CI | Project、Workflow、Task、TaskAssignment、TaskPackage、AuditLog | 在 `CI_NOT_CONFIGURED` 项目中建立最小工程骨架、构建测试入口和第一条 CI；任务初始分配给创建者 Leader；成功后项目变为 `CI_REQUIRED` | 只能走专用入口；不能跳过 Provider 实际检查，也不能重复用于普通交付或后续 CI 修改 |
 | 添加成员 | ProjectMember、AuditLog、Notification | 增加项目访问权限 | 用户必须存在 |
 | 移除成员 | ProjectMember、TaskAssignment | 移除访问权 | 未完成任务必须先转派 |
 | 查看成员画像 | ProjectMember、MemberProfileVersion | 查看项目内能力、职责和限制 | 不改变画像 |

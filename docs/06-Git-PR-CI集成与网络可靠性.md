@@ -18,7 +18,7 @@ Git Provider 同时为 Code Context 机制提供仓库事实，但它只负责�
 Project.ci_status = CI_NOT_CONFIGURED
 ```
 
-这时不能让普通 Feature/Change 永久绕过 CI，而应先建立一个 `CI_BOOTSTRAP` Workflow。它的任务包允许成员提交最小 CI 配置、构建入口和测试入口。Bootstrap 的交付可以在“尚未有 CI”的前提下开始，但关闭前必须由新配置自身完成一次有效验证：
+这时不能让普通 Feature/Change 永久绕过 CI，而应先建立一个固定为 Feature 的 `CI_BOOTSTRAP` Workflow。它的任务固定初始分配给创建该 Workflow 的项目 Leader，由该 Leader 按任务包提交最小工程骨架、构建/测试入口和第一条 CI 配置。Bootstrap 的交付可以在“尚未有代码框架或 CI”的前提下开始，但关闭前必须由新配置自身完成一次有效验证：
 
 ```text
 bootstrapCommit 存在且属于目标仓库
@@ -34,6 +34,8 @@ Bootstrap 成功后，平台将项目切换为：
 ```text
 Project.ci_status = CI_REQUIRED
 ```
+
+`CI_BOOTSTRAP` 到此即完成其一次性职责。已有工程框架但缺少 CI 的项目可以缩小任务范围，只补齐构建/测试入口和 CI；后续修改 CI 配置属于普通 Change Workflow，并继续受当前 Commit 的 CI 门禁约束。
 
 此后普通 Feature/Change 必须满足当前 Commit 的必要 CI 才能完成。一个 Architecture Workflow 没有代码交付，因此可以不依赖 CI。
 

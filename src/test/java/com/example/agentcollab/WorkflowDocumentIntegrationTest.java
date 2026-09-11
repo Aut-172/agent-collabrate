@@ -191,39 +191,81 @@ class WorkflowDocumentIntegrationTest {
         addMember(leaderToken, projectId, memberId);
         String memberToken = login("member");
 
-        mvc.perform(post("/api/projects/{id}/workflows", projectId)
+        mvc.perform(post("/api/projects/{id}/ci-bootstrap", projectId)
                         .header("Authorization", bearer(memberToken)).contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
                                 "title", "unauthorized bootstrap",
-                                "description", "must be leader approved",
-                                "intentLevel", "CHANGE",
-                                "completionMode", "CI_BOOTSTRAP"))))
+                                "description", "must be leader approved"))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("LEADER_REQUIRED"));
 
-        long bootstrapId = createCiBootstrap(leaderToken, projectId, "establish CI", "CHANGE");
+        mvc.perform(post("/api/projects/{id}/workflows", projectId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "title", "wrong bootstrap endpoint",
+                                "description", "must use the dedicated endpoint",
+                                "intentLevel", "FEATURE",
+                                "completionMode", "CI_BOOTSTRAP"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("CI_BOOTSTRAP_ENDPOINT_REQUIRED"));
+
+        long bootstrapId = createCiBootstrap(leaderToken, projectId, "establish project and CI");
         mvc.perform(get("/api/workflows/{id}", bootstrapId).header("Authorization", bearer(leaderToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.intentLevel").value("CHANGE"))
+                .andExpect(jsonPath("$.intentLevel").value("FEATURE"))
                 .andExpect(jsonPath("$.completionMode").value("CI_BOOTSTRAP"));
 
         mvc.perform(post("/api/projects/{id}/ci-bootstrap", projectId)
                         .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
                                 "title", "duplicate bootstrap",
-                                "description", "must be unique",
-                                "intentLevel", "FEATURE"))))
+                                "description", "must be unique"))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CI_BOOTSTRAP_EXISTS"));
 
-        mvc.perform(post("/api/projects/{id}/ci-bootstrap", projectId)
+    }
+
+    @Test
+    void ciBootstrapTasksStayAssignedToTheWorkflowCreatorLeader() throws Exception {
+        String leaderToken = initialize("leader");
+        long leaderId = users.findByUsername("leader").orElseThrow().getId();
+        long projectId = createProject(leaderToken, "bootstrap-owner");
+        updateProfile(leaderToken, projectId, 13);
+        long memberId = createUser(leaderToken, "member");
+        addMember(leaderToken, projectId, memberId);
+        String memberToken = login("member");
+        updateProfile(memberToken, projectId, 8);
+        long workflowId = createCiBootstrap(leaderToken, projectId, "initialize project and CI");
+
+        advanceToBuildPlan(leaderToken, workflowId);
+        var generated = documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                workflowId, DocumentType.BUILD_PLAN).get(0);
+        var plan = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(generated.getContent());
+        assertThat(plan.path("assignments").get(0).path("userId").asLong()).isEqualTo(leaderId);
+
+        var memberAssignment = (com.fasterxml.jackson.databind.node.ObjectNode) plan.deepCopy();
+        var assignment = (com.fasterxml.jackson.databind.node.ObjectNode)
+                memberAssignment.path("assignments").get(0);
+        assignment.put("userId", memberId);
+        assignment.put("projectRole", "MEMBER");
+        assignment.put("profileVersion", 1);
+        assignment.withObject("workloadSnapshot").put("weeklyCapacityPoints", 8);
+        mvc.perform(put("/api/workflows/{id}/plan-drafts", workflowId)
                         .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
-                        .content(json.writeValueAsString(Map.of(
-                                "title", "invalid architecture bootstrap",
-                                "description", "architecture has no code delivery",
-                                "intentLevel", "ARCHITECTURE"))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_COMPLETION_MODE"));
+                        .content(json.writeValueAsString(Map.of("content", memberAssignment.toString()))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CI_BOOTSTRAP_LEADER_ASSIGNEE_REQUIRED"));
+
+        confirm(leaderToken, workflowId, "approve-plan", 1).andExpect(status().isOk());
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.taskCount").value(1));
+        Task task = tasks.findByWorkflowIdOrderById(workflowId).get(0);
+        TaskAssignment taskAssignment = taskAssignments.findByTaskIdAndCurrentTrue(task.getId()).orElseThrow();
+        assertThat(taskAssignment.getAssigneeUserId()).isEqualTo(leaderId);
+        assertThat(taskAssignment.getAssignmentReason()).contains("项目 Leader");
+        assertThat(taskAssignment.getAssignmentScore()).isNull();
     }
 
     @Test
@@ -502,12 +544,15 @@ class WorkflowDocumentIntegrationTest {
     void leaderEditsAndApprovesLatestPlanThenCreatesTasksWithAssignmentSnapshots() throws Exception {
         String leaderToken = initialize("leader");
         long projectId = createProject(leaderToken, "core");
+        Project project = projects.findById(projectId).orElseThrow();
+        project.enableCi();
+        projects.save(project);
         updateProfile(leaderToken, projectId, 13);
         long memberId = createUser(leaderToken, "member");
         addMember(leaderToken, projectId, memberId);
         String memberToken = login("member");
         updateProfile(memberToken, projectId, 8);
-        long workflowId = createCiBootstrap(leaderToken, projectId, "assignable change", "CHANGE");
+        long workflowId = createWorkflow(leaderToken, projectId, "assignable change", "CHANGE", null);
 
         requestRun(leaderToken, workflowId, "generate-build-plan");
         assertThat(worker.processNext()).isTrue();
@@ -696,10 +741,9 @@ class WorkflowDocumentIntegrationTest {
         long memberId = createUser(leaderToken, "member");
         addMember(leaderToken, projectId, memberId);
         String memberToken = login("member");
-        long workflowId = createCiBootstrap(leaderToken, projectId, "blocked change", "CHANGE");
+        long workflowId = createCiBootstrap(leaderToken, projectId, "blocked initialization");
 
-        requestRun(leaderToken, workflowId, "generate-build-plan");
-        assertThat(worker.processNext()).isTrue();
+        advanceToBuildPlan(leaderToken, workflowId);
         confirm(leaderToken, workflowId, "approve-plan", 1).andExpect(status().isOk());
         mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
                         .header("Authorization", bearer(leaderToken)))
@@ -837,10 +881,9 @@ class WorkflowDocumentIntegrationTest {
         long reviewerId = createUser(leaderToken, "reviewer");
         addMember(leaderToken, projectId, reviewerId);
         String reviewerToken = login("reviewer");
-        long workflowId = createCiBootstrap(leaderToken, projectId, "delivery change", "CHANGE");
+        long workflowId = createCiBootstrap(leaderToken, projectId, "initial delivery");
 
-        requestRun(leaderToken, workflowId, "generate-build-plan");
-        assertThat(worker.processNext()).isTrue();
+        advanceToBuildPlan(leaderToken, workflowId);
         confirm(leaderToken, workflowId, "approve-plan", 1).andExpect(status().isOk());
         mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
                         .header("Authorization", bearer(leaderToken)))
@@ -1039,9 +1082,8 @@ class WorkflowDocumentIntegrationTest {
         String leaderToken = initialize("leader");
         long projectId = createProject(leaderToken, "stale-package-context");
         updateProfile(leaderToken, projectId, 13);
-        long workflowId = createCiBootstrap(leaderToken, projectId, "stale package", "CHANGE");
-        requestRun(leaderToken, workflowId, "generate-build-plan");
-        assertThat(worker.processNext()).isTrue();
+        long workflowId = createCiBootstrap(leaderToken, projectId, "stale package initialization");
+        advanceToBuildPlan(leaderToken, workflowId);
         confirm(leaderToken, workflowId, "approve-plan", 1).andExpect(status().isOk());
         mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
                         .header("Authorization", bearer(leaderToken)))
@@ -1069,9 +1111,8 @@ class WorkflowDocumentIntegrationTest {
         String leaderToken = initialize("leader");
         long projectId = createProject(leaderToken, "git-sha-binding");
         updateProfile(leaderToken, projectId, 13);
-        long workflowId = createCiBootstrap(leaderToken, projectId, "bind git sha", "CHANGE");
-        requestRun(leaderToken, workflowId, "generate-build-plan");
-        assertThat(worker.processNext()).isTrue();
+        long workflowId = createCiBootstrap(leaderToken, projectId, "bind initialization git sha");
+        advanceToBuildPlan(leaderToken, workflowId);
         confirm(leaderToken, workflowId, "approve-plan", 1).andExpect(status().isOk());
         mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
                         .header("Authorization", bearer(leaderToken)))
@@ -1256,14 +1297,14 @@ class WorkflowDocumentIntegrationTest {
         return json.readTree(body).get("id").asLong();
     }
 
-    private long createCiBootstrap(String token, long projectId, String title, String intentLevel) throws Exception {
+    private long createCiBootstrap(String token, long projectId, String title) throws Exception {
         String body = mvc.perform(post("/api/projects/{id}/ci-bootstrap", projectId)
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
                                 "title", title,
-                                "description", "bootstrap workflow description",
-                                "intentLevel", intentLevel))))
+                                "description", "initialize project scaffold, build entry points and CI"))))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.intentLevel").value("FEATURE"))
                 .andExpect(jsonPath("$.completionMode").value("CI_BOOTSTRAP"))
                 .andReturn().getResponse().getContentAsString();
         return json.readTree(body).get("id").asLong();

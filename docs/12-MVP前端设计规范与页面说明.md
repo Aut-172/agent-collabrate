@@ -91,12 +91,14 @@
 当项目为 `CI_NOT_CONFIGURED` 时，项目概览必须显示明确的 Bootstrap 入口：
 
 ```text
-项目尚未建立 CI 门禁 · 先完成 CI Bootstrap
+项目尚未初始化工程与 CI · 先完成初始化
 ```
 
 普通 Feature/Change 的关闭按钮应显示为不可用，并说明需要先完成 Bootstrap；Architecture Workflow 仍可按架构基线规则关闭。
 
-### 5.1A CI Bootstrap
+### 5.1A 初始化工程与 CI
+
+创建 Workflow 时先选择“普通工作流”或“初始化工程与 CI”。普通工作流继续选择 Architecture、Feature 或 Change；选择“初始化工程与 CI”后不再向用户展示 Intent 层级，请求体只提交标题和描述，服务端固定按 Feature 创建。该选项向 Member 展示但禁用，并提示只有 Leader 可以创建。项目已启用 CI 或已有进行中的 Bootstrap 时也必须禁用并说明原因。
 
 Bootstrap 页面显示：
 
@@ -107,6 +109,8 @@ Bootstrap 页面显示：
 - 当前 Bootstrap Commit；
 - 引导检查的运行状态和详情链接；
 - 关闭 Bootstrap 的前置条件。
+
+Bootstrap 覆盖最小工程骨架、构建/测试入口和第一条 CI，任务固定初始分配给创建该 Workflow 的 Leader。已有框架的仓库可以只填写缺失部分；后续修改 CI 配置不使用该入口，而是创建普通 Change Workflow。
 
 页面不提供“手工标记 CI 通过”按钮。所有通过状态必须来自 Git/CI Provider 同步。
 

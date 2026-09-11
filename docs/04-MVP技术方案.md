@@ -124,7 +124,7 @@ CI_NOT_CONFIGURED
 CI_REQUIRED
 ```
 
-新项目默认为 `CI_NOT_CONFIGURED`。第一个负责建立 CI 的 Workflow 使用 `completion_mode = CI_BOOTSTRAP`，验证通过后切换为 `CI_REQUIRED`。
+新项目默认为 `CI_NOT_CONFIGURED`。通过专用入口创建的工程与 CI 初始化 Workflow 固定使用 `intent_level = FEATURE`、`completion_mode = CI_BOOTSTRAP`，验证通过后切换为 `CI_REQUIRED`。
 
 Leader 与 Member 都是开发任务候选人。Leader 的额外权限只来自 `project_role`，不代表 Leader 不参与开发。
 
@@ -156,8 +156,11 @@ Workflow 保存 Intent、项目、`intent_level`、`completion_mode`、可选父
 
 - `ARCHITECTURE` 只能使用 `ARCHITECTURE_BASELINE`；
 - `CI_NOT_CONFIGURED` 项目只能有一个进行中的 `CI_BOOTSTRAP`；
+- `CI_BOOTSTRAP` 只能通过专用接口由 Leader 创建，固定为 Feature，Build Plan 只允许将任务分配给该 Workflow 的创建者 Leader；
 - `CI_REQUIRED` 项目的普通 Feature/Change 使用 `CI_REQUIRED`；
 - 未完成 Bootstrap 时，普通 Feature/Change 可以保存为需求，但不能创建绕过 CI 的可关闭开发任务。
+
+这里的 `CI_BOOTSTRAP` 用于建立最小工程骨架、构建/测试入口和第一条 CI。项目进入 `CI_REQUIRED` 后，对 CI 配置的新增或修改使用普通 Change Workflow，不再使用 Bootstrap。
 
 ### 5.4 DocumentVersion
 
@@ -355,7 +358,7 @@ POST /api/workflows/{id}/cancel
 
 `generate-design`、`generate-spec` 和 `generate-build-plan` 必须解析当前可用 Code Context。`generate-design` 前必须先基于 Repo Inventory 生成 Context Plan，再由 Orchestrator 调 Git Provider 定向读取证据。若 Code Context 缺失或明显过期，默认拒绝生成并提示刷新；Leader 选择降级时，系统必须在 AgentRun 中记录原因。
 
-`POST /api/projects/{id}/ci-bootstrap` 只能由 Leader 在 `ci_status = CI_NOT_CONFIGURED` 时调用。接口创建或登记一个 `CI_BOOTSTRAP` Workflow，并确保项目内同时只有一个进行中的 Bootstrap。也可以由普通 Workflow 创建流程显式声明 `completion_mode = CI_BOOTSTRAP`，但服务端必须执行相同的唯一性和权限校验。
+`POST /api/projects/{id}/ci-bootstrap` 只能由 Leader 在 `ci_status = CI_NOT_CONFIGURED` 时调用，请求体只包含标题和描述。服务端固定创建 `FEATURE + CI_BOOTSTRAP` Workflow，并确保项目内同时只有一个进行中的 Bootstrap。普通 Workflow 创建接口不得接受客户端显式声明 `completion_mode = CI_BOOTSTRAP`。
 
 项目创建时不接受客户端直接设置 `ci_status`；服务端固定初始化为 `CI_NOT_CONFIGURED`。`ci_status` 只能由 Bootstrap 成功关闭这一条业务路径更新为 `CI_REQUIRED`。
 
