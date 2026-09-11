@@ -136,7 +136,7 @@ describe('project-scoped navigation',()=>{
   it('lets members view profiles and edit only their own profile',async()=>{
     const leader={id:11,userId:1,username:'leader',projectRole:'LEADER',profileCompleted:true,profileVersion:2,weeklyCapacityPoints:30,availability:'FULL_TIME',capabilityProfile:{summary:'后端负责人',responsibilities:['API 设计'],skills:['Java'],experience:['REST'],preferredTaskTypes:['backend'],limitations:[],availability:'FULL_TIME',weeklyCapacityPoints:30,notes:'负责核心服务'}}
     const member={id:12,userId:2,username:'member',projectRole:'MEMBER',profileCompleted:false,profileVersion:0}
-    const saved={...member,profileCompleted:true,profileVersion:1,weeklyCapacityPoints:16,availability:'PART_TIME',capabilityProfile:{summary:'前端开发',responsibilities:['界面实现'],skills:['React'],experience:[],preferredTaskTypes:[],limitations:[],availability:'PART_TIME',weeklyCapacityPoints:16,notes:''}}
+    const saved={...member,profileCompleted:true,profileVersion:1,weeklyCapacityPoints:32,availability:'FULL_TIME',capabilityProfile:{summary:'技能：React',responsibilities:[],skills:['React'],experience:[],preferredTaskTypes:[],limitations:[],availability:'FULL_TIME',weeklyCapacityPoints:32,notes:''}}
     const fetchMock=vi.fn((path,options={})=>{
       if(path==='/api/projects/7/members/me/profile'&&options.method==='PUT')return okResponse(saved)
       if(path==='/api/projects/7/members')return okResponse([leader,member])
@@ -159,23 +159,28 @@ describe('project-scoped navigation',()=>{
 
     await user.click(within(leaderRow).getByRole('button',{name:'查看能力画像'}))
     expect(screen.getByRole('dialog',{name:'leader 的能力画像'})).toBeTruthy()
-    expect(screen.getByText('后端负责人')).toBeTruthy()
+    expect(screen.getByText('Java')).toBeTruthy()
+    expect(screen.getByText('高')).toBeTruthy()
+    expect(screen.queryByText('概要')).toBeNull()
+    expect(screen.queryByText('每周容量')).toBeNull()
     await user.click(screen.getByRole('button',{name:'关闭能力画像'}))
 
     await user.click(within(memberRow).getByRole('button',{name:'编辑能力画像'}))
     const editor=screen.getByRole('dialog',{name:'编辑能力画像'})
-    await user.type(within(editor).getByRole('textbox',{name:'概要'}),'前端开发')
-    await user.type(within(editor).getByRole('textbox',{name:'职责'}),'界面实现')
     await user.type(within(editor).getByRole('textbox',{name:'技能'}),'React')
-    await user.selectOptions(within(editor).getByRole('combobox',{name:'投入状态'}),'PART_TIME')
-    const capacity=within(editor).getByRole('spinbutton',{name:'每周容量'})
-    await user.clear(capacity)
-    await user.type(capacity,'16')
+    expect(within(editor).getByRole('textbox',{name:'技能'}).placeholder).toContain('Java')
+    expect(within(editor).getByRole('textbox',{name:'经验'}).placeholder).toContain('3 年后端开发')
+    expect(within(editor).getByRole('textbox',{name:'偏好任务'}).placeholder).toContain('后端功能开发')
+    expect(within(editor).getByRole('textbox',{name:'限制'}).placeholder).toContain('暂不承担移动端开发')
+    expect(within(editor).queryByRole('textbox',{name:'概要'})).toBeNull()
+    expect(within(editor).queryByRole('spinbutton',{name:'每周容量'})).toBeNull()
+    expect(within(editor).getByText(/能力画像会影响任务分配/)).toBeTruthy()
+    await user.selectOptions(within(editor).getByRole('combobox',{name:'投入程度'}),'HIGH')
     await user.click(within(editor).getByRole('button',{name:'保存画像'}))
 
     await waitFor(()=>expect(screen.queryByRole('dialog',{name:'编辑能力画像'})).toBeNull())
     expect(screen.getByText(/Member · 画像 v1/)).toBeTruthy()
     const updateCall=fetchMock.mock.calls.find(([path,options])=>path==='/api/projects/7/members/me/profile'&&options.method==='PUT')
-    expect(JSON.parse(updateCall[1].body)).toMatchObject({summary:'前端开发',responsibilities:['界面实现'],skills:['React'],availability:'PART_TIME',weeklyCapacityPoints:16})
+    expect(JSON.parse(updateCall[1].body)).toMatchObject({summary:'技能：React',responsibilities:[],skills:['React'],availability:'FULL_TIME',weeklyCapacityPoints:32,notes:''})
   })
 })
