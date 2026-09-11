@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.LinkedHashSet;
+import java.util.Map;
 
 @Service
 public class TaskBlockerService {
@@ -21,12 +22,13 @@ public class TaskBlockerService {
     private final TaskPackageService taskPackages;
     private final ProjectMemberRepository members;
     private final NotificationService notifications;
+    private final AuditLogService audit;
 
     public TaskBlockerService(TaskRepository tasks, WorkflowRepository workflows,
                               ProjectAccessService access, TaskAssignmentRepository assignments,
                               TaskDeliveryRepository deliveries, TaskBlockerRepository blockers,
                               TaskPackageService taskPackages, ProjectMemberRepository members,
-                              NotificationService notifications) {
+                              NotificationService notifications, AuditLogService audit) {
         this.tasks = tasks;
         this.workflows = workflows;
         this.access = access;
@@ -36,6 +38,7 @@ public class TaskBlockerService {
         this.taskPackages = taskPackages;
         this.members = members;
         this.notifications = notifications;
+        this.audit = audit;
     }
 
     @Transactional
@@ -76,6 +79,7 @@ public class TaskBlockerService {
                 .map(ProjectMember::getUserId).forEach(recipients::add);
         notifications.notifyUsers(recipients, "TASK_BLOCKER_CREATED", "TASK_BLOCKER", blocker.getId(),
                 "任务发生阻塞", task.getExternalKey() + "：" + blocker.getSummary());
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "TASK_BLOCKER_CREATED", "TASK_BLOCKER", blocker.getId(), Map.of("taskId", taskId, "reasonCode", request.reasonCode().name()));
         return TaskBlockerDtos.BlockerResponse.from(blocker, task, workflow);
     }
 
@@ -134,6 +138,7 @@ public class TaskBlockerService {
             workflow.markHealthy();
             workflows.save(workflow);
         }
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), cancelled ? "TASK_BLOCKER_CANCELLED" : "TASK_BLOCKER_RESOLVED", "TASK_BLOCKER", blocker.getId(), Map.of("taskId", taskId));
         return TaskBlockerDtos.BlockerResponse.from(blocker, task, workflow);
     }
 

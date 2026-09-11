@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.Map;
 
 @Service
 public class PlanService {
@@ -23,12 +24,13 @@ public class PlanService {
     private final WorkflowStateMachine stateMachine;
     private final BuildPlanValidator validator;
     private final TaskRepository tasks;
+    private final AuditLogService audit;
 
     public PlanService(DocumentVersionRepository documents, WorkflowRepository workflows,
                        ProjectMemberRepository members, UserRepository users,
                        WorkflowService workflowService, ProjectAccessService access,
                        WorkflowStateMachine stateMachine, BuildPlanValidator validator,
-                       TaskRepository tasks) {
+                       TaskRepository tasks, AuditLogService audit) {
         this.documents = documents;
         this.workflows = workflows;
         this.members = members;
@@ -38,6 +40,7 @@ public class PlanService {
         this.stateMachine = stateMachine;
         this.validator = validator;
         this.tasks = tasks;
+        this.audit = audit;
     }
 
     @Transactional
@@ -47,9 +50,11 @@ public class PlanService {
         validateAssignees(workflow, plan, true);
         DocumentVersion previous = latest(workflowId);
         int version = previous.getVersionNo() + 1;
-        return documents.save(DocumentVersion.byUser(
+        DocumentVersion result = documents.save(DocumentVersion.byUser(
                 workflowId, DocumentType.BUILD_PLAN, version, content, DocumentFormat.JSON, actorId,
                 previous.getCodeContextVersionId()));
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "BUILD_PLAN_EDITED", "DOCUMENT_VERSION", result.getId(), Map.of("version", version));
+        return result;
     }
 
     @Transactional
@@ -64,7 +69,9 @@ public class PlanService {
         latest.confirm(actorId);
         stateMachine.transition(workflow, WorkflowStatus.PLAN_APPROVED);
         workflows.save(workflow);
-        return documents.save(latest);
+        DocumentVersion result = documents.save(latest);
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "BUILD_PLAN_APPROVED", "DOCUMENT_VERSION", result.getId(), Map.of("version", versionNo));
+        return result;
     }
 
     public JsonNode validateForWorkflow(Workflow workflow, String content) {

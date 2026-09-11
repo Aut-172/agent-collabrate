@@ -22,6 +22,7 @@ public class TaskPackageConfirmationService {
     private final CodeContextPlanRepository contextPlans;
     private final RepoInventoryVersionRepository inventories;
     private final TaskBlockerRepository blockers;
+    private final AuditLogService audit;
 
     public TaskPackageConfirmationService(TaskRepository tasks, TaskPackageRepository packages,
                                           TaskPackageConfirmationRepository confirmations,
@@ -30,7 +31,7 @@ public class TaskPackageConfirmationService {
                                           CodeContextVersionRepository contexts,
                                           CodeContextPlanRepository contextPlans,
                                           RepoInventoryVersionRepository inventories,
-                                          TaskBlockerRepository blockers) {
+                                          TaskBlockerRepository blockers, AuditLogService audit) {
         this.tasks = tasks;
         this.packages = packages;
         this.confirmations = confirmations;
@@ -42,6 +43,7 @@ public class TaskPackageConfirmationService {
         this.contextPlans = contextPlans;
         this.inventories = inventories;
         this.blockers = blockers;
+        this.audit = audit;
     }
 
     @Transactional
@@ -94,6 +96,7 @@ public class TaskPackageConfirmationService {
             stateMachine.transition(workflow, WorkflowStatus.IN_PROGRESS);
             workflows.save(workflow);
         }
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "TASK_PACKAGE_CONFIRMED", "TASK_PACKAGE", current.getId(), Map.of("taskId", taskId, "version", packageVersion));
         return response(confirmation, task);
     }
 

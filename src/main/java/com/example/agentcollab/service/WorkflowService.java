@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
 
 @Service
 public class WorkflowService {
@@ -27,13 +28,14 @@ public class WorkflowService {
     private final AgentRunCancellationService runCancellation;
     private final TaskCancellationService taskCancellation;
     private final TaskBlockerRepository blockers;
+    private final AuditLogService audit;
 
     public WorkflowService(WorkflowRepository workflows, WorkflowMemberRepository workflowMembers,
                            ProjectRepository projects, ProjectMemberRepository projectMembers,
                            ProjectAccessService access, WorkflowStateMachine stateMachine,
                            AgentRunCancellationService runCancellation,
                            TaskCancellationService taskCancellation,
-                           TaskBlockerRepository blockers) {
+                           TaskBlockerRepository blockers, AuditLogService audit) {
         this.workflows = workflows;
         this.workflowMembers = workflowMembers;
         this.projects = projects;
@@ -43,6 +45,7 @@ public class WorkflowService {
         this.runCancellation = runCancellation;
         this.taskCancellation = taskCancellation;
         this.blockers = blockers;
+        this.audit = audit;
     }
 
     @Transactional
@@ -59,6 +62,7 @@ public class WorkflowService {
         Workflow workflow = workflows.save(new Workflow(projectId, request.title(), request.description(),
                 request.intentLevel(), completionMode, parentWorkflowId, actorId));
         workflowMembers.save(new WorkflowMember(workflow.getId(), actorId, WorkflowMember.Role.OWNER));
+        AuditSupport.record(audit, actorId, projectId, "WORKFLOW_CREATED", "WORKFLOW", workflow.getId(), Map.of("intentLevel", request.intentLevel().name()));
         return workflow;
     }
 
@@ -92,7 +96,9 @@ public class WorkflowService {
         stateMachine.cancel(workflow);
         runCancellation.cancelForWorkflow(workflowId);
         taskCancellation.cancelForWorkflow(workflowId);
-        return workflows.save(workflow);
+        Workflow saved = workflows.save(workflow);
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "WORKFLOW_CANCELLED", "WORKFLOW", workflowId, Map.of());
+        return saved;
     }
 
     @Transactional
@@ -118,7 +124,9 @@ public class WorkflowService {
             throw conflict("CI_BOOTSTRAP_REQUIRED", "项目尚未完成 CI Bootstrap");
         }
         stateMachine.transition(workflow, WorkflowStatus.DONE);
-        return workflows.save(workflow);
+        Workflow saved = workflows.save(workflow);
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "WORKFLOW_CLOSED", "WORKFLOW", workflowId, Map.of());
+        return saved;
     }
 
     public Workflow requireForUpdate(Long actorId, Long workflowId) {

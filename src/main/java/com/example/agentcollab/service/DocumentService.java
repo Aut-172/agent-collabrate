@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Objects;
+import java.util.Map;
 
 @Service
 public class DocumentService {
@@ -20,16 +21,19 @@ public class DocumentService {
     private final WorkflowStateMachine stateMachine;
     private final AgentRunRepository agentRuns;
     private final CodeContextVersionRepository contexts;
+    private final AuditLogService audit;
 
     public DocumentService(DocumentVersionRepository documents, WorkflowRepository workflows,
                            WorkflowService workflowService, WorkflowStateMachine stateMachine,
-                           AgentRunRepository agentRuns, CodeContextVersionRepository contexts) {
+                           AgentRunRepository agentRuns, CodeContextVersionRepository contexts,
+                           AuditLogService audit) {
         this.documents = documents;
         this.workflows = workflows;
         this.workflowService = workflowService;
         this.stateMachine = stateMachine;
         this.agentRuns = agentRuns;
         this.contexts = contexts;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -46,7 +50,9 @@ public class DocumentService {
         requireStatus(workflow, WorkflowStatus.DESIGN_PROPOSED);
         workflowService.requireEditor(workflow, actorId);
         workflowService.requireActiveProject(workflow);
-        return saveUserVersion(workflow, DocumentType.DESIGN, DocumentFormat.MARKDOWN, content, actorId);
+        DocumentVersion result = saveUserVersion(workflow, DocumentType.DESIGN, DocumentFormat.MARKDOWN, content, actorId);
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "DOCUMENT_EDITED", "DOCUMENT_VERSION", result.getId(), Map.of("type", "DESIGN", "version", result.getVersionNo()));
+        return result;
     }
 
     @Transactional
@@ -55,7 +61,9 @@ public class DocumentService {
         requireStatus(workflow, WorkflowStatus.SPEC_PROPOSED);
         workflowService.requireEditor(workflow, actorId);
         workflowService.requireActiveProject(workflow);
-        return saveUserVersion(workflow, DocumentType.SPEC, DocumentFormat.MARKDOWN, content, actorId);
+        DocumentVersion result = saveUserVersion(workflow, DocumentType.SPEC, DocumentFormat.MARKDOWN, content, actorId);
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "DOCUMENT_EDITED", "DOCUMENT_VERSION", result.getId(), Map.of("type", "SPEC", "version", result.getVersionNo()));
+        return result;
     }
 
     @Transactional
@@ -64,7 +72,9 @@ public class DocumentService {
         requireStatus(workflow, WorkflowStatus.DESIGN_PROPOSED);
         workflowService.requireCreator(workflow, actorId);
         workflowService.requireActiveProject(workflow);
-        return confirmLatest(workflow, DocumentType.DESIGN, versionNo, actorId);
+        DocumentVersion result = confirmLatest(workflow, DocumentType.DESIGN, versionNo, actorId);
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "DOCUMENT_CONFIRMED", "DOCUMENT_VERSION", result.getId(), Map.of("type", "DESIGN", "version", versionNo));
+        return result;
     }
 
     @Transactional
@@ -76,6 +86,7 @@ public class DocumentService {
         DocumentVersion confirmed = confirmLatest(workflow, DocumentType.SPEC, versionNo, actorId);
         stateMachine.transition(workflow, WorkflowStatus.SPEC_CONFIRMED);
         workflows.save(workflow);
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "DOCUMENT_CONFIRMED", "DOCUMENT_VERSION", confirmed.getId(), Map.of("type", "SPEC", "version", confirmed.getVersionNo()));
         return confirmed;
     }
 

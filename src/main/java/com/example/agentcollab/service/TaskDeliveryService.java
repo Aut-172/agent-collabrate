@@ -27,17 +27,19 @@ public class TaskDeliveryService {
     private final FinalReportValidator reports;
     private final OutboxJobRepository outboxJobs;
     private final GitOperationRepository gitOperations;
+    private final AuditLogService audit;
 
     public TaskDeliveryService(TaskRepository tasks, TaskDeliveryRepository deliveries,
                                TaskAssignmentRepository assignments, TaskPackageRepository packages,
                                TaskPackageConfirmationRepository confirmations, WorkflowService workflowService,
                                WorkflowRepository workflows, ProjectRepository projects,
                                WorkflowStateMachine stateMachine, FinalReportValidator reports,
-                               OutboxJobRepository outboxJobs, GitOperationRepository gitOperations) {
+                               OutboxJobRepository outboxJobs, GitOperationRepository gitOperations,
+                               AuditLogService audit) {
         this.tasks = tasks; this.deliveries = deliveries; this.assignments = assignments;
         this.packages = packages; this.confirmations = confirmations; this.workflowService = workflowService;
         this.workflows = workflows; this.projects = projects; this.stateMachine = stateMachine;
-        this.reports = reports; this.outboxJobs = outboxJobs; this.gitOperations = gitOperations;
+        this.reports = reports; this.outboxJobs = outboxJobs; this.gitOperations = gitOperations; this.audit = audit;
     }
 
     @Transactional
@@ -90,6 +92,7 @@ public class TaskDeliveryService {
             stateMachine.transition(workflow, WorkflowStatus.DELIVERY_SUBMITTED);
             workflows.save(workflow);
         }
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "TASK_DELIVERY_SUBMITTED", "TASK_DELIVERY", delivery.getId(), Map.of("taskId", taskId, "commitSha", commitSha));
         return TaskDeliveryDtos.DeliveryResponse.from(delivery);
     }
 

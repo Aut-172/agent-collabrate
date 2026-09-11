@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ProjectService {
@@ -26,11 +27,12 @@ public class ProjectService {
     private final ProfileJsonMapper profileMapper;
     private final UserService userService;
     private final TaskRepository tasks;
+    private final AuditLogService audit;
 
     public ProjectService(ProjectRepository projects, ProjectMemberRepository members,
                           MemberProfileVersionRepository profileVersions, UserRepository users,
                           ProjectAccessService access, ProfileJsonMapper profileMapper, UserService userService,
-                          TaskRepository tasks) {
+                          TaskRepository tasks, AuditLogService audit) {
         this.projects = projects;
         this.members = members;
         this.profileVersions = profileVersions;
@@ -39,6 +41,7 @@ public class ProjectService {
         this.profileMapper = profileMapper;
         this.userService = userService;
         this.tasks = tasks;
+        this.audit = audit;
     }
 
     @Transactional
@@ -51,6 +54,7 @@ public class ProjectService {
         Project project = projects.save(new Project(request.name(), request.repositoryUrl(), provider.toLowerCase(),
                 request.defaultBranch(), actor.getId()));
         members.save(new ProjectMember(project.getId(), actor.getId(), ProjectMember.Role.LEADER));
+        AuditSupport.record(audit, actorId, project.getId(), "PROJECT_CREATED", "PROJECT", project.getId(), Map.of("name", project.getName()));
         return project;
     }
 
@@ -74,7 +78,9 @@ public class ProjectService {
         if (members.findByProjectIdAndUserId(projectId, user.getId()).isPresent()) {
             throw new ApiException(HttpStatus.CONFLICT, "PROJECT_MEMBER_EXISTS", "用户已经是项目成员");
         }
-        return members.save(new ProjectMember(projectId, user.getId(), ProjectMember.Role.MEMBER));
+        ProjectMember added = members.save(new ProjectMember(projectId, user.getId(), ProjectMember.Role.MEMBER));
+        AuditSupport.record(audit, actorId, projectId, "PROJECT_MEMBER_ADDED", "PROJECT_MEMBER", added.getId(), Map.of("userId", user.getId()));
+        return added;
     }
 
     @Transactional(readOnly = true)
@@ -97,6 +103,7 @@ public class ProjectService {
         }
         member.remove();
         members.save(member);
+        AuditSupport.record(audit, actorId, projectId, "PROJECT_MEMBER_REMOVED", "PROJECT_MEMBER", member.getId(), Map.of("userId", userId));
     }
 
     @Transactional(readOnly = true)
@@ -111,6 +118,7 @@ public class ProjectService {
                 .orElseThrow(() -> new ApiException(
                         HttpStatus.NOT_FOUND, "PROJECT_MEMBER_NOT_FOUND", "项目成员不存在"));
         updateProfileInternal(member, request, actorId);
+        AuditSupport.record(audit, actorId, projectId, "MEMBER_PROFILE_UPDATED", "PROJECT_MEMBER", member.getId(), Map.of("profileVersion", member.getProfileVersion()));
         return member;
     }
 

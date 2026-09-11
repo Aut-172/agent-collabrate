@@ -33,13 +33,14 @@ public class TaskService {
     private final ObjectMapper json;
     private final TaskPackageService taskPackages;
     private final NotificationService notifications;
+    private final AuditLogService audit;
 
     public TaskService(TaskRepository tasks, TaskAssignmentRepository assignments,
                        DocumentVersionRepository documents, ProjectMemberRepository members,
                        UserRepository users, WorkflowRepository workflows, ProjectRepository projects,
                        WorkflowService workflowService, ProjectAccessService access,
                        WorkflowStateMachine stateMachine, PlanService plans, ObjectMapper json,
-                       TaskPackageService taskPackages, NotificationService notifications) {
+                       TaskPackageService taskPackages, NotificationService notifications, AuditLogService audit) {
         this.tasks = tasks;
         this.assignments = assignments;
         this.documents = documents;
@@ -54,6 +55,7 @@ public class TaskService {
         this.json = json;
         this.taskPackages = taskPackages;
         this.notifications = notifications;
+        this.audit = audit;
     }
 
     @Transactional
@@ -119,6 +121,7 @@ public class TaskService {
         tasks.saveAndFlush(task);
         taskPackages.regenerate(task);
         notifyAssignment(task, assignment, true);
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "TASK_REASSIGNED", "TASK", taskId, Map.of("assigneeUserId", assignment.getAssigneeUserId()));
         return toResponse(task);
     }
 
@@ -131,6 +134,7 @@ public class TaskService {
                     taskNode.path("title").asText(), taskNode.path("description").asText(),
                     taskNode.path("effortPoints").asInt(), approvedPlan.getVersionNo(), specVersion,
                     taskNode.path("branchName").asText()));
+            AuditSupport.record(audit, actorId, workflow.getProjectId(), "TASK_CREATED", "TASK", task.getId(), Map.of("externalKey", task.getExternalKey()));
             created.put(task.getExternalKey(), task);
         }
         for (JsonNode assignment : plan.path("assignments")) {
