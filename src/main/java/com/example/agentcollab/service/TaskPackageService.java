@@ -36,6 +36,7 @@ public class TaskPackageService {
     private final ObjectMapper json;
     private final JsonSchema packageSchema;
     private final EntityManager entityManager;
+    private final NotificationService notifications;
 
     public TaskPackageService(TaskPackageRepository packages, TaskRepository tasks, WorkflowRepository workflows,
                               ProjectRepository projects, ProjectMemberRepository members,
@@ -43,7 +44,8 @@ public class TaskPackageService {
                               CodeContextVersionRepository contexts, CodeContextPlanRepository contextPlans,
                               RepoInventoryVersionRepository inventories, CodeContextFileRepository contextFiles,
                               TaskBlockerRepository blockers, WorkflowService workflowService,
-                              ObjectMapper json, EntityManager entityManager) {
+                              ObjectMapper json, EntityManager entityManager,
+                              NotificationService notifications) {
         this.packages = packages; this.tasks = tasks; this.workflows = workflows; this.projects = projects;
         this.members = members;
         this.assignments = assignments; this.documents = documents; this.contexts = contexts;
@@ -51,6 +53,7 @@ public class TaskPackageService {
         this.contextFiles = contextFiles; this.blockers = blockers;
         this.workflowService = workflowService; this.json = json;
         this.entityManager = entityManager;
+        this.notifications = notifications;
         this.packageSchema = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012)
                 .getSchema(getClass().getResourceAsStream("/schema/task-package-v1.schema.json"));
     }
@@ -73,7 +76,15 @@ public class TaskPackageService {
         TaskPackage replacement = create(task, nextVersion);
         current.supersedeWith(replacement.getId());
         packages.save(current);
+        notifyPackageUpdated(task, replacement);
         return replacement;
+    }
+
+    private void notifyPackageUpdated(Task task, TaskPackage taskPackage) {
+        assignments.findByTaskIdAndCurrentTrue(task.getId()).ifPresent(assignment ->
+                notifications.notifyUser(assignment.getAssigneeUserId(), "TASK_PACKAGE_UPDATED", "TASK_PACKAGE",
+                        taskPackage.getId(), "任务包已更新",
+                        task.getExternalKey() + " 的任务包已更新为 v" + taskPackage.getPackageVersion()));
     }
 
     private TaskPackage create(Task task, int packageVersion) {

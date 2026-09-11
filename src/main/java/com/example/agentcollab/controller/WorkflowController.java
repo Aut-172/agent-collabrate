@@ -13,6 +13,8 @@ import com.example.agentcollab.service.PlanService;
 import com.example.agentcollab.service.TaskService;
 import com.example.agentcollab.service.UserService;
 import com.example.agentcollab.service.WorkflowService;
+import com.example.agentcollab.service.WorkflowBoardService;
+import com.example.agentcollab.dto.WorkflowBoardDtos;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -27,16 +29,19 @@ public class WorkflowController {
     private final AgentRunService agentRunService;
     private final PlanService planService;
     private final TaskService taskService;
+    private final WorkflowBoardService boardService;
 
     public WorkflowController(WorkflowService workflowService, DocumentService documentService,
                               UserService userService, AgentRunService agentRunService,
-                              PlanService planService, TaskService taskService) {
+                              PlanService planService, TaskService taskService,
+                              WorkflowBoardService boardService) {
         this.workflowService = workflowService;
         this.documentService = documentService;
         this.userService = userService;
         this.agentRunService = agentRunService;
         this.planService = planService;
         this.taskService = taskService;
+        this.boardService = boardService;
     }
 
     @PostMapping("/workflows/{workflowId}/generate-design")
@@ -91,6 +96,11 @@ public class WorkflowController {
     @GetMapping("/workflows/{workflowId}/tasks")
     public List<TaskDtos.TaskResponse> tasks(@PathVariable Long workflowId) {
         return taskService.list(currentUserId(), workflowId);
+    }
+
+    @GetMapping("/workflows/{workflowId}/board")
+    public WorkflowBoardDtos.BoardResponse board(@PathVariable Long workflowId) {
+        return boardService.get(currentUserId(), workflowId);
     }
 
     @PostMapping("/projects/{projectId}/workflows")

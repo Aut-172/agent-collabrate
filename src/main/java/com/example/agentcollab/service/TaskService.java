@@ -32,13 +32,14 @@ public class TaskService {
     private final PlanService plans;
     private final ObjectMapper json;
     private final TaskPackageService taskPackages;
+    private final NotificationService notifications;
 
     public TaskService(TaskRepository tasks, TaskAssignmentRepository assignments,
                        DocumentVersionRepository documents, ProjectMemberRepository members,
                        UserRepository users, WorkflowRepository workflows, ProjectRepository projects,
                        WorkflowService workflowService, ProjectAccessService access,
                        WorkflowStateMachine stateMachine, PlanService plans, ObjectMapper json,
-                       TaskPackageService taskPackages) {
+                       TaskPackageService taskPackages, NotificationService notifications) {
         this.tasks = tasks;
         this.assignments = assignments;
         this.documents = documents;
@@ -52,6 +53,7 @@ public class TaskService {
         this.plans = plans;
         this.json = json;
         this.taskPackages = taskPackages;
+        this.notifications = notifications;
     }
 
     @Transactional
@@ -111,11 +113,12 @@ public class TaskService {
                 .map(value -> value.getAssignmentVersion() + 1).orElse(1);
         assignments.findCurrentForUpdate(taskId).ifPresent(TaskAssignment::end);
         assignments.flush();
-        createAssignment(task, workflow.getProjectId(), request.assigneeUserId(), actorId,
+        TaskAssignment assignment = createAssignment(task, workflow.getProjectId(), request.assigneeUserId(), actorId,
                 nextVersion, request.reason(), request.assignmentScore());
         task.markAssigned();
         tasks.saveAndFlush(task);
         taskPackages.regenerate(task);
+        notifyAssignment(task, assignment, true);
         return toResponse(task);
     }
 
@@ -132,11 +135,12 @@ public class TaskService {
         }
         for (JsonNode assignment : plan.path("assignments")) {
             Task task = created.get(assignment.path("taskKey").asText());
-            createAssignment(task, workflow.getProjectId(), assignment.path("userId").asLong(), actorId,
+            TaskAssignment createdAssignment = createAssignment(task, workflow.getProjectId(), assignment.path("userId").asLong(), actorId,
                     1, assignment.path("fitReason").asText(), assignment.path("assignmentScore").decimalValue());
             task.markAssigned();
             tasks.save(task);
             taskPackages.createInitial(task);
+            notifyAssignment(task, createdAssignment, false);
         }
     }
 
@@ -176,6 +180,13 @@ public class TaskService {
         workload.put("availability", member.getAvailability());
         return assignments.save(new TaskAssignment(task.getId(), assigneeUserId, actorId, version, reason, score,
                 member.getProfileVersion(), member.getCapabilityProfile(), workload));
+    }
+
+    private void notifyAssignment(Task task, TaskAssignment assignment, boolean reassigned) {
+        notifications.notifyUser(assignment.getAssigneeUserId(),
+                reassigned ? "TASK_REASSIGNED" : "TASK_ASSIGNED", "TASK", task.getId(),
+                reassigned ? "任务已重新分配给你" : "你收到一个新任务",
+                task.getExternalKey() + "：" + task.getTitle());
     }
 
     private ProjectMember requireAssignableMember(Long projectId, Long userId) {

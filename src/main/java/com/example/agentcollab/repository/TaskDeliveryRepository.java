@@ -7,5 +7,6 @@ import java.util.Optional;
 
 public interface TaskDeliveryRepository extends JpaRepository<TaskDelivery, Long> {
     List<TaskDelivery> findByTaskIdOrderBySubmittedAtDesc(Long taskId);
+    Optional<TaskDelivery> findTopByTaskIdOrderBySubmittedAtDesc(Long taskId);
     Optional<TaskDelivery> findByTaskIdAndCommitSha(Long taskId, String commitSha);
 }

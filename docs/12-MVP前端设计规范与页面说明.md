@@ -153,7 +153,7 @@ Intent -> Design -> Spec -> Plan -> Tasks -> Development -> Delivery -> CI -> Do
 列：
 
 ```text
-待处理 | 已分配 | 开发中 | 阻塞 | 待交付 | CI 中 | 已完成
+待处理 | 已分配 | 开发中 | 阻塞 | 待交付 | CI 中 | 已完成 | 已取消/失败
 ```
 
 任务卡显示：
@@ -162,6 +162,7 @@ Intent -> Design -> Spec -> Plan -> Tasks -> Development -> Delivery -> CI -> Do
 - 负责人；
 - Workflow；
 - 当前任务包版本；
+- 分支；
 - PR 状态；
 - CI 状态；
 - 最近更新时间。

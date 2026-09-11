@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
+import java.util.LinkedHashSet;
 
 @Service
 public class TaskBlockerService {
@@ -18,11 +19,14 @@ public class TaskBlockerService {
     private final TaskDeliveryRepository deliveries;
     private final TaskBlockerRepository blockers;
     private final TaskPackageService taskPackages;
+    private final ProjectMemberRepository members;
+    private final NotificationService notifications;
 
     public TaskBlockerService(TaskRepository tasks, WorkflowRepository workflows,
                               ProjectAccessService access, TaskAssignmentRepository assignments,
                               TaskDeliveryRepository deliveries, TaskBlockerRepository blockers,
-                              TaskPackageService taskPackages) {
+                              TaskPackageService taskPackages, ProjectMemberRepository members,
+                              NotificationService notifications) {
         this.tasks = tasks;
         this.workflows = workflows;
         this.access = access;
@@ -30,6 +34,8 @@ public class TaskBlockerService {
         this.deliveries = deliveries;
         this.blockers = blockers;
         this.taskPackages = taskPackages;
+        this.members = members;
+        this.notifications = notifications;
     }
 
     @Transactional
@@ -63,6 +69,13 @@ public class TaskBlockerService {
         workflow.markNeedsAttention();
         tasks.save(task);
         workflows.save(workflow);
+        var recipients = new LinkedHashSet<Long>();
+        recipients.add(workflow.getCreatedBy());
+        members.findByProjectIdAndStatus(workflow.getProjectId(), ProjectMember.Status.ACTIVE).stream()
+                .filter(member -> member.getProjectRole() == ProjectMember.Role.LEADER)
+                .map(ProjectMember::getUserId).forEach(recipients::add);
+        notifications.notifyUsers(recipients, "TASK_BLOCKER_CREATED", "TASK_BLOCKER", blocker.getId(),
+                "任务发生阻塞", task.getExternalKey() + "：" + blocker.getSummary());
         return TaskBlockerDtos.BlockerResponse.from(blocker, task, workflow);
     }
 
@@ -111,7 +124,12 @@ public class TaskBlockerService {
         else blocker.resolve(actorId, resolution);
         blockers.saveAndFlush(blocker);
 
-        taskPackages.regenerate(task);
+        var replacement = taskPackages.regenerate(task);
+        assignments.findByTaskIdAndCurrentTrue(taskId).ifPresent(assignment ->
+                notifications.notifyUser(assignment.getAssigneeUserId(), "TASK_BLOCKER_CLOSED", "TASK_BLOCKER",
+                        blocker.getId(), "任务阻塞已关闭并生成新任务包",
+                        task.getExternalKey() + " 的 Blocker 已" + (cancelled ? "取消" : "解决")
+                                + "，请确认任务包 v" + replacement.getPackageVersion() + " 后恢复开发"));
         if (!blockers.existsByWorkflowIdAndStatus(workflow.getId(), TaskBlockerStatus.OPEN)) {
             workflow.markHealthy();
             workflows.save(workflow);

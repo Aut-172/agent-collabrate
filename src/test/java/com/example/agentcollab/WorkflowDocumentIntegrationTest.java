@@ -70,6 +70,7 @@ class WorkflowDocumentIntegrationTest {
     @Autowired com.example.agentcollab.repository.TaskPackageConfirmationRepository packageConfirmations;
     @Autowired com.example.agentcollab.repository.TaskDeliveryRepository taskDeliveries;
     @Autowired com.example.agentcollab.repository.TaskBlockerRepository taskBlockers;
+    @Autowired com.example.agentcollab.repository.NotificationRepository notifications;
     @Autowired com.example.agentcollab.repository.GitOperationRepository gitOperations;
     @Autowired com.example.agentcollab.repository.CiRunRepository ciRuns;
     @Autowired com.example.agentcollab.service.GitSyncService gitSync;
@@ -704,6 +705,12 @@ class WorkflowDocumentIntegrationTest {
                         .header("Authorization", bearer(leaderToken)))
                 .andExpect(status().isOk());
         Task task = tasks.findByWorkflowIdOrderById(workflowId).get(0);
+        mvc.perform(get("/api/workflows/{id}/board", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.columns.length()").value(8))
+                .andExpect(jsonPath("$.columns[1].key").value("ASSIGNED"))
+                .andExpect(jsonPath("$.columns[1].cards[0].externalKey").value(task.getExternalKey()));
         TaskPackage firstPackage = taskPackages.findByTaskIdAndStatus(
                 task.getId(), TaskPackageStatus.CURRENT).orElseThrow();
         mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
@@ -736,6 +743,22 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(jsonPath("$.workflowHealth").value("NEEDS_ATTENTION"))
                 .andReturn().getResponse().getContentAsString();
         long blockerId = json.readTree(blockerBody).path("id").asLong();
+        mvc.perform(get("/api/notifications").header("Authorization", bearer(memberToken)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+        String notificationBody = mvc.perform(get("/api/notifications")
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
+        long notificationId = json.readTree(notificationBody).get(0).path("id").asLong();
+        mvc.perform(post("/api/notifications/{id}/read", notificationId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.readAt").isNotEmpty());
+        mvc.perform(post("/api/notifications/{id}/read", notificationId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/notifications/{id}/read", notificationId)
+                        .header("Authorization", bearer(memberToken)))
+                .andExpect(status().isNotFound());
         assertThat(workflows.findById(workflowId).orElseThrow().getStatus())
                 .isEqualTo(WorkflowStatus.IN_PROGRESS);
 
