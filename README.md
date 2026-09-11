@@ -21,9 +21,31 @@
 
 ## 启动方法
 
+### Docker Compose（推荐）
+
+要求：Docker Desktop 或兼容 Docker Engine，且支持 Docker Compose V2。首次启动：
+
+```powershell
+Copy-Item .env.example .env
+# 修改 .env，至少替换 DB_PASSWORD 和 JWT_SECRET 示例值
+docker compose up --build -d
+docker compose ps
+```
+
+启动完成后访问前端 <http://localhost:5173>。后端 API 仍可通过 <http://localhost:8080> 直接访问；前端 Nginx 会将 `/api` 请求代理到后端容器。后端启动时自动执行 Flyway V1-V19。
+
+查看日志和停止服务：
+
+```powershell
+docker compose logs -f backend frontend
+docker compose down
+```
+
+PostgreSQL 数据保存在 `agent-collab-postgres` 命名卷中，普通 `docker compose down` 不会删除数据。不要在 `.env` 中使用示例密码部署生产环境，也不要提交 `.env`。
+
 ### 后端
 
-要求：Java 17+、Maven 3.9+、PostgreSQL 14+。使用 PowerShell 时可按以下步骤启动：
+不使用容器时，要求 Java 17+、Maven 3.9+、PostgreSQL 14+。使用 PowerShell 时可按以下步骤启动：
 
 ```powershell
 $env:DB_URL = "jdbc:postgresql://localhost:5432/agent_collab"

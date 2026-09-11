@@ -506,7 +506,7 @@ jobs:
   max-concurrency: 4
 ```
 
-生产环境使用 Docker、HTTPS、PostgreSQL、Flyway、环境变量或密钥管理服务。数据库定期备份。
+仓库提供三服务 Docker Compose 编排：PostgreSQL、Spring Boot 后端，以及提供 Vite 构建产物和 `/api` 反向代理的 Nginx 前端。后端与前端都使用多阶段构建，最终镜像不包含 Maven、Node.js、源码或本地依赖目录。Flyway 随后端启动执行；数据库使用命名卷持久化并应定期备份。生产环境在 Compose 或同等编排基础上配置 HTTPS，凭证只能通过环境变量或密钥管理服务注入，不能写入镜像。
 
 ## 11. 测试策略
 

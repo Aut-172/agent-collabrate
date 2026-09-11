@@ -2,7 +2,18 @@
 
 ## 当前仓库启动
 
-后端和前端已经分别落地。后端要求 Java 17+、Maven 3.9+ 和 PostgreSQL；前端位于 `frontend/`，使用 Vite + React。
+后端和前端已经分别落地。完整本地环境推荐使用 Docker Compose 启动 PostgreSQL、Spring Boot 后端和 Nginx 前端：
+
+```powershell
+Copy-Item .env.example .env
+# 修改 .env，至少替换 DB_PASSWORD 和 JWT_SECRET 示例值
+docker compose up --build -d
+docker compose ps
+```
+
+前端地址为 `http://localhost:5173`，后端地址为 `http://localhost:8080`。前端容器由 Nginx 提供静态资源并将 `/api` 反向代理到后端。Flyway 在后端容器启动时自动执行，PostgreSQL 数据保存在命名卷中。
+
+需要直接调试源码时，后端要求 Java 17+、Maven 3.9+ 和 PostgreSQL；前端位于 `frontend/`，使用 Vite + React：
 
 ```powershell
 # 终端 1：后端
@@ -18,7 +29,7 @@ npm install
 npm run dev
 ```
 
-前端地址为 `http://localhost:5173`，Vite 将 `/api` 代理到 `http://localhost:8080`。全量后端测试使用 `mvn test`，需要 Docker Desktop 供 Testcontainers 启动 PostgreSQL。生产凭证只能通过环境变量或密钥管理服务提供。
+Vite 将 `/api` 代理到 `http://localhost:8080`。全量后端测试使用 `mvn test`，需要 Docker Desktop 供 Testcontainers 启动 PostgreSQL。生产凭证只能通过环境变量或密钥管理服务提供，不能打入镜像。
 
 ## 1. 是否建议新开会话
 

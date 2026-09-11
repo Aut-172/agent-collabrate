@@ -1,10 +1,11 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-agent_collab}
       POSTGRES_USER: ${DB_USERNAME:-agent_collab}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
     ports:
       - "${DB_PORT:-5432}:5432"
     healthcheck:
@@ -14,6 +15,49 @@ services:
       retries: 10
     volumes:
       - agent-collab-postgres:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-agent_collab}
+      DB_USERNAME: ${DB_USERNAME:-agent_collab}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}
+      GIT_PROVIDER: ${GIT_PROVIDER:-github}
+      GIT_API_URL: ${GIT_API_URL:-https://api.github.com}
+      GIT_TOKEN: ${GIT_TOKEN:-}
+      APP_CI_WEBHOOK_SECRET: ${CI_WEBHOOK_SECRET:-}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/api/openapi || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
 volumes:
   agent-collab-postgres:
