@@ -1,6 +1,6 @@
 import React from 'react'
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest'
-import {cleanup,render,screen,waitFor} from '@testing-library/react'
+import {cleanup,render,screen,waitFor,within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {App} from './main.jsx'
 
@@ -70,5 +70,34 @@ describe('project-scoped navigation',()=>{
 
     await waitFor(()=>expect(abortedMemberRequests).toBe(10))
     expect(screen.queryByText('页面暂时无法显示')).toBeNull()
+  })
+
+  it('creates and selects a project from the top bar',async()=>{
+    const created={id:9,name:'订单服务',repositoryUrl:'https://github.com/example/orders',gitProvider:'github',defaultBranch:'main',ciStatus:'CI_NOT_CONFIGURED'}
+    const fetchMock=vi.fn((path,options={})=>{
+      if(path==='/api/projects'&&options.method==='POST')return okResponse(created)
+      if(path==='/api/projects')return okResponse([])
+      if(path==='/api/workflows')return okResponse([])
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    const user=userEvent.setup()
+
+    render(<App/>)
+    await screen.findByRole('heading',{name:'项目概览'})
+    const projectSelector=screen.getByRole('combobox',{name:'当前项目'})
+    const openButton=screen.getByRole('button',{name:'创建项目'})
+    expect(projectSelector.nextElementSibling).toBe(openButton)
+    await user.click(openButton)
+    const dialog=screen.getByRole('dialog',{name:'创建项目'})
+    await user.type(within(dialog).getByRole('textbox',{name:'项目名称'}),'订单服务')
+    await user.type(within(dialog).getByRole('textbox',{name:'Git 仓库地址'}),'https://github.com/example/orders')
+    await user.click(within(dialog).getByRole('button',{name:'创建项目'}))
+
+    await screen.findByRole('heading',{name:'订单服务'})
+    expect(screen.queryByRole('dialog',{name:'创建项目'})).toBeNull()
+    expect(screen.getByRole('combobox',{name:'当前项目'}).value).toBe('9')
+    const createCall=fetchMock.mock.calls.find(([path,options])=>path==='/api/projects'&&options.method==='POST')
+    expect(JSON.parse(createCall[1].body)).toEqual({name:'订单服务',repositoryUrl:'https://github.com/example/orders',defaultBranch:'main',gitProvider:'github'})
   })
 })
