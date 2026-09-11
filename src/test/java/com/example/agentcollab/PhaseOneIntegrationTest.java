@@ -175,12 +175,24 @@ class PhaseOneIntegrationTest {
         mvc.perform(post("/api/projects/{id}/members", projectId)
                         .header("Authorization", bearer(leaderToken))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"userId\":" + memberId + "}"))
+                        .content("{\"username\":\"member\"}"))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.userId").value(memberId))
+                .andExpect(jsonPath("$.username").value("member"))
                 .andExpect(jsonPath("$.projectRole").value("MEMBER"))
                 .andExpect(jsonPath("$.profileCompleted").value(false));
 
+        mvc.perform(post("/api/projects/{id}/members", projectId)
+                        .header("Authorization", bearer(leaderToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"missing-user\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
+
         String memberToken = login("member", TEST_PASSWORD);
+        mvc.perform(get("/api/projects").header("Authorization", bearer(memberToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(projectId));
         mvc.perform(put("/api/projects/{id}/members/me/profile", projectId)
                         .header("Authorization", bearer(memberToken))
                         .contentType(MediaType.APPLICATION_JSON).content(profile("member backend")))

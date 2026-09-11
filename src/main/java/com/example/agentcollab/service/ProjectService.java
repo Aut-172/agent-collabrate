@@ -74,13 +74,25 @@ public class ProjectService {
     @Transactional
     public ProjectMember addMember(Long actorId, Long projectId, ProjectDtos.AddMemberRequest request) {
         access.requireLeader(projectId, actorId);
-        User user = userService.require(request.userId());
+        User user = resolveInvitedUser(request);
         if (members.findByProjectIdAndUserId(projectId, user.getId()).isPresent()) {
             throw new ApiException(HttpStatus.CONFLICT, "PROJECT_MEMBER_EXISTS", "用户已经是项目成员");
         }
         ProjectMember added = members.save(new ProjectMember(projectId, user.getId(), ProjectMember.Role.MEMBER));
         AuditSupport.record(audit, actorId, projectId, "PROJECT_MEMBER_ADDED", "PROJECT_MEMBER", added.getId(), Map.of("userId", user.getId()));
         return added;
+    }
+
+    private User resolveInvitedUser(ProjectDtos.AddMemberRequest request) {
+        boolean hasUserId = request.userId() != null;
+        boolean hasUsername = request.username() != null && !request.username().isBlank();
+        if (hasUserId == hasUsername) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_MEMBER_IDENTIFIER",
+                    "必须且只能提供 userId 或 username");
+        }
+        if (hasUserId) return userService.require(request.userId());
+        return users.findByUsername(request.username().trim()).filter(User::isEnabled)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "用户不存在"));
     }
 
     @Transactional(readOnly = true)

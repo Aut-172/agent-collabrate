@@ -1,11 +1,13 @@
 import React, {useEffect, useMemo, useState} from 'react'
 import {createRoot} from 'react-dom/client'
-import {Activity, Bell, CheckCircle2, CircleAlert, FileText, LayoutDashboard, LogOut, Menu, Plus, RefreshCw, Users, Workflow as WorkflowIcon, X, XCircle} from 'lucide-react'
+import {Activity, Bell, CheckCircle2, CircleAlert, Eye, FileText, LayoutDashboard, LogOut, Menu, Pencil, Plus, RefreshCw, UserPlus, Users, Workflow as WorkflowIcon, X, XCircle} from 'lucide-react'
 import './styles.css'
 
 const columns=[['TODO','待处理'],['ASSIGNED','已分配'],['IN_PROGRESS','开发中'],['BLOCKED','阻塞'],['DELIVERY_SUBMITTED','待交付'],['CI_RUNNING','CI 中'],['DONE','已完成'],['CANCELLED_OR_FAILED','已取消/失败']]
 const api=async(path,opts={})=>{const token=localStorage.getItem('ac_token');const r=await fetch(path,{...opts,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})}});if(r.status===401)throw Error('登录已过期');if(!r.ok){let m=`请求失败 (${r.status})`;try{m=(await r.json()).message||m}catch{}throw Error(m)}return r.status===204?null:r.json()}
 const stateLabel=s=>({CI_NOT_CONFIGURED:'未配置',CI_REQUIRED:'已启用门禁',TODO:'待处理',ASSIGNED:'已分配',IN_PROGRESS:'开发中',BLOCKED:'阻塞',DELIVERY_SUBMITTED:'待交付',CI_RUNNING:'CI 中',DONE:'已完成',CANCELLED:'已取消',FAILED:'失败',CURRENT:'当前',STALE:'已过期'}[s]||s||'未知')
+const roleLabel=role=>({LEADER:'Leader',MEMBER:'Member'}[role]||role||'未知身份')
+const availabilityLabel=value=>({FULL_TIME:'全职投入',PART_TIME:'部分投入',LIMITED:'有限投入'}[value]||value||'未填写')
 const tone=s=>/DONE|PASSED|CURRENT|SUCCEEDED/.test(s)?'good':/BLOCKED|FAILED|CANCELLED|STALE/.test(s)?'bad':/RUNNING|ASSIGNED|SUBMITTED|PROPOSED/.test(s)?'info':'neutral'
 function Status({value}){return <span className={`status ${tone(value)}`}>{/DONE|PASSED|SUCCEEDED/.test(value)?<CheckCircle2 size={13}/>:/BLOCKED|FAILED|CANCELLED/.test(value)?<CircleAlert size={13}/>:<Activity size={13}/>} {stateLabel(value)}</span>}
 function Login({onLogin}){const [mode,setMode]=useState('login');const [form,setForm]=useState({username:'',password:''});const [error,setError]=useState('');const register=mode==='register';const submit=async e=>{e.preventDefault();setError('');try{const path=register?'/api/auth/register':'/api/auth/login';const r=await api(path,{method:'POST',body:JSON.stringify(form)});localStorage.setItem('ac_token',r.accessToken);onLogin(r)}catch(x){setError(x.message)}};return <main className="login"><form onSubmit={submit} className="login-card"><div className="logo">AC</div><p className="kicker">工程协作平台</p><h1>{register?'创建账号':'登录工作台'}</h1><label>用户名<input required minLength={register?3:1} maxLength={50} autoComplete="username" value={form.username} onChange={e=>setForm({...form,username:e.target.value})}/></label><label>密码<input required minLength={register?8:1} maxLength={128} type="password" autoComplete={register?'new-password':'current-password'} value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></label><button className="primary wide">{register?'注册并进入':'登录'}</button>{error&&<p className="error">{error}</p>}<button type="button" className="auth-switch" onClick={()=>{setMode(register?'login':'register');setError('')}}>{register?'已有账号？返回登录':'没有账号？注册'}</button></form></main>}
@@ -48,13 +50,13 @@ export function App(){
 
   async function load(){
     try{
-      const [ps,ws]=await Promise.all([api('/api/projects'),api('/api/workflows')])
+      const [ps,ws,me]=await Promise.all([api('/api/projects'),api('/api/workflows'),api('/api/me')])
       const projectList=(Array.isArray(ps)?ps:[]).filter(item=>item&&typeof item==='object')
       const workflowList=(Array.isArray(ws)?ws:[]).filter(item=>item&&typeof item==='object')
       setProjects(projectList)
       setProject(current=>current&&projectList.some(item=>item.id===current.id)?current:(projectList[0]||null))
       setWorkflows(workflowList)
-      setUser(current=>current||{username:'当前用户'})
+      setUser(me&&typeof me==='object'?me:{username:'当前用户'})
       setError('')
     }catch(e){
       const message=e instanceof Error?e.message:'加载失败'
@@ -71,14 +73,14 @@ export function App(){
     setCreateProjectOpen(false)
   }
 
-  if(!user)return <Login onLogin={result=>{setUser({username:result.username});load()}}/>
+  if(!user)return <Login onLogin={result=>{setUser({userId:result.userId,username:result.username});load()}}/>
 
   const nav=[['overview','项目概览',LayoutDashboard],['workflows','工作流',WorkflowIcon],['board','任务看板',LayoutDashboard],['members','项目成员',Users],['notifications','通知',Bell],['audit','审计日志',FileText]]
   const pages={
     overview:<Overview project={project} workflows={workflows}/>,
     workflows:<Workflows workflows={workflows} onBoard={()=>setPage('board')}/>,
     board:<Board workflows={workflows}/>,
-    members:<Members project={project}/>,
+    members:<Members project={project} user={user}/>,
     notifications:<Notifications/>,
     audit:<Audit project={project}/>
   }
@@ -104,11 +106,72 @@ function useProjectCollection(projectId,path,selectItems=value=>value){
     })
     return()=>controller.abort()
   },[projectId,path])
-  return state
+  return [state,setState]
 }
-function Members({project}){const path=project?`/api/projects/${project.id}/members`:'';const state=useProjectCollection(project?.id,path);return <><div className="page-head"><div><h1>项目成员</h1><p>角色与能力画像</p></div></div><section className="panel">{!project?<Empty text="暂无项目，请先创建项目"/>:state.loading?<Empty text="正在加载项目成员"/>:state.error?<Empty text={`无法加载项目成员：${state.error}`}/>:state.items.length?state.items.map(m=><div className="list-row" key={m.id??m.userId}><div><strong>{m.username||'未命名用户'}</strong><small>{m.projectRole||'未知角色'} · 画像 v{m.profileVersion??'-'}</small></div><Status value={m.profileCompleted?'CURRENT':'PENDING'}/></div>):<Empty text="该项目暂无成员"/>}</section></>}
+function InviteMemberDialog({project,onClose,onAdded}){
+  const [username,setUsername]=useState('')
+  const [submitting,setSubmitting]=useState(false)
+  const [error,setError]=useState('')
+  const submit=async event=>{
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try{
+      const member=await api(`/api/projects/${project.id}/members`,{method:'POST',body:JSON.stringify({username:username.trim()})})
+      if(!member||typeof member!=='object'||member.userId==null)throw new Error('邀请成员响应无效')
+      onAdded(member)
+    }catch(requestError){
+      setError(requestError instanceof Error?requestError.message:'邀请成员失败')
+      setSubmitting(false)
+    }
+  }
+  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget&&!submitting)onClose()}}><section className="dialog compact" role="dialog" aria-modal="true" aria-labelledby="invite-member-title"><header><div><h2 id="invite-member-title">邀请成员</h2><p>{project.name}</p></div><button type="button" className="icon" onClick={onClose} disabled={submitting} aria-label="关闭邀请成员窗口"><X size={18}/></button></header><form onSubmit={submit}><label>成员用户名<input autoFocus required minLength={3} maxLength={50} value={username} onChange={event=>setUsername(event.target.value)} autoComplete="off"/></label>{error&&<p className="error dialog-error" role="alert">{error}</p>}<footer><button type="button" className="button" onClick={onClose} disabled={submitting}>取消</button><button className="primary" disabled={submitting}>{submitting?'正在邀请':'邀请成员'}</button></footer></form></section></div>
+}
+const lines=value=>(Array.isArray(value)?value:[]).join('\n')
+const splitLines=value=>value.split(/\r?\n/).map(item=>item.trim()).filter(Boolean)
+function ProfileList({label,items}){return <div><dt>{label}</dt><dd>{Array.isArray(items)&&items.length?<ul>{items.map((item,index)=><li key={`${item}-${index}`}>{item}</li>)}</ul>:'未填写'}</dd></div>}
+function ProfileDialog({member,editing,onClose,onSaved}){
+  const profile=member.capabilityProfile||{}
+  const [form,setForm]=useState({
+    summary:profile.summary||'',responsibilities:lines(profile.responsibilities),skills:lines(profile.skills),
+    experience:lines(profile.experience),preferredTaskTypes:lines(profile.preferredTaskTypes),
+    limitations:lines(profile.limitations),availability:member.availability||profile.availability||'FULL_TIME',
+    weeklyCapacityPoints:String(member.weeklyCapacityPoints??profile.weeklyCapacityPoints??20),notes:profile.notes||''
+  })
+  const [submitting,setSubmitting]=useState(false)
+  const [error,setError]=useState('')
+  const update=event=>setForm(current=>({...current,[event.target.name]:event.target.value}))
+  const submit=async event=>{
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    const payload={summary:form.summary.trim(),responsibilities:splitLines(form.responsibilities),skills:splitLines(form.skills),experience:splitLines(form.experience),preferredTaskTypes:splitLines(form.preferredTaskTypes),limitations:splitLines(form.limitations),availability:form.availability,weeklyCapacityPoints:Number(form.weeklyCapacityPoints),notes:form.notes.trim()}
+    try{
+      const saved=await api(`/api/projects/${member.projectId||''}/members/me/profile`,{method:'PUT',body:JSON.stringify(payload)})
+      if(!saved||typeof saved!=='object'||saved.userId==null)throw new Error('更新能力画像响应无效')
+      onSaved(saved)
+    }catch(requestError){
+      setError(requestError instanceof Error?requestError.message:'更新能力画像失败')
+      setSubmitting(false)
+    }
+  }
+  if(!editing)return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="view-profile-title"><header><div><h2 id="view-profile-title">{member.username} 的能力画像</h2><p>{roleLabel(member.projectRole)} · 版本 {member.profileVersion||0}</p></div><button type="button" className="icon" onClick={onClose} aria-label="关闭能力画像"><X size={18}/></button></header><div className="profile-body">{!member.profileCompleted||!member.capabilityProfile?<Empty text="该成员尚未填写能力画像"/>:<dl className="profile-details"><div><dt>概要</dt><dd>{profile.summary||'未填写'}</dd></div><ProfileList label="职责" items={profile.responsibilities}/><ProfileList label="技能" items={profile.skills}/><ProfileList label="经验" items={profile.experience}/><ProfileList label="偏好任务" items={profile.preferredTaskTypes}/><ProfileList label="限制" items={profile.limitations}/><div><dt>投入状态</dt><dd>{availabilityLabel(member.availability||profile.availability)}</dd></div><div><dt>每周容量</dt><dd>{member.weeklyCapacityPoints??profile.weeklyCapacityPoints??'未填写'}</dd></div><div><dt>备注</dt><dd>{profile.notes||'未填写'}</dd></div></dl>}</div></section></div>
+  return <div className="modal-backdrop"><section className="dialog profile-editor" role="dialog" aria-modal="true" aria-labelledby="edit-profile-title"><header><div><h2 id="edit-profile-title">编辑能力画像</h2><p>{member.username} · 保存后生成新版本</p></div><button type="button" className="icon" onClick={onClose} disabled={submitting} aria-label="关闭能力画像编辑窗口"><X size={18}/></button></header><form onSubmit={submit}><label>概要<textarea autoFocus required maxLength={1000} name="summary" value={form.summary} onChange={update} rows={3}/></label><div className="form-grid"><label>职责<textarea maxLength={20000} name="responsibilities" value={form.responsibilities} onChange={update} rows={4} placeholder={'API 设计\n代码审查'}/></label><label>技能<textarea maxLength={20000} name="skills" value={form.skills} onChange={update} rows={4} placeholder={'Java\nPostgreSQL'}/></label><label>经验<textarea maxLength={20000} name="experience" value={form.experience} onChange={update} rows={4}/></label><label>偏好任务<textarea maxLength={20000} name="preferredTaskTypes" value={form.preferredTaskTypes} onChange={update} rows={4}/></label><label>限制<textarea maxLength={20000} name="limitations" value={form.limitations} onChange={update} rows={4}/></label><label>备注<textarea maxLength={2000} name="notes" value={form.notes} onChange={update} rows={4}/></label><label>投入状态<select name="availability" value={form.availability} onChange={update}><option value="FULL_TIME">全职投入</option><option value="PART_TIME">部分投入</option><option value="LIMITED">有限投入</option></select></label><label>每周容量<input required type="number" min={1} max={40} name="weeklyCapacityPoints" value={form.weeklyCapacityPoints} onChange={update}/></label></div>{error&&<p className="error dialog-error" role="alert">{error}</p>}<footer><button type="button" className="button" onClick={onClose} disabled={submitting}>取消</button><button className="primary" disabled={submitting}>{submitting?'正在保存':'保存画像'}</button></footer></form></section></div>
+}
+function Members({project,user}){
+  const path=project?`/api/projects/${project.id}/members`:''
+  const [state,setState]=useProjectCollection(project?.id,path)
+  const [inviteOpen,setInviteOpen]=useState(false)
+  const [viewing,setViewing]=useState(null)
+  const [editing,setEditing]=useState(null)
+  const currentMember=state.items.find(member=>String(member.userId)===String(user?.userId))
+  const isLeader=currentMember?.projectRole==='LEADER'
+  const added=member=>{setState(current=>({...current,items:[...current.items.filter(item=>item.userId!==member.userId),member]}));setInviteOpen(false)}
+  const saved=member=>{setState(current=>({...current,items:current.items.map(item=>item.userId===member.userId?member:item)}));setEditing(null)}
+  return <><div className="page-head"><div><h1>项目成员</h1><p>角色与能力画像</p></div>{isLeader&&<button className="primary" onClick={()=>setInviteOpen(true)}><UserPlus size={16}/>邀请成员</button>}</div><section className="panel">{!project?<Empty text="暂无项目，请先创建项目"/>:state.loading?<Empty text="正在加载项目成员"/>:state.error?<Empty text={`无法加载项目成员：${state.error}`}/>:state.items.length?state.items.map(member=>{const own=String(member.userId)===String(user?.userId);const profileMember={...member,projectId:project.id};return <div className="list-row member-row" key={member.id??member.userId}><div><strong>{member.username||'未命名用户'}{own&&<span className="self-mark">当前用户</span>}</strong><small>{roleLabel(member.projectRole)} · 画像 v{member.profileVersion??0}</small></div><Status value={member.profileCompleted?'CURRENT':'PENDING'}/><div className="member-actions"><button className="button icon-text" onClick={()=>setViewing(profileMember)}><Eye size={15}/>查看能力画像</button>{own&&<button className="button icon-text" onClick={()=>setEditing(profileMember)}><Pencil size={15}/>编辑能力画像</button>}</div></div>}):<Empty text="该项目暂无成员"/>}</section>{inviteOpen&&<InviteMemberDialog project={project} onClose={()=>setInviteOpen(false)} onAdded={added}/>} {viewing&&<ProfileDialog member={viewing} editing={false} onClose={()=>setViewing(null)}/>} {editing&&<ProfileDialog member={editing} editing onClose={()=>setEditing(null)} onSaved={saved}/>}</>
+}
 function Notifications(){const [items,setItems]=useState([]);const refresh=()=>api('/api/notifications').then(setItems).catch(()=>{});useEffect(refresh,[]);return <><div className="page-head"><div><h1>通知</h1><p>当前用户的任务、阻塞和交付提醒</p></div></div><section className="panel">{items.length?items.map(n=><div className={`list-row ${n.readAt?'':'unread'}`} key={n.id}><div><strong>{n.title}</strong><small>{n.content} · {n.createdAt}</small></div>{n.readAt?<Status value="CURRENT"/>:<button className="button" onClick={()=>api(`/api/notifications/${n.id}/read`,{method:'POST'}).then(refresh)}>标记已读</button>}</div>):<Empty text="暂无通知"/>}</section></>}
-function Audit({project}){const path=project?`/api/audit-logs?projectId=${project.id}&page=0&size=50`:'';const state=useProjectCollection(project?.id,path,response=>Array.isArray(response)?response:response?.content);return <><div className="page-head"><div><h1>审计日志</h1><p>项目级时间线，按最新时间排序</p></div></div><section className="panel">{!project?<Empty text="暂无项目，创建项目后可查看审计日志"/>:state.loading?<Empty text="正在加载审计日志"/>:state.error?<Empty text={`无法加载审计日志：${state.error}`}/>:state.items.length?state.items.map(a=><div className="audit" key={a.id}><time>{formatTime(a.createdAt)}</time><div><strong>{a.action||'未知操作'} · {a.entityType||'未知实体'} #{a.entityId??'-'}</strong><small>操作人：{a.actorUserId||'系统'}</small></div></div>):<Empty text="暂无审计记录"/>}</section></>}
+function Audit({project}){const path=project?`/api/audit-logs?projectId=${project.id}&page=0&size=50`:'';const [state]=useProjectCollection(project?.id,path,response=>Array.isArray(response)?response:response?.content);return <><div className="page-head"><div><h1>审计日志</h1><p>项目级时间线，按最新时间排序</p></div></div><section className="panel">{!project?<Empty text="暂无项目，创建项目后可查看审计日志"/>:state.loading?<Empty text="正在加载审计日志"/>:state.error?<Empty text={`无法加载审计日志：${state.error}`}/>:state.items.length?state.items.map(a=><div className="audit" key={a.id}><time>{formatTime(a.createdAt)}</time><div><strong>{a.action||'未知操作'} · {a.entityType||'未知实体'} #{a.entityId??'-'}</strong><small>操作人：{a.actorUserId||'系统'}</small></div></div>):<Empty text="暂无审计记录"/>}</section></>}
 function formatTime(value){if(!value)return '时间未知';const date=new Date(value);return Number.isNaN(date.getTime())?'时间未知':date.toLocaleString()}
 function Empty({text}){return <div className="empty">{text}</div>}
 class PageErrorBoundary extends React.Component{constructor(props){super(props);this.state={error:null}}static getDerivedStateFromError(error){return {error}}componentDidUpdate(previousProps){if(previousProps.resetKey!==this.props.resetKey&&this.state.error)this.setState({error:null})}componentDidCatch(error){console.error('内容页面渲染失败',error)}render(){return this.state.error?<section className="panel"><Empty text="该页面暂时无法显示，请切换栏目后重试"/></section>:this.props.children}}

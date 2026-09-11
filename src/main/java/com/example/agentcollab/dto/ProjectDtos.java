@@ -20,7 +20,7 @@ public final class ProjectDtos {
             @NotBlank String defaultBranch,
             String gitProvider) {}
 
-    public record AddMemberRequest(@NotNull Long userId) {}
+    public record AddMemberRequest(Long userId, @Size(min = 3, max = 50) String username) {}
 
     public record ProjectResponse(Long id, String name, String repositoryUrl, String gitProvider,
                                   String defaultBranch, String latestContextCommit, ProjectCiStatus ciStatus,
