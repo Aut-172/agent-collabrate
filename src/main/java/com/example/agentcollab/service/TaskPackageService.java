@@ -122,7 +122,7 @@ public class TaskPackageService {
             var evidence = codeEvidence.addObject();
             evidence.put("path", file.getPath());
             evidence.put("reason", file.getSummary());
-            evidence.put("summary", file.getEvidenceType().name() + " evidence; contentHash="
+            evidence.put("summary", "证据类型=" + file.getEvidenceType().name() + "；内容哈希="
                     + (file.getContentHash() == null ? "unknown" : file.getContentHash()));
         });
         if (assignment != null) {
@@ -261,51 +261,91 @@ public class TaskPackageService {
 
     private String markdown(Task task, Workflow workflow, Project project, JsonNode content,
                             int packageVersion, String hash) {
-        StringBuilder result = new StringBuilder("# Agent Task Package\n\n## Metadata\n\n")
-                .append("- Task ID: ").append(task.getExternalKey()).append('\n')
-                .append("- Workflow ID: WF-").append(workflow.getId()).append('\n')
-                .append("- Task version: ").append(task.getVersion()).append('\n')
-                .append("- Package version: ").append(packageVersion).append('\n')
-                .append("- Design version: ").append(content.path("context").path("designVersion").asInt()).append('\n')
-                .append("- Spec version: ").append(content.path("context").path("specVersion").asInt()).append('\n')
-                .append("- Build plan version: ").append(task.getSourcePlanVersion()).append('\n')
-                .append("- Code context version: ").append(content.path("context").path("codeContextVersionId").asLong()).append('\n')
-                .append("- Context plan: ").append(content.path("context").path("contextPlanId").asLong()).append('\n')
-                .append("- Base branch: ").append(project.getDefaultBranch()).append('\n')
-                .append("- Base commit SHA: ").append(content.path("context").path("baseCommitSha").asText()).append('\n')
-                .append("- Package hash: sha256:").append(hash).append("\n\n")
-                .append("## Objective\n\n").append(task.getDescription()).append("\n\n");
-        appendList(result, "Scope", content.path("scope"), false);
-        appendList(result, "Non-goals", content.path("nonGoals"), false);
-        result.append("## Relevant Context\n\n")
+        StringBuilder result = new StringBuilder("# Agent 任务包\n\n## 元数据\n\n")
+                .append("- 任务 ID：").append(task.getExternalKey()).append('\n')
+                .append("- 工作流 ID：WF-").append(workflow.getId()).append('\n')
+                .append("- 任务版本：").append(task.getVersion()).append('\n')
+                .append("- 任务包版本：").append(packageVersion).append('\n')
+                .append("- 设计文档版本：").append(content.path("context").path("designVersion").asInt()).append('\n')
+                .append("- 规格文档版本：").append(content.path("context").path("specVersion").asInt()).append('\n')
+                .append("- 构建计划版本：").append(task.getSourcePlanVersion()).append('\n')
+                .append("- 代码上下文版本：").append(content.path("context").path("codeContextVersionId").asLong()).append('\n')
+                .append("- 上下文计划：").append(content.path("context").path("contextPlanId").asLong()).append('\n')
+                .append("- 基线分支：").append(project.getDefaultBranch()).append('\n')
+                .append("- 基线 Commit SHA：").append(content.path("context").path("baseCommitSha").asText()).append('\n')
+                .append("- 任务包哈希：sha256:").append(hash).append("\n\n")
+                .append("## 任务目标\n\n").append(task.getDescription()).append("\n\n");
+        appendList(result, "工作范围", content.path("scope"), false);
+        appendList(result, "非目标", content.path("nonGoals"), false);
+        result.append("## 相关代码上下文\n\n")
                 .append("- Code Context v").append(content.path("context").path("codeContextVersionId").asLong())
-                .append("; Context Plan ").append(content.path("context").path("contextPlanId").asLong()).append(".\n");
+                .append("；Context Plan ").append(content.path("context").path("contextPlanId").asLong()).append("。\n");
         content.path("context").path("codeEvidence").forEach(item -> result.append("- ")
-                .append(item.path("path").asText()).append(": ").append(item.path("reason").asText()).append('\n'));
+                .append(item.path("path").asText()).append("：").append(item.path("reason").asText()).append('\n'));
         result.append('\n');
         if (!content.path("blockerHistory").isEmpty()) {
-            result.append("## Resolved Blockers\n\n");
+            result.append("## 已解决的阻塞\n\n");
             content.path("blockerHistory").forEach(item -> result.append("- [")
                     .append(item.path("status").asText()).append("] ")
-                    .append(item.path("reasonCode").asText()).append(": ")
-                    .append(item.path("summary").asText()).append("; resolution: ")
+                    .append(item.path("reasonCode").asText()).append("：")
+                    .append(item.path("summary").asText()).append("；解决说明：")
                     .append(item.path("resolution").asText()).append('\n'));
             result.append('\n');
         }
-        appendList(result, "Acceptance Criteria", content.path("acceptanceCriteria"), true);
-        result.append("## Verification\n\n```bash\n");
+        appendList(result, "验收标准", content.path("acceptanceCriteria"), true);
+        result.append("## 验证命令\n\n```bash\n");
         content.path("verificationCommands").forEach(item -> result.append(item.asText()).append('\n'));
-        result.append("```\n\n## Git Execution Policy\n\n")
-                .append("1. Verify the repository, origin, current branch, and HEAD.\n")
-                .append("2. Create or switch to the task branch from the declared base commit.\n")
-                .append("3. Modify only files required by the task scope.\n")
-                .append("4. Commit and push only the task branch.\n")
-                .append("5. Do not push the default branch, force push, merge, or delete remote branches.\n")
-                .append("6. Do not read, commit, or output secrets.\n\n")
-                .append("## Preflight\n\nReport repository, branch, base commit, relevant files, context conflicts, and whether work can start.\n\n")
-                .append("## Conflict Rule\n\nStop and report a blocker if the package conflicts with the repository, is stale, or requires out-of-scope changes.\n\n")
-                .append("## Final Report\n\nReport changed files, verification results, branch, commit SHA, PR URL, unresolved issues, and out-of-scope changes.\n");
+        result.append("```\n\n## Git 执行策略\n\n")
+                .append("1. 核对仓库、origin、当前分支和 HEAD。\n")
+                .append("2. 从声明的基线 Commit 创建或切换到任务分支。\n")
+                .append("3. 只修改任务范围内必需的文件。\n")
+                .append("4. 只提交并推送任务分支。\n")
+                .append("5. 禁止推送默认分支、强制推送、合并或删除远程分支。\n")
+                .append("6. 禁止读取、提交或输出密钥等敏感信息。\n\n")
+                .append("## 执行前检查\n\n报告仓库、分支、基线 Commit、相关文件、上下文冲突，以及当前是否可以开始工作。\n\n")
+                .append("## 冲突处理规则\n\n如果任务包与仓库事实冲突、任务包已经过期，或任务需要超出范围的修改，请停止执行并报告 Blocker。\n\n")
+                .append("## 最终报告\n\n")
+                .append("完成任务后，请把下面的 JSON 模板补充为最终报告。向用户返回时只输出有效 JSON，不要添加 Markdown 代码围栏或额外说明；用户可将其直接粘贴到平台的“提交交付”区域。输出必须符合 `final-report-v1.schema.json`，不要改动任务包标识和上下文字段，并将示例摘要、文件、验证结果及 Commit SHA 替换为真实结果。\n\n")
+                .append("```json\n")
+                .append(finalReportTemplate(task, content, packageVersion, hash))
+                .append("\n```\n");
         return result.toString();
+    }
+
+    private String finalReportTemplate(Task task, JsonNode content, int packageVersion, String hash) {
+        ObjectNode report = json.createObjectNode();
+        report.put("schemaVersion", "1.0");
+        report.put("taskId", task.getExternalKey());
+        report.put("packageId", content.path("task").path("packageId").asLong());
+        report.put("packageVersion", packageVersion);
+        report.put("packageHash", "sha256:" + hash);
+        report.put("codeContextVersionId", content.path("context").path("codeContextVersionId").asLong());
+        report.put("contextPlanId", content.path("context").path("contextPlanId").asLong());
+        report.put("baseCommitSha", content.path("context").path("baseCommitSha").asText());
+        report.put("outcome", "READY_FOR_REVIEW");
+        report.put("summary", "请替换为本次交付的实际变更摘要");
+        report.putArray("changedFiles");
+
+        var tests = report.putArray("tests");
+        content.path("verificationCommands").forEach(command -> tests.addObject()
+                .put("command", command.asText())
+                .put("status", "NOT_RUN")
+                .put("summary", "请替换为该命令的实际执行结果"));
+
+        report.putObject("git")
+                .put("branchName", task.getBranchName())
+                .put("commitSha", content.path("context").path("baseCommitSha").asText())
+                .putNull("pullRequestUrl");
+
+        var criteria = report.putArray("acceptanceCriteria");
+        content.path("acceptanceCriteria").forEach(item -> criteria.addObject()
+                .put("criterion", item.isTextual() ? item.asText() : item.toString())
+                .put("status", "NOT_VERIFIED")
+                .put("evidence", ""));
+        report.putArray("unresolvedIssues");
+        report.putArray("outOfScopeChanges");
+        report.putArray("blockers");
+        return report.toPrettyString();
     }
 
     private void appendList(StringBuilder target, String heading, JsonNode items, boolean checklist) {

@@ -153,6 +153,9 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
             return "You are the platform planning agent for an AI collaboration system. "
                     + "Use only the supplied repository evidence and member data. "
                     + "Do not invent repository facts, credentials, or provider results. "
+                    + "Write all human-readable prose in Simplified Chinese. Keep JSON field names, enum values, "
+                    + "code identifiers, file paths, shell commands, URLs, and protocol literals unchanged. "
+                    + "Do not translate or rename those technical values. "
                     + outputRule + "\n\n" + outputContract(request) + "\n\nREQUEST:\n" + requestJson;
         } catch (JsonProcessingException ex) {
             throw new AgentProviderException("AGENT_REQUEST_SERIALIZATION_FAILED",

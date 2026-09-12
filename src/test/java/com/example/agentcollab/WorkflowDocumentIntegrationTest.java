@@ -620,7 +620,12 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(jsonPath("$.contentJson.context.contextPlanId").isNumber())
                 .andExpect(jsonPath("$.contentJson.context.relevantPaths[0]").value("src/main/java/example/App.java"))
                 .andExpect(jsonPath("$.contentJson.context.codeEvidence[0].reason").value("Existing application entry point"))
-                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("Agent Task Package")));
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("Agent 任务包")))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("## Git 执行策略")))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("## 最终报告")))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("只输出有效 JSON")))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("\"schemaVersion\" : \"1.0\"")))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("\"taskId\" :")));
         var initialPackage = taskPackages.findByTaskIdAndStatus(task.getId(),
                 com.example.agentcollab.domain.TaskPackageStatus.CURRENT).orElseThrow();
         mvc.perform(post("/api/tasks/{id}/packages/{version}/confirm", task.getId(), 1)
@@ -851,7 +856,7 @@ class WorkflowDocumentIntegrationTest {
             assertThat(item.path("status").asText()).isEqualTo("RESOLVED");
             assertThat(item.path("resolution").asText()).isEqualTo("Preserve the immutable identifier contract");
         });
-        assertThat(secondPackage.getContentMarkdown()).contains("## Resolved Blockers", "SPEC_CONFLICT");
+        assertThat(secondPackage.getContentMarkdown()).contains("## 已解决的阻塞", "SPEC_CONFLICT", "解决说明：");
 
         mvc.perform(get("/api/tasks/{id}/blockers", task.getId())
                         .header("Authorization", bearer(memberToken)))

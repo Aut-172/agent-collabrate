@@ -32,8 +32,8 @@ public class MockAgentProviderClient implements AgentProviderClient {
         }
         return switch (request.runType()) {
             case GENERATE_CODE_CONTEXT_PLAN -> contextPlan(request);
-            case GENERATE_DESIGN -> markdown("Design", request);
-            case GENERATE_SPEC -> markdown("Spec", request);
+            case GENERATE_DESIGN -> markdown("设计文档", request);
+            case GENERATE_SPEC -> markdown("规格文档", request);
             case GENERATE_BUILD_PLAN -> buildPlan(request);
         };
     }
@@ -64,11 +64,12 @@ public class MockAgentProviderClient implements AgentProviderClient {
     }
 
     private AgentProviderResult markdown(String documentName, AgentGenerationRequest request) {
-        String content = "# " + documentName + ": " + request.title() + "\n\n"
-                + "Intent level: " + request.intentLevel() + "\n\n"
+        String content = "# " + documentName + "：" + request.title() + "\n\n"
+                + "Intent 层级：" + request.intentLevel() + "\n\n"
                 + request.description();
-        return new AgentProviderResult(content, DocumentFormat.MARKDOWN,
-                "Generated " + documentName + " document");
+        String summary = request.runType() == AgentRunType.GENERATE_DESIGN
+                ? "Generated Design document" : "Generated Spec document";
+        return new AgentProviderResult(content, DocumentFormat.MARKDOWN, summary);
     }
 
     private AgentProviderResult buildPlan(AgentGenerationRequest request) {
@@ -113,7 +114,7 @@ public class MockAgentProviderClient implements AgentProviderClient {
             String taskKey = "TASK-" + String.format("%03d", index + 1);
             ObjectNode task = tasks.addObject();
             task.put("taskKey", taskKey);
-            task.put("title", request.title() + (suggestedSize == 1 ? "" : " - part " + (index + 1)));
+            task.put("title", request.title() + (suggestedSize == 1 ? "" : " - 子任务 " + (index + 1)));
             task.put("description", request.description());
             task.put("effortPoints", request.intentLevel() == IntentLevel.CHANGE ? 3 : 5);
             task.put("priority", "MEDIUM");

@@ -1,6 +1,6 @@
 import React from 'react'
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest'
-import {cleanup,render,screen,waitFor,within} from '@testing-library/react'
+import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {App} from './main.jsx'
 
@@ -14,6 +14,7 @@ describe('project-scoped navigation',()=>{
 
   afterEach(()=>{
     cleanup()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -38,7 +39,7 @@ describe('project-scoped navigation',()=>{
     }
 
     expect(screen.queryByText('页面暂时无法显示')).toBeNull()
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
   it('aborts stale member requests when switching to audit logs',async()=>{
@@ -275,5 +276,189 @@ describe('project-scoped navigation',()=>{
     expect(screen.getByText(/Member · 画像 v1/)).toBeTruthy()
     const updateCall=fetchMock.mock.calls.find(([path,options])=>path==='/api/projects/7/members/me/profile'&&options.method==='PUT')
     expect(JSON.parse(updateCall[1].body)).toMatchObject({summary:'技能：React',responsibilities:[],skills:['React'],availability:'FULL_TIME',weeklyCapacityPoints:32,notes:''})
+  })
+
+  it('opens a planned task and confirms its current package to start development',async()=>{
+    const project={id:7,name:'测试项目',repositoryUrl:'https://github.com/example/repo',defaultBranch:'main',ciStatus:'CI_REQUIRED',status:'ACTIVE',createdBy:1}
+    const workflow={id:21,projectId:7,title:'交付闭环',description:'验证任务交付流程',intentLevel:'FEATURE',status:'TASKS_READY',health:'HEALTHY',nextAction:'CONTINUE_TASKS'}
+    let taskStatus='ASSIGNED'
+    const task=()=>({id:31,workflowId:21,externalKey:'TASK-001',title:'实现接口',description:'完成核心接口',effortPoints:3,status:taskStatus,sourcePlanVersion:1,sourceSpecVersion:1,branchName:'agent/task-001',currentPackageVersion:1,planDetails:{acceptanceCriteria:['接口测试通过'],verificationCommands:['npm test']},currentAssignment:{assigneeUserId:1,assignmentVersion:1,assignmentReason:'技能匹配',assignmentScore:0.9,profileVersion:1,workloadSnapshot:{openEffortPoints:3}}})
+    const taskPackage={id:41,taskId:31,packageVersion:1,status:'CURRENT',contentMarkdown:'# TASK-001\n\n完成接口。',contentJson:{task:{taskId:'TASK-001'}},contentHash:`sha256:${'a'.repeat(64)}`,baseCommit:'abcdef1',codeContextVersionId:51,contextPlanId:61}
+    const fetchMock=vi.fn((path,options={})=>{
+      if(path==='/api/projects')return okResponse([project])
+      if(path==='/api/workflows')return okResponse([workflow])
+      if(path==='/api/me')return okResponse({userId:1,username:'leader'})
+      if(path==='/api/workflows/21')return okResponse(workflow)
+      if(path==='/api/workflows/21/documents')return okResponse([])
+      if(path==='/api/workflows/21/tasks')return okResponse([task()])
+      if(path==='/api/workflows/21/code-context')return okResponse({id:51,status:'CURRENT'})
+      if(path==='/api/projects/7/repo-inventory/latest')return okResponse({id:71,status:'CURRENT'})
+      if(path==='/api/tasks/31')return okResponse(task())
+      if(path==='/api/tasks/31/packages/current')return okResponse(taskPackage)
+      if(path==='/api/tasks/31/deliveries'||path==='/api/tasks/31/blockers'||path==='/api/tasks/31/git-operations'||path==='/api/tasks/31/ci-runs')return okResponse([])
+      if(path==='/api/projects/7/members')return okResponse([{userId:1,username:'leader',projectRole:'LEADER',profileCompleted:true}])
+      if(path==='/api/tasks/31/packages/1/confirm'&&options.method==='POST'){taskStatus='IN_PROGRESS';return okResponse({taskStatus})}
+      if(path==='/api/tasks/31/delivery'&&options.method==='POST')return okResponse({id:81,status:'SUBMITTED'})
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    vi.stubGlobal('URL',{createObjectURL:vi.fn(()=>"blob:task-package"),revokeObjectURL:vi.fn()})
+    vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{})
+    const user=userEvent.setup()
+
+    render(<App/>)
+    await screen.findByRole('heading',{name:'测试项目'})
+    await user.click(screen.getByRole('button',{name:'工作流'}))
+    await user.click(screen.getByText('交付闭环'))
+    await screen.findByText('TASK-001 · 实现接口')
+    await user.click(screen.getByRole('button',{name:'查看任务'}))
+    expect(await screen.findByRole('heading',{name:'任务包'})).toBeTruthy()
+    expect(screen.getByRole('heading',{name:'TASK-001 · 实现接口'})).toBeTruthy()
+    expect(screen.getByRole('region',{name:'任务计划 JSON'}).querySelector('.json-key')?.textContent).toBe('"acceptanceCriteria"')
+    expect(screen.getByRole('button',{name:'复制任务说明'}).title).toContain('可直接交给开发 Agent')
+    expect(screen.getByRole('button',{name:'下载任务包 (.md)'}).title).toContain('内容相同')
+    const moreMenu=screen.getByLabelText('更多任务包操作').closest('details')
+    expect(moreMenu.open).toBe(false)
+    await user.click(screen.getByLabelText('更多任务包操作'))
+    expect(moreMenu.open).toBe(true)
+    expect(screen.getByRole('button',{name:'下载结构化任务包 (.json)'}).title).toContain('自动化工具')
+    await user.click(screen.getByRole('button',{name:'下载结构化任务包 (.json)'}))
+    expect(await screen.findByText('结构化任务包 JSON 文件已开始下载。')).toBeTruthy()
+    expect(moreMenu.open).toBe(false)
+    await user.click(screen.getByRole('button',{name:'复制任务说明'}))
+    expect(await screen.findByText('任务包已复制到剪贴板。')).toBeTruthy()
+    await user.click(screen.getByRole('button',{name:'下载任务包 (.md)'}))
+    expect(await screen.findByText('任务包 Markdown 文件已开始下载。')).toBeTruthy()
+    await user.click(screen.getByRole('button',{name:'确认并开始开发'}))
+    expect(await screen.findByRole('heading',{name:'提交交付'})).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledWith('/api/tasks/31/packages/1/confirm',expect.objectContaining({method:'POST'}))
+
+    const jsonMode=screen.getByRole('button',{name:'JSON'})
+    expect(jsonMode.classList.contains('active')).toBe(true)
+    const jsonEditor=screen.getByRole('textbox',{name:'Final Report JSON'})
+    expect(JSON.parse(jsonEditor.value)).toMatchObject({
+      taskId:'TASK-001',packageId:41,packageVersion:1,packageHash:taskPackage.contentHash,
+      codeContextVersionId:51,contextPlanId:61,baseCommitSha:'abcdef1'
+    })
+
+    await user.click(screen.getByRole('button',{name:'表单'}))
+    expect(screen.getByPlaceholderText('例如：完成支付回调验签和重复通知幂等处理，并补充相关测试。')).toBeTruthy()
+    const advanced=screen.getByText('更多交付信息').closest('details')
+    expect(advanced.open).toBe(false)
+    expect(screen.getByRole('option',{name:'需求需要澄清（REQUIREMENT_CLARIFICATION）'})).toBeTruthy()
+    expect(screen.getByPlaceholderText(/用一句话概括阻塞及影响/)).toBeTruthy()
+    expect(screen.getByPlaceholderText(/说明遇到的现象、已经尝试的方案及影响范围/)).toBeTruthy()
+    expect(screen.getByPlaceholderText(/写出需要 Leader 明确回答的问题/)).toBeTruthy()
+    expect(screen.getByRole('button',{name:'报告阻塞'}).classList.contains('primary')).toBe(true)
+
+    await user.click(jsonMode)
+    const refreshedJsonEditor=screen.getByRole('textbox',{name:'Final Report JSON'})
+    const finalReport=JSON.parse(refreshedJsonEditor.value)
+    finalReport.summary='完成核心接口并通过测试'
+    finalReport.changedFiles=['src/main.jsx']
+    finalReport.tests=[{command:'npm test',status:'PASSED',summary:'全部测试通过'}]
+    finalReport.git.commitSha='abcdef1234567'
+    fireEvent.change(refreshedJsonEditor,{target:{value:JSON.stringify(finalReport)}})
+    await user.click(screen.getByRole('button',{name:'提交交付并开始 Git 校验'}))
+    await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/tasks/31/delivery',expect.objectContaining({method:'POST'})))
+    const deliveryCall=fetchMock.mock.calls.find(([path,options])=>path==='/api/tasks/31/delivery'&&options.method==='POST')
+    expect(JSON.parse(deliveryCall[1].body)).toMatchObject({
+      packageId:41,packageVersion:1,packageHash:taskPackage.contentHash,
+      branchName:'agent/task-001',commitSha:'abcdef1234567',pullRequestUrl:null,
+      finalReport:{summary:'完成核心接口并通过测试',git:{branchName:'agent/task-001',commitSha:'abcdef1234567',pullRequestUrl:null}}
+    })
+  })
+
+  it('hides task package copy and download actions from non-assignees',async()=>{
+    const project={id:7,name:'测试项目',repositoryUrl:'https://github.com/example/repo',defaultBranch:'main',ciStatus:'CI_REQUIRED',status:'ACTIVE'}
+    const workflow={id:21,projectId:7,title:'权限任务',description:'验证任务包权限',intentLevel:'FEATURE',status:'TASKS_READY',health:'HEALTHY',nextAction:'CONTINUE_TASKS'}
+    const task={id:31,workflowId:21,externalKey:'TASK-001',title:'负责人任务',description:'其他成员只读',effortPoints:3,status:'ASSIGNED',sourcePlanVersion:1,sourceSpecVersion:1,branchName:'agent/task-001',currentPackageVersion:1,planDetails:{scope:['src'],acceptanceCriteria:['测试通过']},currentAssignment:{assigneeUserId:1,assignmentVersion:1,assignmentReason:'技能匹配',profileVersion:1}}
+    const taskPackage={id:41,taskId:31,packageVersion:1,status:'CURRENT',contentMarkdown:'# TASK-001\n\n仅供查看。',contentJson:{task:{taskId:'TASK-001'}},contentHash:`sha256:${'a'.repeat(64)}`,baseCommit:'abcdef1'}
+    const fetchMock=vi.fn(path=>{
+      if(path==='/api/projects')return okResponse([project])
+      if(path==='/api/workflows')return okResponse([workflow])
+      if(path==='/api/me')return okResponse({userId:2,username:'member'})
+      if(path==='/api/notifications')return okResponse([])
+      if(path==='/api/workflows/21')return okResponse(workflow)
+      if(path==='/api/workflows/21/documents')return okResponse([])
+      if(path==='/api/workflows/21/tasks')return okResponse([task])
+      if(path==='/api/workflows/21/code-context')return okResponse({id:51,status:'CURRENT'})
+      if(path==='/api/projects/7/repo-inventory/latest')return okResponse({id:71,status:'CURRENT'})
+      if(path==='/api/tasks/31')return okResponse(task)
+      if(path==='/api/tasks/31/packages/current')return okResponse(taskPackage)
+      if(path==='/api/tasks/31/deliveries'||path==='/api/tasks/31/blockers'||path==='/api/tasks/31/git-operations'||path==='/api/tasks/31/ci-runs')return okResponse([])
+      if(path==='/api/projects/7/members')return okResponse([{userId:1,username:'owner',projectRole:'MEMBER',profileCompleted:true},{userId:2,username:'member',projectRole:'MEMBER',profileCompleted:true}])
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    const user=userEvent.setup()
+
+    render(<App/>)
+    await screen.findByRole('heading',{name:'测试项目'})
+    await user.click(screen.getByRole('button',{name:'工作流'}))
+    await user.click(screen.getByText('权限任务'))
+    await screen.findByText('TASK-001 · 负责人任务')
+    await user.click(screen.getByRole('button',{name:'查看任务'}))
+    expect(await screen.findByRole('heading',{name:'任务包'})).toBeTruthy()
+    expect(screen.getByText('仅供查看。')).toBeTruthy()
+    expect(screen.queryByRole('button',{name:'复制任务说明'})).toBeNull()
+    expect(screen.queryByRole('button',{name:'下载任务包 (.md)'})).toBeNull()
+    expect(screen.queryByLabelText('更多任务包操作')).toBeNull()
+  })
+
+  it('opens a project board with a default workflow and allows switching workflows',async()=>{
+    const project={id:7,name:'测试项目',ciStatus:'CI_REQUIRED'}
+    const workflows=[{id:21,projectId:7,title:'工作流一',status:'TASKS_READY'},{id:22,projectId:7,title:'工作流二',status:'IN_PROGRESS'}]
+    const fetchMock=vi.fn(path=>{
+      if(path==='/api/projects')return okResponse([project])
+      if(path==='/api/workflows')return okResponse(workflows)
+      if(path==='/api/me')return okResponse({userId:1,username:'leader'})
+      if(path==='/api/workflows/21/board'||path==='/api/workflows/22/board')return okResponse({columns:[]})
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    const user=userEvent.setup()
+
+    render(<App/>)
+    await screen.findByRole('heading',{name:'测试项目'})
+    await user.click(screen.getByRole('button',{name:'任务看板'}))
+    const selector=await screen.findByRole('combobox',{name:'看板 Workflow'})
+    await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/workflows/21/board',expect.any(Object)))
+    expect(screen.queryByText('请先从工作流列表选择一个 Workflow')).toBeNull()
+    await user.selectOptions(selector,'22')
+    await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/workflows/22/board',expect.any(Object)))
+  })
+
+  it('aggregates the current users project tasks and shows assignment notifications',async()=>{
+    const project={id:7,name:'测试项目',ciStatus:'CI_REQUIRED'}
+    const workflows=[{id:21,projectId:7,title:'订单工作流',status:'TASKS_READY'},{id:22,projectId:7,title:'库存工作流',status:'TASKS_READY'}]
+    const ownTask={id:31,workflowId:21,externalKey:'TASK-001',title:'实现订单接口',description:'增加订单查询',effortPoints:3,status:'ASSIGNED',branchName:'agent/task-001',currentPackageVersion:1,currentAssignment:{assigneeUserId:1}}
+    const otherTask={id:32,workflowId:22,externalKey:'TASK-002',title:'库存任务',status:'ASSIGNED',currentAssignment:{assigneeUserId:2}}
+    const fetchMock=vi.fn(path=>{
+      if(path==='/api/projects')return okResponse([project])
+      if(path==='/api/workflows')return okResponse(workflows)
+      if(path==='/api/me')return okResponse({userId:1,username:'leader'})
+      if(path==='/api/notifications')return okResponse([{id:91,type:'TASK_ASSIGNED',entityType:'TASK',entityId:31,title:'你收到一个新任务',content:'TASK-001：实现订单接口',readAt:null,createdAt:'2026-09-12T01:00:00Z'}])
+      if(path==='/api/workflows/21/tasks')return okResponse([ownTask])
+      if(path==='/api/workflows/22/tasks')return okResponse([otherTask])
+      if(path==='/api/tasks/31')return okResponse({...ownTask,sourcePlanVersion:1,planDetails:{},currentAssignment:{assigneeUserId:1,assignmentVersion:1,assignmentReason:'技能匹配',profileVersion:1}})
+      if(path==='/api/tasks/31/packages/current')return okResponse(null)
+      if(path==='/api/tasks/31/deliveries'||path==='/api/tasks/31/blockers'||path==='/api/tasks/31/git-operations'||path==='/api/tasks/31/ci-runs')return okResponse([])
+      if(path==='/api/projects/7/members')return okResponse([{userId:1,username:'leader',projectRole:'LEADER',profileCompleted:true}])
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    const user=userEvent.setup()
+
+    render(<App/>)
+    await screen.findByLabelText('1 条未读通知')
+    await user.click(screen.getByRole('button',{name:'我的任务'}))
+    expect(await screen.findByRole('heading',{name:'TASK-001 · 实现订单接口'})).toBeTruthy()
+    expect(screen.getByText('订单工作流')).toBeTruthy()
+    expect(screen.queryByText('库存任务')).toBeNull()
+    await user.click(screen.getByRole('button',{name:'查看任务详情'}))
+    expect(await screen.findByRole('heading',{name:'任务信息'})).toBeTruthy()
+    await user.click(screen.getByRole('button',{name:'我的任务'}))
+    expect(await screen.findByRole('heading',{name:'我的任务'})).toBeTruthy()
   })
 })

@@ -108,6 +108,8 @@ class OpenAiAgentProviderClientTest {
 
         assertThat(prompt).contains("staffingRecommendation", "recommendedTeamSize", "effortPoints",
                 "verificationCommands", "fitReason", "assignmentScore");
+        assertThat(prompt).contains("Write all human-readable prose in Simplified Chinese");
+        assertThat(prompt).contains("Keep JSON field names, enum values", "shell commands");
         assertThat(prompt).contains("Do not rename fields to buildPlan, estimatedEffortPoints, assigneeUserId");
         assertThat(prompt).contains("Every task must have exactly one matching assignment");
     }
