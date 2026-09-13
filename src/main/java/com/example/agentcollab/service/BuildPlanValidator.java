@@ -7,9 +7,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.networknt.schema.JsonSchema;
 import com.networknt.schema.JsonSchemaFactory;
 import com.networknt.schema.SpecVersion;
+import com.networknt.schema.ValidationMessage;
 import org.springframework.stereotype.Component;
 import java.util.HashSet;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Component
 public class BuildPlanValidator {
@@ -29,14 +33,37 @@ public class BuildPlanValidator {
         } catch (JsonProcessingException | IllegalArgumentException ex) {
             throw invalid("Build Plan 不是有效 JSON");
         }
-        if (root == null || !schema.validate(root).isEmpty()) {
-            throw invalid("Build Plan 不符合 Intent 对应的 JSON Schema");
+        if (root == null) {
+            throw invalid("Build Plan 不符合 Intent 对应的 JSON Schema：根对象不能为空");
+        }
+        Set<ValidationMessage> schemaErrors = schema.validate(root);
+        if (!schemaErrors.isEmpty()) {
+            String details = schemaErrors.stream()
+                    .sorted(Comparator.comparing(error -> error.getInstanceLocation().toString()))
+                    .limit(5)
+                    .map(this::formatSchemaError)
+                    .collect(Collectors.joining("；"));
+            String requiredField = firstMissingRequiredField(root, expectedLevel);
+            if (requiredField != null) details = requiredField + "；" + details;
+            throw invalid("Build Plan 不符合 Intent 对应的 JSON Schema：" + details);
         }
         if (!expectedLevel.name().equals(root.path("intentLevel").asText())) {
             throw invalid("Build Plan 的 Intent 层级不匹配");
         }
-        if (expectedLevel != IntentLevel.ARCHITECTURE) validateTaskReferences(root);
+        if (expectedLevel == IntentLevel.ARCHITECTURE) {
+            validateArchitectureChildren(root);
+        } else {
+            validateTaskReferences(root);
+        }
         return root;
+    }
+
+    private void validateArchitectureChildren(JsonNode root) {
+        for (JsonNode child : root.path("childIntents")) {
+            if (child.path("intentLevel").asText().equals(IntentLevel.ARCHITECTURE.name())) {
+                throw invalid("Architecture 只能创建 Feature 或 Change 子 Intent，不能嵌套 Architecture");
+            }
+        }
     }
 
     private void validateTaskReferences(JsonNode root) {
@@ -66,5 +93,50 @@ public class BuildPlanValidator {
 
     private BuildPlanValidationException invalid(String message) {
         return new BuildPlanValidationException(message);
+    }
+
+    private String formatSchemaError(ValidationMessage error) {
+        String path = error.getInstanceLocation() == null
+                ? "$" : error.getInstanceLocation().toString();
+        String message = error.getMessage() == null ? "schema validation failed" : error.getMessage();
+        if (error.getDetails() != null && !error.getDetails().isEmpty()) {
+            message += " (details: " + error.getDetails() + ")";
+        }
+        message = message.replace('\r', ' ').replace('\n', ' ');
+        return path + " " + message;
+    }
+
+    private String firstMissingRequiredField(JsonNode root, IntentLevel level) {
+        List<String> required = level == IntentLevel.ARCHITECTURE
+                ? List.of("intentLevel", "architectureGoals", "systemBoundaries", "constraints",
+                "nonFunctionalRequirements", "childIntents", "risks")
+                : List.of("intentLevel", "staffingRecommendation", "tasks", "assignments", "alternatives", "warnings");
+        for (String field : required) {
+            if (!root.has(field)) return "$ missing required field '" + field + "'";
+        }
+        if (level == IntentLevel.ARCHITECTURE) {
+            for (int i = 0; i < root.path("childIntents").size(); i++) {
+                JsonNode child = root.path("childIntents").get(i);
+                for (String field : List.of("title", "description", "intentLevel")) {
+                    if (!child.has(field)) return "$.childIntents[" + i + "] missing required field '" + field + "'";
+                }
+            }
+            return null;
+        }
+        for (int i = 0; i < root.path("tasks").size(); i++) {
+            JsonNode task = root.path("tasks").get(i);
+            for (String field : List.of("taskKey", "title", "description", "effortPoints", "priority", "scope",
+                    "nonGoals", "acceptanceCriteria", "verificationCommands", "dependencies", "branchName")) {
+                if (!task.has(field)) return "$.tasks[" + i + "] missing required field '" + field + "'";
+            }
+        }
+        for (int i = 0; i < root.path("assignments").size(); i++) {
+            JsonNode assignment = root.path("assignments").get(i);
+            for (String field : List.of("taskKey", "userId", "projectRole", "profileVersion", "workloadSnapshot",
+                    "fitReason", "assignmentScore")) {
+                if (!assignment.has(field)) return "$.assignments[" + i + "] missing required field '" + field + "'";
+            }
+        }
+        return null;
     }
 }

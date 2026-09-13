@@ -9,6 +9,7 @@ import com.example.agentcollab.service.TaskService;
 import com.example.agentcollab.service.TaskDeliveryService;
 import com.example.agentcollab.service.DeliveryEvidenceService;
 import com.example.agentcollab.service.TaskBlockerService;
+import com.example.agentcollab.service.CiSyncService;
 import com.example.agentcollab.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -23,14 +24,16 @@ public class TaskController {
     private final TaskDeliveryService deliveries;
     private final DeliveryEvidenceService evidence;
     private final TaskBlockerService blockers;
+    private final CiSyncService ciSync;
 
     public TaskController(TaskService tasks, UserService users, TaskDeliveryService deliveries,
-                          DeliveryEvidenceService evidence, TaskBlockerService blockers) {
+                          DeliveryEvidenceService evidence, TaskBlockerService blockers, CiSyncService ciSync) {
         this.tasks = tasks;
         this.users = users;
         this.deliveries = deliveries;
         this.evidence = evidence;
         this.blockers = blockers;
+        this.ciSync = ciSync;
     }
 
     @GetMapping("/{taskId}")
@@ -64,6 +67,12 @@ public class TaskController {
     @GetMapping("/{taskId}/ci-runs")
     public List<DeliveryEvidenceDtos.CiRunResponse> ciRuns(@PathVariable Long taskId) {
         return evidence.listCiRuns(currentUserId(), taskId);
+    }
+
+    @PostMapping("/{taskId}/ci-runs/{runId}/retry")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public DeliveryEvidenceDtos.CiRunResponse retryCi(@PathVariable Long taskId, @PathVariable Long runId) {
+        return ciSync.retry(currentUserId(), taskId, runId);
     }
 
     @PostMapping("/{taskId}/block")

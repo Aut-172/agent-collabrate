@@ -56,6 +56,26 @@ class GitHubProviderClientTest {
     }
 
     @Test
+    void branchHeadMustMatchDeliveryCommit() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubGitProviderClient provider = new GitHubGitProviderClient(builder, "https://api.github.test", "");
+        String otherSha = "abcdefabcdefabcdefabcdefabcdefabcdefabcd";
+        server.expect(requestTo("https://api.github.test/repos/acme/app/commits/" + SHA))
+                .andRespond(withSuccess("{\"sha\":\"" + SHA + "\"}", APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.test/repos/acme/app/branches/feature/task"))
+                .andRespond(withSuccess("{\"name\":\"feature/task\",\"commit\":{\"sha\":\""
+                        + otherSha + "\"}}", APPLICATION_JSON));
+
+        var result = provider.validate(project(), delivery(null));
+
+        assertThat(result.branchMatches()).isFalse();
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.errorMessage()).contains(otherSha).contains(SHA);
+        server.verify();
+    }
+
+    @Test
     void unauthorizedAndServerErrorsAreClassifiedForRetryPolicy() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -105,6 +125,8 @@ class GitHubProviderClientTest {
         var result = provider.sync(project(), new CiRun(1L, 2L, 3L, 4L, SHA));
 
         assertThat(result.status()).isEqualTo(CiRunStatus.UNKNOWN);
+        assertThat(result.headSha()).isBlank();
+        assertThat(result.conclusion()).isEqualTo("NO_CHECK_RUNS");
         assertThat(result.configurationPresent()).isFalse();
         assertThat(result.configurationRecognized()).isFalse();
         server.verify();

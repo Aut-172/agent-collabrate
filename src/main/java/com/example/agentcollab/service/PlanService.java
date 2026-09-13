@@ -6,7 +6,6 @@ import com.example.agentcollab.repository.DocumentVersionRepository;
 import com.example.agentcollab.repository.ProjectMemberRepository;
 import com.example.agentcollab.repository.UserRepository;
 import com.example.agentcollab.repository.WorkflowRepository;
-import com.example.agentcollab.repository.TaskRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -23,14 +22,13 @@ public class PlanService {
     private final ProjectAccessService access;
     private final WorkflowStateMachine stateMachine;
     private final BuildPlanValidator validator;
-    private final TaskRepository tasks;
     private final AuditLogService audit;
 
     public PlanService(DocumentVersionRepository documents, WorkflowRepository workflows,
                        ProjectMemberRepository members, UserRepository users,
                        WorkflowService workflowService, ProjectAccessService access,
                        WorkflowStateMachine stateMachine, BuildPlanValidator validator,
-                       TaskRepository tasks, AuditLogService audit) {
+                       AuditLogService audit) {
         this.documents = documents;
         this.workflows = workflows;
         this.members = members;
@@ -39,7 +37,6 @@ public class PlanService {
         this.access = access;
         this.stateMachine = stateMachine;
         this.validator = validator;
-        this.tasks = tasks;
         this.audit = audit;
     }
 
@@ -130,15 +127,9 @@ public class PlanService {
                     && member.getProfileVersion() != assignment.path("profileVersion").asInt()) {
                 throw conflict("ASSIGNEE_PROFILE_STALE", "负责人画像版本已变化，请更新或重新生成计划");
             }
-            JsonNode workload = assignment.path("workloadSnapshot");
-            if (requireCurrentPlanSnapshot
-                    && (member.getWeeklyCapacityPoints() != workload.path("weeklyCapacityPoints").asInt()
-                    || tasks.sumOpenEffortPoints(workflow.getProjectId(), userId)
-                    != workload.path("openEffortPoints").asInt()
-                    || (workload.has("availability")
-                    && !member.getAvailability().equals(workload.path("availability").asText())))) {
-                throw conflict("ASSIGNEE_WORKLOAD_STALE", "负责人工作量或可投入容量已变化，请更新或重新生成计划");
-            }
+            // Workload and weekly capacity are planning signals, not hard limits.
+            // Task creation records a fresh workload snapshot, so a plan remains
+            // approvable when capacity changes between generation and approval.
         }
     }
 

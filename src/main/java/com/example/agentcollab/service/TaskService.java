@@ -156,9 +156,14 @@ public class TaskService {
 
     private void createChildIntents(Long actorId, Workflow workflow, JsonNode plan) {
         for (JsonNode child : plan.path("childIntents")) {
+            IntentLevel childLevel = IntentLevel.valueOf(child.path("intentLevel").asText());
+            if (childLevel == IntentLevel.ARCHITECTURE) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_CHILD_INTENT_LEVEL",
+                        "Architecture 只能创建 Feature 或 Change 子 Intent，不能嵌套 Architecture");
+            }
             workflowService.create(actorId, workflow.getProjectId(), new WorkflowDtos.CreateWorkflowRequest(
                     child.path("title").asText(), child.path("description").asText(),
-                    IntentLevel.valueOf(child.path("intentLevel").asText()), workflow.getId(), null));
+                    childLevel, workflow.getId(), null, true));
         }
     }
 

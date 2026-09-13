@@ -11,6 +11,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,6 +31,19 @@ class OpenAiAgentProviderClientTest {
     @AfterEach
     void verifyRequests() {
         if (server != null) server.verify();
+    }
+
+    @Test
+    void classifiesTransportTimeoutAndDnsFailuresForDiagnostics() {
+        assertThat(OpenAiAgentProviderClient.networkErrorType(
+                new RuntimeException(new SocketTimeoutException("Read timed out"))))
+                .isEqualTo("READ_TIMEOUT");
+        assertThat(OpenAiAgentProviderClient.networkErrorType(
+                new RuntimeException(new SocketTimeoutException("connect timed out"))))
+                .isEqualTo("CONNECT_TIMEOUT");
+        assertThat(OpenAiAgentProviderClient.networkErrorType(
+                new RuntimeException(new UnknownHostException("api.example.test"))))
+                .isEqualTo("DNS_ERROR");
     }
 
     @Test
@@ -123,6 +138,8 @@ class OpenAiAgentProviderClientTest {
                 .path("input").asText();
 
         assertThat(prompt).contains("Do not output staffingRecommendation, tasks, assignments");
+        assertThat(prompt).contains("complete standalone Workflow intent", "Never emit ARCHITECTURE child intents",
+                "create each child as a new Workflow");
     }
 
     private OpenAiAgentProviderClient provider(RestClient client, String key, String model) {

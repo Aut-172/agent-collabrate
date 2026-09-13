@@ -1,11 +1,13 @@
 package com.example.agentcollab.dto;
 
 import com.example.agentcollab.domain.*;
+import com.example.agentcollab.dto.AgentRunDtos.AgentRunResponse;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
+import java.util.List;
 
 public final class WorkflowDtos {
     private WorkflowDtos() {}
@@ -15,11 +17,13 @@ public final class WorkflowDtos {
             @NotBlank @Size(max = 20000) String description,
             @NotNull IntentLevel intentLevel,
             Long parentWorkflowId,
-            WorkflowCompletionMode completionMode) {}
+            WorkflowCompletionMode completionMode,
+            Boolean pullRequestRequired) {}
 
     public record CreateCiBootstrapRequest(
             @NotBlank @Size(max = 200) String title,
-            @NotBlank @Size(max = 20000) String description) {}
+            @NotBlank @Size(max = 20000) String description,
+            Boolean pullRequestRequired) {}
 
     public record SaveDocumentRequest(@NotBlank @Size(max = 1000000) String content) {}
 
@@ -32,6 +36,7 @@ public final class WorkflowDtos {
             String description,
             IntentLevel intentLevel,
             WorkflowCompletionMode completionMode,
+            boolean pullRequestRequired,
             Long parentWorkflowId,
             WorkflowStatus status,
             WorkflowHealth health,
@@ -39,20 +44,35 @@ public final class WorkflowDtos {
             Long version,
             Instant createdAt,
             Instant updatedAt,
-            String nextAction) {
+            String nextAction,
+            List<AgentRunResponse> activeAgentRuns,
+            List<AgentRunResponse> latestAgentRuns) {
         public static WorkflowResponse from(Workflow workflow) {
-            return new WorkflowResponse(workflow.getId(), workflow.getProjectId(), workflow.getTitle(),
-                    workflow.getDescription(), workflow.getIntentLevel(), workflow.getCompletionMode(),
+            return from(workflow, List.of(), List.of());
+        }
+
+        public static WorkflowResponse from(Workflow workflow, List<AgentRunResponse> activeAgentRuns) {
+            return from(workflow, activeAgentRuns, List.of());
+        }
+
+        public static WorkflowResponse from(Workflow workflow, List<AgentRunResponse> activeAgentRuns,
+                                            List<AgentRunResponse> latestAgentRuns) {
+                    return new WorkflowResponse(workflow.getId(), workflow.getProjectId(), workflow.getTitle(),
+                            workflow.getDescription(), workflow.getIntentLevel(), workflow.getCompletionMode(),
+                    workflow.isPullRequestRequired(),
                     workflow.getParentWorkflowId(),
                     workflow.getStatus(), workflow.getHealth(), workflow.getCreatedBy(), workflow.getVersion(),
-                    workflow.getCreatedAt(), workflow.getUpdatedAt(), nextAction(workflow));
+                    workflow.getCreatedAt(), workflow.getUpdatedAt(), nextAction(workflow),
+                    activeAgentRuns == null ? List.of() : activeAgentRuns,
+                    latestAgentRuns == null ? List.of() : latestAgentRuns);
         }
 
         private static String nextAction(Workflow workflow) {
             return switch (workflow.getStatus()) {
                 case INTENT -> workflow.getIntentLevel() == IntentLevel.CHANGE
                         ? "GENERATE_BUILD_PLAN" : "GENERATE_DESIGN";
-                case DESIGN_PROPOSED -> "CONFIRM_DESIGN_OR_GENERATE_SPEC";
+                case DESIGN_PROPOSED -> "CONFIRM_DESIGN";
+                case DESIGN_CONFIRMED -> "GENERATE_SPEC";
                 case SPEC_PROPOSED -> "CONFIRM_SPEC";
                 case SPEC_CONFIRMED -> "GENERATE_BUILD_PLAN";
                 case BUILD_PLAN_PROPOSED -> "APPROVE_BUILD_PLAN";

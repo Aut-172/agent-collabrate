@@ -73,7 +73,7 @@
       "properties": {
         "title": { "type": "string", "minLength": 1, "maxLength": 200 },
         "description": { "type": "string", "minLength": 1, "maxLength": 10000 },
-        "intentLevel": { "enum": ["ARCHITECTURE", "FEATURE", "CHANGE"] }
+        "intentLevel": { "enum": ["FEATURE", "CHANGE"] }
       }
     },
     "staffingRecommendation": {

@@ -8,6 +8,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -77,11 +80,39 @@ public class CodeEvidenceService {
         if (inventory.getStatus() != RepoInventoryStatus.CURRENT) {
             throw new com.example.agentcollab.client.ProviderSyncException("Repo Inventory became stale", false);
         }
+        // A worker may be reclaimed after the database transaction committed but
+        // before the caller observed the result. Reuse the context created for the
+        // same plan instead of hitting code_context_versions_unique on retry.
+        Optional<CodeContextVersion> existing = contexts.findTopByContextPlanIdOrderByCreatedAtDesc(plan.getId());
+        if (existing.isPresent()) {
+            CodeContextVersion context = existing.get();
+            if (context.getStatus() == CodeContextStatus.CURRENT
+                    && context.getInventoryVersionId().equals(inventory.getId())
+                    && context.getBaseCommitSha().equalsIgnoreCase(inventory.getCommitSha())) {
+                plan.markUsed();
+                AgentRun agentRun = agentRuns.findByIdForUpdate(plan.getAgentRunId()).orElseThrow();
+                agentRun.bindCodeContext(plan.getId(), context.getId());
+                run.succeedWithContext(context.getId());
+                job.succeed();
+                return;
+            }
+            throw new IllegalStateException("Context Plan 已存在过期的 Code Context 版本，请重新刷新");
+        }
         CodeContextVersion context = contexts.save(new CodeContextVersion(project.getId(), inventory.getId(),
                 plan.getId(), project.getRepositoryUrl(), inventory.getBranchName(), inventory.getCommitSha(),
                 inventory.getRepositoryProfile(), bundle.evidenceJson(), null));
-        evidenceFiles.saveAll(bundle.files().stream().map(file -> new CodeContextFile(context.getId(), file.path(),
-                file.contentHash(), file.evidenceType(), file.reason(), json.createArrayNode(), file.excerpt())).toList());
+        Map<String, CodeEvidenceCollector.EvidenceFile> uniqueFiles = new LinkedHashMap<>();
+        for (CodeEvidenceCollector.EvidenceFile file : bundle.files()) {
+            if (file == null || file.path() == null || file.path().isBlank() || file.evidenceType() == null) continue;
+            String key = file.path() + "\u0000" + file.evidenceType().name();
+            uniqueFiles.putIfAbsent(key, file);
+        }
+        if (uniqueFiles.isEmpty()) throw new IllegalStateException("Code Context evidence does not contain usable files");
+        List<CodeContextFile> persistedFiles = uniqueFiles.values().stream().map(file -> new CodeContextFile(
+                context.getId(), file.path(), file.contentHash(), file.evidenceType(),
+                file.reason() == null || file.reason().isBlank() ? "Evidence collected from repository" : file.reason(),
+                json.createArrayNode(), file.excerpt())).toList();
+        evidenceFiles.saveAll(persistedFiles);
         plan.markUsed();
         AgentRun agentRun = agentRuns.findByIdForUpdate(plan.getAgentRunId()).orElseThrow();
         agentRun.bindCodeContext(plan.getId(), context.getId());

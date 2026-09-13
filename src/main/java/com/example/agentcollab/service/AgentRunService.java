@@ -8,6 +8,7 @@ import com.example.agentcollab.repository.DocumentVersionRepository;
 import com.example.agentcollab.repository.OutboxJobRepository;
 import com.example.agentcollab.repository.RepoInventoryVersionRepository;
 import com.example.agentcollab.repository.CodeContextPlanRepository;
+import com.example.agentcollab.repository.CodeContextRunRepository;
 import com.example.agentcollab.repository.CodeContextVersionRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -28,12 +29,13 @@ public class AgentRunService {
     private final RepoInventoryVersionRepository inventories;
     private final CodeContextPlanRepository contextPlans;
     private final CodeContextVersionRepository contexts;
+    private final CodeContextRunRepository contextRuns;
 
     public AgentRunService(AgentRunRepository runs, OutboxJobRepository jobs,
                            DocumentVersionRepository documents, WorkflowService workflowService,
                            ProjectAccessService access, AgentProviderClient provider,
                            RepoInventoryVersionRepository inventories, CodeContextPlanRepository contextPlans,
-                           CodeContextVersionRepository contexts) {
+                           CodeContextVersionRepository contexts, CodeContextRunRepository contextRuns) {
         this.runs = runs;
         this.jobs = jobs;
         this.documents = documents;
@@ -43,6 +45,7 @@ public class AgentRunService {
         this.inventories = inventories;
         this.contextPlans = contextPlans;
         this.contexts = contexts;
+        this.contextRuns = contextRuns;
     }
 
     @Transactional
@@ -72,6 +75,18 @@ public class AgentRunService {
         AgentRun run = find(runId);
         workflowService.get(actorId, run.getWorkflowId());
         return run;
+    }
+
+    @Transactional(readOnly = true)
+    public List<AgentRun> activeForWorkflow(Long actorId, Long workflowId) {
+        workflowService.get(actorId, workflowId);
+        return runs.findByWorkflowIdAndStatusIn(workflowId, ACTIVE_STATUSES);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AgentRun> latestForWorkflow(Long actorId, Long workflowId) {
+        workflowService.get(actorId, workflowId);
+        return runs.findByWorkflowIdOrderByCreatedAtDesc(workflowId);
     }
 
     @Transactional
@@ -105,12 +120,18 @@ public class AgentRunService {
         switch (runType) {
             case GENERATE_CODE_CONTEXT_PLAN -> {
                 requireStatusIn(workflow, WorkflowStatus.INTENT, WorkflowStatus.DESIGN_PROPOSED,
-                        WorkflowStatus.SPEC_PROPOSED, WorkflowStatus.SPEC_CONFIRMED,
+                        WorkflowStatus.DESIGN_CONFIRMED, WorkflowStatus.SPEC_PROPOSED, WorkflowStatus.SPEC_CONFIRMED,
                         WorkflowStatus.BUILD_PLAN_PROPOSED);
+                if (contextRuns.findTopByProjectIdAndRunTypeAndStatusInOrderByCreatedAtDesc(
+                        workflow.getProjectId(), CodeContextRun.Type.REPO_INGESTION,
+                        List.of(CodeContextRunStatus.QUEUED, CodeContextRunStatus.RUNNING)).isPresent()) {
+                    throw new ApiException(HttpStatus.CONFLICT, "REPO_INVENTORY_REFRESH_PENDING",
+                            "Workflow 创建后的 Repo Inventory 正在刷新，请等待同步完成");
+                }
                 inventories.findTopByProjectIdAndStatusOrderByCreatedAtDesc(
                                 workflow.getProjectId(), RepoInventoryStatus.CURRENT)
                         .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT,
-                                "REPO_INVENTORY_MISSING", "请先同步 Repo Inventory"));
+                                "REPO_INVENTORY_REFRESH_REQUIRED", "请先完成 Repo Inventory 刷新"));
             }
             case GENERATE_DESIGN -> {
                 if (workflow.getIntentLevel() == IntentLevel.CHANGE) {
@@ -122,7 +143,7 @@ public class AgentRunService {
                 if (workflow.getIntentLevel() == IntentLevel.CHANGE) {
                     throw notAllowed("Change 不生成 Spec");
                 }
-                requireStatusIn(workflow, WorkflowStatus.DESIGN_PROPOSED, WorkflowStatus.SPEC_PROPOSED);
+                requireStatusIn(workflow, WorkflowStatus.DESIGN_CONFIRMED, WorkflowStatus.SPEC_PROPOSED);
                 DocumentVersion design = documents
                         .findTopByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(workflow.getId(), DocumentType.DESIGN)
                         .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT,

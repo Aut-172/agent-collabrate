@@ -97,6 +97,8 @@
 
 ### UC-005A 同步代码上下文
 
+项目 Leader 和所有有效项目成员都可以发起仓库代码上下文同步。每次创建 Workflow 后，系统会自动排队一次 Repo Inventory 刷新；在该刷新完成前，不能使用旧的仓库索引生成新的 Context Plan。
+
 前置条件：
 
 - 项目已绑定 Git 仓库；
@@ -119,7 +121,7 @@
 
 - Git Provider 不可访问，上下文同步任务标记失败或等待重试；
 - 仓库权限无效，返回可解释错误；
-- 发现默认分支 Commit 已变化，旧 Code Context 标记为 `STALE`；
+- 发现默认分支 Commit 已变化，旧 Repo Inventory 和 Code Context 标记为 `STALE`；
 - Code Context 缺失时，不应静默生成无代码依据的正式 Design。
 
 说明：
@@ -168,6 +170,8 @@
 3. 创建者确认指定版本；
 4. 平台记录确认人、时间和版本；
 5. 允许生成 Spec。
+
+确认后 Workflow 进入 `DESIGN_CONFIRMED`；只有 Spec 生成成功后才进入 `SPEC_PROPOSED`。
 
 规则：
 

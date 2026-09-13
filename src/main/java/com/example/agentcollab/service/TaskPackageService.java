@@ -103,6 +103,7 @@ public class TaskPackageService {
         meta.put("packageId", packageId);
         meta.put("taskVersion", task.getVersion() == null ? 0 : task.getVersion());
         meta.put("packageVersion", packageVersion);
+        meta.put("branchName", task.getBranchName());
         meta.put("status", "CURRENT");
         meta.put("generatedAt", java.time.Instant.now().toString());
         root.putObject("project").put("projectId", project.getId()).put("name", project.getName())
@@ -158,7 +159,7 @@ public class TaskPackageService {
                 .put("createBranch", true)
                 .put("commit", true)
                 .put("push", true)
-                .put("createPullRequest", "OPTIONAL")
+                .put("createPullRequest", workflow.isPullRequestRequired() ? "REQUIRED" : "OPTIONAL")
                 .put("merge", false)
                 .put("forcePush", false)
                 .put("deleteRemoteBranch", false);
@@ -272,6 +273,7 @@ public class TaskPackageService {
                 .append("- 代码上下文版本：").append(content.path("context").path("codeContextVersionId").asLong()).append('\n')
                 .append("- 上下文计划：").append(content.path("context").path("contextPlanId").asLong()).append('\n')
                 .append("- 基线分支：").append(project.getDefaultBranch()).append('\n')
+                .append("- 必须使用的任务分支：").append(task.getBranchName()).append('\n')
                 .append("- 基线 Commit SHA：").append(content.path("context").path("baseCommitSha").asText()).append('\n')
                 .append("- 任务包哈希：sha256:").append(hash).append("\n\n")
                 .append("## 任务目标\n\n").append(task.getDescription()).append("\n\n");
@@ -297,15 +299,26 @@ public class TaskPackageService {
         content.path("verificationCommands").forEach(item -> result.append(item.asText()).append('\n'));
         result.append("```\n\n## Git 执行策略\n\n")
                 .append("1. 核对仓库、origin、当前分支和 HEAD。\n")
-                .append("2. 从声明的基线 Commit 创建或切换到任务分支。\n")
-                .append("3. 只修改任务范围内必需的文件。\n")
-                .append("4. 只提交并推送任务分支。\n")
-                .append("5. 禁止推送默认分支、强制推送、合并或删除远程分支。\n")
-                .append("6. 禁止读取、提交或输出密钥等敏感信息。\n\n")
+                .append("2. 从声明的基线 Commit 创建或切换到任务分支 `").append(task.getBranchName()).append("`。\n")
+                .append("3. 默认分支 `").append(project.getDefaultBranch()).append("` 仅作为基线；禁止直接在默认分支开发、提交或推送。\n")
+                .append("4. 只修改任务范围内必需的文件。\n")
+                .append("5. 只提交并推送任务分支 `").append(task.getBranchName()).append("`。\n")
+                .append("6. ").append(workflow.isPullRequestRequired() ? "必须创建并登记 Pull Request；" : "可以按项目策略创建并登记 Pull Request；")
+                .append("禁止强制推送、合并或删除远程分支。\n")
+                .append("7. 禁止读取、提交或输出密钥等敏感信息。\n\n")
                 .append("## 执行前检查\n\n报告仓库、分支、基线 Commit、相关文件、上下文冲突，以及当前是否可以开始工作。\n\n")
                 .append("## 冲突处理规则\n\n如果任务包与仓库事实冲突、任务包已经过期，或任务需要超出范围的修改，请停止执行并报告 Blocker。\n\n")
                 .append("## 最终报告\n\n")
-                .append("完成任务后，请把下面的 JSON 模板补充为最终报告。向用户返回时只输出有效 JSON，不要添加 Markdown 代码围栏或额外说明；用户可将其直接粘贴到平台的“提交交付”区域。输出必须符合 `final-report-v1.schema.json`，不要改动任务包标识和上下文字段，并将示例摘要、文件、验证结果及 Commit SHA 替换为真实结果。\n\n")
+                .append("完成任务后，请把下面的 JSON 模板补充为最终报告，并严格遵守以下契约：\n\n")
+                .append("1. 最终回复只能包含一个有效 JSON 对象，不要输出解释、注释或 Markdown 代码围栏。下面的代码围栏只用于展示模板。\n")
+                .append("2. 顶层必填字段必须完整保留：`schemaVersion`、`taskId`、`packageId`、`packageVersion`、`packageHash`、`outcome`、`summary`、`changedFiles`、`tests`、`git`、`acceptanceCriteria`、`unresolvedIssues`、`outOfScopeChanges`、`blockers`。\n")
+                .append("3. 顶层 `summary` 是本次交付的整体摘要；`tests[].summary` 是对应验证命令的结果摘要。两者都必须填写非空字符串，不能互相替代。\n")
+                .append("4. `tests` 的每一项只能包含 `command`、`status`、`summary`。禁止使用 `result`、`success`、`output`；执行结果说明写入该项的 `summary`。\n")
+                .append("5. `acceptanceCriteria` 的每一项只能包含 `criterion`、`status`、`evidence`。`evidence` 用于填写验收证据；此处禁止使用 `summary`。\n")
+                .append("6. `tests[].status` 只能是 `PASSED`、`FAILED`、`SKIPPED`、`NOT_RUN`；`acceptanceCriteria[].status` 只能是 `PASSED`、`FAILED`、`NOT_VERIFIED`。\n")
+                .append("7. 不得修改任务包标识和 Code Context 字段，不得新增模板之外的字段。没有内容的数组必须保留为 `[]`，")
+                .append(workflow.isPullRequestRequired() ? "当前 Workflow 要求填写与 Commit 匹配的 PR URL。\n" : "没有 PR 时必须使用 `null`。\n")
+                .append("8. 将示例摘要、文件、验证结果和 Commit SHA 替换为真实结果。提交前自行确认 JSON 可解析、所有必填字段存在、枚举值正确且没有未知字段。\n\n")
                 .append("```json\n")
                 .append(finalReportTemplate(task, content, packageVersion, hash))
                 .append("\n```\n");

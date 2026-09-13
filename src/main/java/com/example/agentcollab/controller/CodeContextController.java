@@ -29,6 +29,11 @@ public class CodeContextController {
         return CodeContextDtos.RunResponse.from(codeContext.getRun(userId(), projectId, runId));
     }
 
+    @GetMapping("/code-context/runs/latest")
+    public CodeContextDtos.RunResponse latestRun(@PathVariable Long projectId) {
+        return CodeContextDtos.RunResponse.from(codeContext.latestSyncRun(userId(), projectId));
+    }
+
     @GetMapping("/repo-inventory/latest")
     public CodeContextDtos.InventoryResponse latestInventory(@PathVariable Long projectId) {
         return codeContext.latestInventory(userId(), projectId);

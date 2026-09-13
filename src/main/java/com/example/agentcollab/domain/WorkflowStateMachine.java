@@ -12,7 +12,8 @@ public class WorkflowStateMachine {
 
     static {
         DEFAULT_NEXT.put(WorkflowStatus.INTENT, WorkflowStatus.DESIGN_PROPOSED);
-        DEFAULT_NEXT.put(WorkflowStatus.DESIGN_PROPOSED, WorkflowStatus.SPEC_PROPOSED);
+        DEFAULT_NEXT.put(WorkflowStatus.DESIGN_PROPOSED, WorkflowStatus.DESIGN_CONFIRMED);
+        DEFAULT_NEXT.put(WorkflowStatus.DESIGN_CONFIRMED, WorkflowStatus.SPEC_PROPOSED);
         DEFAULT_NEXT.put(WorkflowStatus.SPEC_PROPOSED, WorkflowStatus.SPEC_CONFIRMED);
         DEFAULT_NEXT.put(WorkflowStatus.SPEC_CONFIRMED, WorkflowStatus.BUILD_PLAN_PROPOSED);
         DEFAULT_NEXT.put(WorkflowStatus.BUILD_PLAN_PROPOSED, WorkflowStatus.PLAN_APPROVED);

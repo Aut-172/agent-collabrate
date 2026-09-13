@@ -61,6 +61,10 @@ Architecture Agent 的输出中不得包含：
 
 Architecture 可以产生“建议由谁参与架构评审”的信息，但这不是开发分工，不进入 TaskAssignment。
 
+Architecture 的 `childIntents` 只允许 `FEATURE` 或 `CHANGE`。平台会在 Build Plan 保存/批准以及创建子 Intent 时拒绝 `ARCHITECTURE -> ARCHITECTURE` 的递归嵌套。需要更深一层架构基线时，应创建新的根 Architecture Workflow；这样既保留按语义拆分工程纵深的能力，也避免 Intent 流程无限递归。
+
+每个子 Intent 必须包含可直接作为新 Workflow 初始意图的 `title`、`description` 和 `intentLevel`。Leader 批准 Architecture Build Plan 后，平台会以当前 Architecture Workflow 为父级，自动创建对应的 Feature/Change Workflow，并从 `INTENT` 状态开始其独立的 Design/Spec/Build Plan 流程；`parentWorkflowId`、完成模式和 PR 策略由平台根据父级与 Intent 层级补齐，不由 Agent 自行填写。
+
 Architecture Intent 的完成条件是：
 
 ```text
@@ -221,7 +225,13 @@ MVP 不要求精确预测工时，优先使用相对工作量点数，避免制�
   "systemBoundaries": [],
   "constraints": [],
   "nonFunctionalRequirements": [],
-  "childIntents": [],
+  "childIntents": [
+    {
+      "title": "统一认证登录",
+      "description": "实现用户登录、会话建立和登录成功验收，作为独立功能 Workflow 继续拆解",
+      "intentLevel": "FEATURE"
+    }
+  ],
   "risks": []
 }
 ```

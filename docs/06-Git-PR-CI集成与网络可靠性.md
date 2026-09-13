@@ -57,6 +57,8 @@ Project.ci_status = CI_REQUIRED
   -> 平台同步 CI
 ```
 
+Workflow 在 Intent 创建阶段保存 pull_request_required，默认开启。策略开启时，本地 Agent 必须创建并登记 Pull Request；策略关闭时可以只 Push 任务分支并等待分支 CI。两种模式都必须提交任务分支和 Commit，且当前 Commit 的 CI 仍是完成条件。
+
 ## 3. GitHub 数据获取
 
 平台适配器至少需要以下能力：

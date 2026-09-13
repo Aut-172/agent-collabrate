@@ -80,6 +80,7 @@ completion_mode = CI_BOOTSTRAP
 ```text
 INTENT
   -> DESIGN_PROPOSED
+  -> DESIGN_CONFIRMED
   -> SPEC_PROPOSED
   -> SPEC_CONFIRMED
   -> BUILD_PLAN_PROPOSED
@@ -103,6 +104,7 @@ FAILED
 说明：
 
 - `SPEC_PROPOSED` 表示 Agent 或用户已生成规格，但尚未确认；
+- `DESIGN_CONFIRMED` 表示创建者已确认具体 Design 版本，允许生成 Spec；
 - `SPEC_CONFIRMED` 表示创建者已确认具体 Spec 版本；
 - `PLAN_APPROVED` 表示 Leader 批准具体 Build Plan 版本；
 - `TASKS_READY` 表示任务已按批准计划创建；
@@ -206,7 +208,8 @@ REJECTED
 | 当前状态 | 事件 | 条件 | 目标状态 |
 |---|---|---|---|
 | `INTENT` | Design Agent 成功 | 生成有效 Design 版本 | `DESIGN_PROPOSED` |
-| `DESIGN_PROPOSED` | 请求生成 Spec | Design 存在 | `SPEC_PROPOSED` 或等待 AgentRun |
+| `DESIGN_PROPOSED` | 创建者确认 Design | 确认指定版本 | `DESIGN_CONFIRMED` |
+| `DESIGN_CONFIRMED` | 请求生成 Spec | Design 已确认 | `SPEC_PROPOSED` 或等待 AgentRun |
 | `SPEC_PROPOSED` | Spec 成功 | 生成有效 Spec 版本 | `SPEC_PROPOSED` |
 | `SPEC_PROPOSED` | 创建者确认 | 确认指定版本 | `SPEC_CONFIRMED` |
 | `SPEC_CONFIRMED` | 请求生成 Plan | Spec 已确认 | `BUILD_PLAN_PROPOSED` 或等待 AgentRun |
@@ -259,6 +262,9 @@ Agent、Git 或 CI 失败不自动把 Workflow 改为 `FAILED`。失败结果必
 15. 已批准并开始执行的 Task 不因成员工作量变化自动换人；
 16. `CI_NOT_CONFIGURED` 项目中，普通 Feature/Change Workflow 不得绕过 `CI_BOOTSTRAP` 关闭；
 17. `CI_BOOTSTRAP` 只能用于建立和验证第一条 CI 管线，不能被重复用于普通功能交付。
+
+18. Feature/Change/CI_BOOTSTRAP Workflow 的 pull_request_required 默认必须为 TRUE；关闭后可以无 PR 交付，但不能绕过任务分支、Commit 和 CI 校验；Architecture 固定为不适用。
+19. 每次 Workflow 创建后必须先完成一次 Repo Inventory/Code Context 刷新；刷新期间旧索引和旧上下文标记为 `STALE`，不得生成新的 Context Plan。项目任一成员都可以发起同步。
 
 ## 12. 任务包过期规则
 

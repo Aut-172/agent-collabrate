@@ -14,6 +14,7 @@ import com.example.agentcollab.service.TaskService;
 import com.example.agentcollab.service.UserService;
 import com.example.agentcollab.service.WorkflowService;
 import com.example.agentcollab.service.WorkflowBoardService;
+import com.example.agentcollab.service.CiSyncService;
 import com.example.agentcollab.dto.WorkflowBoardDtos;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -30,11 +31,12 @@ public class WorkflowController {
     private final PlanService planService;
     private final TaskService taskService;
     private final WorkflowBoardService boardService;
+    private final CiSyncService ciSyncService;
 
     public WorkflowController(WorkflowService workflowService, DocumentService documentService,
                               UserService userService, AgentRunService agentRunService,
                               PlanService planService, TaskService taskService,
-                              WorkflowBoardService boardService) {
+                              WorkflowBoardService boardService, CiSyncService ciSyncService) {
         this.workflowService = workflowService;
         this.documentService = documentService;
         this.userService = userService;
@@ -42,6 +44,7 @@ public class WorkflowController {
         this.planService = planService;
         this.taskService = taskService;
         this.boardService = boardService;
+        this.ciSyncService = ciSyncService;
     }
 
     @PostMapping("/workflows/{workflowId}/generate-design")
@@ -126,7 +129,15 @@ public class WorkflowController {
 
     @GetMapping("/workflows/{workflowId}")
     public WorkflowDtos.WorkflowResponse get(@PathVariable Long workflowId) {
-        return WorkflowDtos.WorkflowResponse.from(workflowService.get(currentUserId(), workflowId));
+        ciSyncService.reconcileWorkflow(currentUserId(), workflowId);
+        Long actorId = currentUserId();
+        var workflow = workflowService.get(actorId, workflowId);
+        var activeRuns = agentRunService.activeForWorkflow(actorId, workflowId).stream()
+                .map(AgentRunDtos.AgentRunResponse::from).toList();
+        var latestRuns = agentRunService.latestForWorkflow(actorId, workflowId).stream()
+                .limit(20)
+                .map(AgentRunDtos.AgentRunResponse::from).toList();
+        return WorkflowDtos.WorkflowResponse.from(workflow, activeRuns, latestRuns);
     }
 
     @GetMapping("/workflows/{workflowId}/documents")

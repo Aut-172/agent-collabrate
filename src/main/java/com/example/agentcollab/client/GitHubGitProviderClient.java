@@ -37,11 +37,18 @@ public class GitHubGitProviderClient extends GitHubApiClientSupport implements G
         boolean branchMatches = delivery.getBranchName() != null
                 && !delivery.getBranchName().isBlank()
                 && !delivery.getBranchName().equals(project.getDefaultBranch());
+        String branchError = branchMatches ? null : "分支缺失或使用了默认分支";
         if (branchMatches) {
             JsonNode branch = getFact(path("/repos/{owner}/{repo}/branches/{branch}", repository, delivery.getBranchName()));
+            String branchHeadSha = branch == null ? "" : branch.path("commit").path("sha").asText("");
             branchMatches = branch != null
                     && repositoryName(branch.path("name").asText(delivery.getBranchName()), delivery.getBranchName())
-                    && !branch.path("commit").path("sha").asText("").isBlank();
+                    && commitSha.equalsIgnoreCase(branchHeadSha);
+            if (!branchMatches) {
+                branchError = branch == null || branchHeadSha.isBlank()
+                        ? "任务分支不存在或没有 HEAD Commit"
+                        : "任务分支 HEAD " + branchHeadSha + " 与交付 Commit " + commitSha + " 不一致";
+            }
         }
 
         boolean pullRequestMatches = true;
@@ -75,7 +82,7 @@ public class GitHubGitProviderClient extends GitHubApiClientSupport implements G
         return new GitValidationResult(repositoryMatches, commitSha.equalsIgnoreCase(verifiedSha), branchMatches,
                 pullRequestMatches, verifiedSha, pullRequestHeadSha, externalId,
                 !repositoryMatches ? "Commit belongs to a different repository"
-                        : !branchMatches ? "Branch does not exist or is the default branch"
+                        : !branchMatches ? branchError
                         : !pullRequestMatches ? "Pull Request repository or head SHA does not match delivery" : null);
     }
 

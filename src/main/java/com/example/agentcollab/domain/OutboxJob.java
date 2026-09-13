@@ -69,6 +69,16 @@ public class OutboxJob {
         updatedAt = Instant.now();
     }
 
+    public void restart(Instant nextAttempt) {
+        requireStatus(OutboxJobStatus.FAILED);
+        status = OutboxJobStatus.PENDING;
+        attemptCount = 0;
+        nextAttemptAt = nextAttempt;
+        lockedAt = null;
+        errorMessage = null;
+        updatedAt = Instant.now();
+    }
+
     public void succeed() {
         requireStatus(OutboxJobStatus.RUNNING);
         status = OutboxJobStatus.SUCCEEDED;

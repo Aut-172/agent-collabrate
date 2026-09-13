@@ -52,6 +52,17 @@ class BuildPlanValidatorTest {
         assertInvalid(duplicate, "任务分配引用无效");
     }
 
+    @Test
+    void reportsSchemaPathAndReasonForMalformedAgentOutput() throws Exception {
+        ObjectNode malformed = validPlan();
+        ((ObjectNode) malformed.withArray("tasks").get(0)).remove("branchName");
+
+        assertThatThrownBy(() -> validator.validate(malformed.toString(), IntentLevel.FEATURE))
+                .isInstanceOf(BuildPlanValidationException.class)
+                .hasMessageContaining("Build Plan 不符合 Intent 对应的 JSON Schema")
+                .hasMessageContaining("branchName");
+    }
+
     private void assertInvalid(JsonNode plan, String message) {
         assertThatThrownBy(() -> validator.validate(plan.toString(), IntentLevel.FEATURE))
                 .isInstanceOf(BuildPlanValidationException.class)

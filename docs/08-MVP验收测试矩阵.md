@@ -92,6 +92,7 @@
 ```text
 INTENT
  -> DESIGN_PROPOSED
+ -> DESIGN_CONFIRMED
  -> SPEC_PROPOSED
  -> SPEC_CONFIRMED
  -> BUILD_PLAN_PROPOSED
@@ -109,6 +110,7 @@ INTENT
 
 - `INTENT -> DONE`
 - `DESIGN_PROPOSED -> PLAN_APPROVED`
+- 确认 Design 后状态必须为 `DESIGN_CONFIRMED`；生成 Spec 后才进入 `SPEC_PROPOSED`；
 - 未确认 Spec 直接创建 Task；
 - 未批准 Plan 创建 Task；
 - CI `FAILED -> DONE`；
@@ -161,6 +163,16 @@ INTENT
 - SQL/JSON 输入不能绕过资源条件；
 - 并发更新使用乐观锁；
 - 重复请求不会重复创建任务或任务包。
+
+补充验收：
+
+- Workflow 创建时默认 pull_request_required = TRUE；Architecture 固定为不适用；
+- pull_request_required = TRUE 时没有 PR 的交付返回 PULL_REQUEST_REQUIRED；
+- pull_request_required = FALSE 时允许无 PR，但仍校验任务分支、Commit HEAD 和 CI；
+- TaskPackage 的 executionPolicy.git.createPullRequest 与 Workflow 策略一致。
+- 所有项目成员都可以请求 Code Context/Repo Inventory 同步；非成员仍被拒绝；
+- 每次 Workflow 创建都会排队一次 Repo Inventory 刷新，刷新期间旧 Inventory/Code Context 不得继续作为当前事实生成 Context Plan；
+- 远程默认分支 Commit 变化并完成同步后，旧 Repo Inventory 标记为 `STALE`，新 Commit 对应版本标记为 `CURRENT`。
 
 ## 6. Definition of Done
 

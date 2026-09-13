@@ -332,6 +332,7 @@ GET  /api/workflows/{id}
 GET  /api/projects/{projectId}/code-context/latest
 POST /api/projects/{projectId}/code-context/sync
 GET  /api/projects/{projectId}/repo-inventory/latest
+GET  /api/projects/{projectId}/code-context/runs/latest
 GET  /api/workflows/{id}/code-context
 POST /api/workflows/{id}/code-context/refresh
 POST /api/workflows/{id}/generate-design
@@ -347,6 +348,8 @@ POST /api/workflows/{id}/create-tasks
 POST /api/workflows/{id}/close
 POST /api/workflows/{id}/cancel
 ```
+
+`POST /api/projects/{projectId}/code-context/sync` 只要求调用者是项目成员，不再限定 Leader。Workflow 创建事务会自动调用同一同步入口；已有 `CURRENT` 的 Repo Inventory 和 Code Context 会先标记为 `STALE`，后台 Provider 返回新的默认分支 Commit 后再建立新的 `CURRENT` Inventory。
 
 `generate-build-plan` 根据 `intent_level` 选择输出：
 
@@ -441,6 +444,7 @@ Worker 使用数据库锁获取任务：
 - 连接失败、超时和临时 5xx 可重试；
 - 参数错误和权限错误不自动重试；
 - 默认最多自动重试一次；
+- Agent 重试延迟使用指数退避并加入随机抖动，基础延迟、最大延迟和抖动比例通过环境变量配置；
 - 人工重试创建新的运行记录或明确关联旧记录；
 - 幂等键避免重复创建业务结果。
 

@@ -42,7 +42,7 @@ public class CodeContextService {
 
     @Transactional
     public CodeContextRun requestSync(Long actorId, Long projectId) {
-        access.requireLeader(projectId, actorId);
+        access.requireMember(projectId, actorId);
         Project project = projects.findByIdForUpdate(projectId)
                 .orElseThrow(() -> notFound("PROJECT_NOT_FOUND", "项目不存在或无权访问"));
         if (project.getStatus() != Project.Status.ACTIVE) {
@@ -51,6 +51,12 @@ public class CodeContextService {
         var active = runs.findTopByProjectIdAndRunTypeAndStatusInOrderByCreatedAtDesc(
                 projectId, CodeContextRun.Type.REPO_INGESTION, ACTIVE_RUN_STATUSES);
         if (active.isPresent()) return active.get();
+        // A refresh is a new repository fact request. Until the provider returns a
+        // verified head, the previous inventory/context must not remain usable.
+        inventories.findByProjectIdAndStatus(projectId, RepoInventoryStatus.CURRENT)
+                .forEach(RepoInventoryVersion::markStale);
+        contexts.findByProjectIdAndStatus(projectId, CodeContextStatus.CURRENT)
+                .forEach(CodeContextVersion::markStale);
         CodeContextRun run = runs.save(new CodeContextRun(projectId, actorId));
         jobs.save(new OutboxJob(OutboxJobType.CODE_CONTEXT_SYNC, run.getId()));
         return run;
@@ -61,6 +67,24 @@ public class CodeContextService {
         access.requireMember(projectId, actorId);
         return runs.findById(runId).filter(run -> run.getProjectId().equals(projectId))
                 .orElseThrow(() -> notFound("CODE_CONTEXT_RUN_NOT_FOUND", "代码上下文运行记录不存在"));
+    }
+
+    @Transactional(readOnly = true)
+    public CodeContextRun latestSyncRun(Long actorId, Long projectId) {
+        access.requireMember(projectId, actorId);
+        return runs.findTopByProjectIdAndRunTypeOrderByCreatedAtDesc(
+                        projectId, CodeContextRun.Type.REPO_INGESTION)
+                .orElseThrow(() -> notFound("CODE_CONTEXT_RUN_NOT_FOUND", "尚未发起仓库索引同步"));
+    }
+
+    @Transactional(readOnly = true)
+    public CodeContextRun latestEvidenceRun(Long actorId, Long workflowId) {
+        Workflow workflow = workflowService.get(actorId, workflowId);
+        CodeContextPlan plan = plans.findTopByWorkflowIdOrderByCreatedAtDesc(workflowId)
+                .orElseThrow(() -> notFound("CODE_CONTEXT_RUN_NOT_FOUND", "当前 Workflow 尚未生成 Context Plan"));
+        return runs.findTopByContextPlanIdAndRunTypeOrderByCreatedAtDesc(
+                        plan.getId(), CodeContextRun.Type.EVIDENCE_COLLECTION)
+                .orElseThrow(() -> notFound("CODE_CONTEXT_RUN_NOT_FOUND", "当前 Workflow 尚未开始代码取证"));
     }
 
     @Transactional(readOnly = true)

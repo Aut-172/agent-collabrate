@@ -184,6 +184,33 @@ class WorkflowDocumentIntegrationTest {
     }
 
     @Test
+    void defaultsPullRequestPolicyOnForDevelopmentWorkflowsAndDisablesItForArchitecture() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "pull-request-policy");
+
+        mvc.perform(post("/api/projects/{id}/workflows", projectId)
+                        .header("Authorization", bearer(leaderToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "title", "default PR policy",
+                                "description", "development workflow defaults to PR required",
+                                "intentLevel", "FEATURE"))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.pullRequestRequired").value(true));
+
+        mvc.perform(post("/api/projects/{id}/workflows", projectId)
+                        .header("Authorization", bearer(leaderToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "title", "architecture baseline",
+                                "description", "architecture does not create delivery tasks",
+                                "intentLevel", "ARCHITECTURE",
+                                "pullRequestRequired", true))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.pullRequestRequired").value(false));
+    }
+
+    @Test
     void createsOneLeaderApprovedCiBootstrapAndRejectsBypasses() throws Exception {
         String leaderToken = initialize("leader");
         long projectId = createProject(leaderToken, "bootstrap");
@@ -300,6 +327,8 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(jsonPath("$.code").value("WORKFLOW_CREATOR_REQUIRED"));
         confirm(creatorToken, workflowId, "confirm-design", 3).andExpect(status().isOk())
                 .andExpect(jsonPath("$.confirmed").value(true));
+        assertThat(workflows.findById(workflowId).orElseThrow().getStatus())
+                .isEqualTo(WorkflowStatus.DESIGN_CONFIRMED);
 
         long specRunId = createAgentRun(workflowId, AgentRunType.GENERATE_SPEC);
         documentService.recordGeneratedSpec(workflowId, "# Spec v1", specRunId);
@@ -332,6 +361,13 @@ class WorkflowDocumentIntegrationTest {
         assertThat(documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
                 workflowId, DocumentType.DESIGN)).isEmpty();
         assertThat(outboxJobs.count()).isEqualTo(1);
+
+        mvc.perform(get("/api/workflows/{id}", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activeAgentRuns[0].id").value(runId))
+                .andExpect(jsonPath("$.activeAgentRuns[0].runType").value("GENERATE_DESIGN"))
+                .andExpect(jsonPath("$.activeAgentRuns[0].status").value("QUEUED"));
 
         assertThat(worker.processNext()).isTrue();
         mvc.perform(get("/api/agent-runs/{id}", runId).header("Authorization", bearer(leaderToken)))
@@ -448,7 +484,7 @@ class WorkflowDocumentIntegrationTest {
         var firstClaim = executions.claimNext().orElseThrow();
         assertThat(executions.claimNext()).isEmpty();
         executions.handleFailure(firstClaim, "PROVIDER_UNAVAILABLE", "Temporary provider failure", true);
-        assertThat(agentRuns.findById(runId).orElseThrow().getStatus()).isEqualTo(AgentRunStatus.RUNNING);
+        assertThat(agentRuns.findById(runId).orElseThrow().getStatus()).isEqualTo(AgentRunStatus.QUEUED);
         assertThat(agentRuns.findById(runId).orElseThrow().getRetryCount()).isEqualTo(1);
         assertThat(outboxJobs.findById(firstClaim.jobId()).orElseThrow().getStatus())
                 .isEqualTo(OutboxJobStatus.PENDING);
@@ -610,6 +646,7 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(jsonPath("$.contentHash").value(org.hamcrest.Matchers.startsWith("sha256:")))
                 .andExpect(jsonPath("$.contentJson.task.taskId").value("TASK-001"))
                 .andExpect(jsonPath("$.contentJson.task.packageId").isNumber())
+                .andExpect(jsonPath("$.contentJson.task.branchName").value(task.getBranchName()))
                 .andExpect(jsonPath("$.contentJson.task.packageHash").value(org.hamcrest.Matchers.startsWith("sha256:")))
                 .andExpect(jsonPath("$.baseCommit").value("1111111111111111111111111111111111111111"))
                 .andExpect(jsonPath("$.codeContextVersionId").isNumber())
@@ -622,8 +659,13 @@ class WorkflowDocumentIntegrationTest {
                 .andExpect(jsonPath("$.contentJson.context.codeEvidence[0].reason").value("Existing application entry point"))
                 .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("Agent 任务包")))
                 .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("## Git 执行策略")))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("必须使用的任务分支：" + task.getBranchName())))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("禁止直接在默认分支开发、提交或推送")))
                 .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("## 最终报告")))
-                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("只输出有效 JSON")))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("最终回复只能包含一个有效 JSON 对象")))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("禁止使用 `result`")))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("顶层 `summary`")))
+                .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("`criterion`、`status`、`evidence`")))
                 .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("\"schemaVersion\" : \"1.0\"")))
                 .andExpect(jsonPath("$.contentMarkdown").value(org.hamcrest.Matchers.containsString("\"taskId\" :")));
         var initialPackage = taskPackages.findByTaskIdAndStatus(task.getId(),
@@ -886,7 +928,7 @@ class WorkflowDocumentIntegrationTest {
         long reviewerId = createUser(leaderToken, "reviewer");
         addMember(leaderToken, projectId, reviewerId);
         String reviewerToken = login("reviewer");
-        long workflowId = createCiBootstrap(leaderToken, projectId, "initial delivery");
+        long workflowId = createCiBootstrap(leaderToken, projectId, "initial delivery", true);
 
         advanceToBuildPlan(leaderToken, workflowId);
         confirm(leaderToken, workflowId, "approve-plan", 1).andExpect(status().isOk());
@@ -906,7 +948,20 @@ class WorkflowDocumentIntegrationTest {
 
         String commitSha = "0123456789abcdef0123456789abcdef01234567";
         var validReport = finalReport(task, taskPackage, commitSha);
+        // This scenario exercises the real CI-gated Bootstrap delivery.
+        validReport.putArray("changedFiles").add(".github/workflows/ci.yml");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) validReport.path("git"))
+                .put("pullRequestUrl", "https://github.com/example/delivery/pull/1");
         var validRequest = deliveryRequest(taskPackage, validReport, task.getBranchName(), commitSha);
+
+        var noPrReport = validReport.deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) noPrReport.path("git")).putNull("pullRequestUrl");
+        mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(deliveryRequest(
+                                taskPackage, noPrReport, task.getBranchName(), commitSha))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PULL_REQUEST_REQUIRED"));
 
         mvc.perform(post("/api/tasks/{id}/delivery", task.getId())
                         .header("Authorization", bearer(reviewerToken)).contentType(MediaType.APPLICATION_JSON)
@@ -1023,17 +1078,44 @@ class WorkflowDocumentIntegrationTest {
                     assertThat(job.getAttemptCount()).isZero();
                 });
 
-        var claimedCi = ciSync.claimNext().orElseThrow();
-        ciSync.complete(claimedCi, new com.example.agentcollab.client.CiProviderClient.CiProviderResult(
-                ciExternalId, "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
-                com.example.agentcollab.domain.CiRunStatus.PASSED, "SUCCESS",
-                "https://ci.example.invalid/runs/stale", true, true));
+        var noChecksCi = ciSync.claimNext().orElseThrow();
+        ciSync.complete(noChecksCi, new com.example.agentcollab.client.CiProviderClient.CiProviderResult(
+                null, null, com.example.agentcollab.domain.CiRunStatus.UNKNOWN, "NO_CHECK_RUNS",
+                null, false, false));
+        assertThat(ciRuns.findById(ciRun.getId()).orElseThrow().getConclusion()).isEqualTo("当前 Commit 尚无 CI 检查");
+        assertThat(outboxJobs.findByJobTypeAndReferenceId(OutboxJobType.CI_SYNC, ciRun.getId()))
+                .get().satisfies(job -> {
+                    assertThat(job.getStatus()).isEqualTo(OutboxJobStatus.PENDING);
+                    assertThat(job.getAttemptCount()).isEqualTo(1);
+                });
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            var claimedCi = ciSync.claimNext().orElseThrow();
+            ciSync.complete(claimedCi, new com.example.agentcollab.client.CiProviderClient.CiProviderResult(
+                    ciExternalId, "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                    com.example.agentcollab.domain.CiRunStatus.PASSED, "SUCCESS",
+                    "https://ci.example.invalid/runs/stale", true, true));
+        }
         assertThat(ciRuns.findById(ciRun.getId()).orElseThrow().getStatus())
                 .isEqualTo(com.example.agentcollab.domain.CiRunStatus.UNKNOWN);
+        assertThat(ciRuns.findById(ciRun.getId()).orElseThrow().getConclusion())
+                .isEqualTo("CI head SHA 不匹配（请检查当前 Commit 的 CI 检查结果）");
         assertThat(tasks.findById(task.getId()).orElseThrow().getStatus())
                 .isEqualTo(com.example.agentcollab.domain.TaskStatus.CI_RUNNING);
         assertThat(workflows.findById(workflowId).orElseThrow().getStatus())
                 .isEqualTo(com.example.agentcollab.domain.WorkflowStatus.CI_RUNNING);
+        assertThat(outboxJobs.findByJobTypeAndReferenceId(OutboxJobType.CI_SYNC, ciRun.getId()))
+                .get().extracting(job -> job.getStatus()).isEqualTo(OutboxJobStatus.FAILED);
+
+        mvc.perform(post("/api/tasks/{taskId}/ci-runs/{runId}/retry", task.getId(), ciRun.getId())
+                        .header("Authorization", bearer(reviewerToken)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CI_RETRY_FORBIDDEN"));
+        mvc.perform(post("/api/tasks/{taskId}/ci-runs/{runId}/retry", task.getId(), ciRun.getId())
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.conclusion").value("等待重新同步 CI"));
 
         assertThat(gitSyncWorker.processCiNext()).isTrue();
         assertThat(ciRuns.findById(ciRun.getId()).orElseThrow().getStatus()).isEqualTo(com.example.agentcollab.domain.CiRunStatus.PASSED);
@@ -1161,7 +1243,7 @@ class WorkflowDocumentIntegrationTest {
     }
 
     @Test
-    void rejectsInvalidPlanAndPlanWithOutdatedMemberProfile() throws Exception {
+    void acceptsWorkloadChangesButRejectsOutdatedMemberProfile() throws Exception {
         String leaderToken = initialize("leader");
         long projectId = createProject(leaderToken, "core");
         updateProfile(leaderToken, projectId, 13);
@@ -1186,16 +1268,19 @@ class WorkflowDocumentIntegrationTest {
         mvc.perform(put("/api/workflows/{id}/plan-drafts", workflowId)
                         .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("content", falseWorkload.toString()))))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("ASSIGNEE_WORKLOAD_STALE"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versionNo").value(2));
 
         updateProfile(leaderToken, projectId, 21);
         confirm(leaderToken, workflowId, "approve-plan", 1)
                 .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DOCUMENT_VERSION_STALE"));
+        confirm(leaderToken, workflowId, "approve-plan", 2)
+                .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ASSIGNEE_PROFILE_STALE"));
         requestRun(leaderToken, workflowId, "generate-build-plan");
         assertThat(worker.processNext()).isTrue();
-        confirm(leaderToken, workflowId, "approve-plan", 2).andExpect(status().isOk());
+        confirm(leaderToken, workflowId, "approve-plan", 3).andExpect(status().isOk());
         mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
                         .header("Authorization", bearer(leaderToken)))
                 .andExpect(status().isConflict())
@@ -1207,11 +1292,28 @@ class WorkflowDocumentIntegrationTest {
         String leaderToken = initialize("leader");
         long projectId = createProject(leaderToken, "architecture");
         long workflowId = createWorkflow(leaderToken, projectId, "platform architecture", "ARCHITECTURE", null);
+        mvc.perform(post("/api/projects/{id}/workflows", projectId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "title", "Nested architecture", "description", "Must be rejected",
+                                "intentLevel", "ARCHITECTURE", "parentWorkflowId", workflowId))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_CHILD_INTENT_LEVEL"));
         advanceToBuildPlan(leaderToken, workflowId);
 
         var generated = documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
                 workflowId, DocumentType.BUILD_PLAN).get(0);
         var edited = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(generated.getContent());
+        var nestedArchitecture = edited.deepCopy();
+        nestedArchitecture.withArray("childIntents").addObject()
+                .put("title", "Nested architecture")
+                .put("description", "This must be rejected")
+                .put("intentLevel", "ARCHITECTURE");
+        mvc.perform(put("/api/workflows/{id}/plan-drafts", workflowId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("content", nestedArchitecture.toString()))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_BUILD_PLAN"));
         edited.withArray("childIntents").addObject()
                 .put("title", "Authentication feature")
                 .put("description", "Implement project authentication")
@@ -1237,6 +1339,8 @@ class WorkflowDocumentIntegrationTest {
         assertThat(children).singleElement().satisfies(child -> {
             assertThat(child.getIntentLevel().name()).isEqualTo("FEATURE");
             assertThat(child.getProjectId()).isEqualTo(projectId);
+            assertThat(child.getParentWorkflowId()).isEqualTo(workflowId);
+            assertThat(child.getStatus()).isEqualTo(WorkflowStatus.INTENT);
         });
     }
 
@@ -1294,6 +1398,7 @@ class WorkflowDocumentIntegrationTest {
         request.put("title", title);
         request.put("description", "workflow description");
         request.put("intentLevel", intentLevel);
+        request.put("pullRequestRequired", false);
         if (parentWorkflowId != null) request.put("parentWorkflowId", parentWorkflowId);
         String body = mvc.perform(post("/api/projects/{id}/workflows", projectId)
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
@@ -1303,11 +1408,18 @@ class WorkflowDocumentIntegrationTest {
     }
 
     private long createCiBootstrap(String token, long projectId, String title) throws Exception {
+        return createCiBootstrap(token, projectId, title, false);
+    }
+
+    private long createCiBootstrap(String token, long projectId, String title,
+                                   boolean pullRequestRequired) throws Exception {
+        var request = new java.util.LinkedHashMap<String, Object>();
+        request.put("title", title);
+        request.put("description", "initialize project scaffold, build entry points and CI");
+        request.put("pullRequestRequired", pullRequestRequired);
         String body = mvc.perform(post("/api/projects/{id}/ci-bootstrap", projectId)
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
-                        .content(json.writeValueAsString(Map.of(
-                                "title", title,
-                                "description", "initialize project scaffold, build entry points and CI"))))
+                        .content(json.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.intentLevel").value("FEATURE"))
                 .andExpect(jsonPath("$.completionMode").value("CI_BOOTSTRAP"))

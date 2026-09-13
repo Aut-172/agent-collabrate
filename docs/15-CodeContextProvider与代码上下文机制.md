@@ -259,7 +259,7 @@ repo_commit_delta
 - 可以创建 Intent；
 - 可以等待上下文同步；
 - 不能生成正式 Design/Spec/Plan；
-- 可以允许 Leader 手动触发同步或选择降级模式。
+- 可以允许 Leader 或任一项目成员手动触发同步或选择降级模式。
 
 ### 7.3 TaskPackage 级上下文
 
@@ -295,6 +295,7 @@ packageHash
 GET  /api/projects/{id}/code-context/latest
 POST /api/projects/{id}/code-context/sync
 GET  /api/projects/{id}/repo-inventory/latest
+GET  /api/projects/{id}/code-context/runs/latest
 GET  /api/projects/{id}/code-context/runs/{runId}
 GET  /api/workflows/{id}/code-context
 POST /api/workflows/{id}/code-context/refresh
@@ -323,7 +324,7 @@ Code Context 进入 `STALE` 的常见情况：
 
 - 默认分支最新 Commit 变化；
 - Git Provider 返回仓库 tree 与当前记录不一致；
-- Leader 手动要求刷新；
+- Leader 或项目成员手动要求刷新；
 - Design/Spec/Plan 被修改后需要重新计算相关上下文；
 - TaskPackage 引用的 `baseCommitSha` 不再是推荐开发基线。
 
@@ -332,7 +333,7 @@ Code Context 进入 `STALE` 的常见情况：
 ```text
 如果 latestDefaultBranchCommit != codeContext.baseCommitSha
 则标记 Code Context 为 STALE
-并提示 Leader 刷新或继续使用旧上下文
+并提示项目成员刷新；在刷新完成前不能继续使用旧上下文
 ```
 
 继续使用旧上下文必须在 AgentRun 中记录原因，避免后续无法追溯。
@@ -374,7 +375,7 @@ GitHub 等外部 Provider 不稳定时：
 
 - Code Context 同步任务保持 `PENDING` 或 `FAILED`；
 - Design/Spec/Plan 不应静默降级为无代码上下文生成；
-- Leader 可以手动重试；
+- 项目成员可以手动重试；
 - 后续可支持上传 zip/patch 或 Local Agent Provider 作为降级；
 - 所有失败都必须可见，不得伪造代码证据。
 
@@ -417,3 +418,7 @@ Local Agent Provider 可以在未来解决：
 10. Git Provider 失败不会生成“无证据但看似正常”的 Design；
 11. Git Provider 不包含自主相关性判断逻辑；
 12. 任务包包含 `baseCommitSha`、`codeContextVersionId`、`contextPlanId` 和代码证据摘要。
+
+后台 AgentRun Worker 支持单实例内的固定线程池并发执行。`app.agent.worker.concurrency` 默认值为 4，定时调度器只负责投递任务，每个线程通过 Outbox 的数据库锁领取一个 AgentRun；`app.agent.worker.queue-capacity` 默认值为 0，避免 AI 请求在内存中无限堆积。部署多实例时，各实例仍通过 `FOR UPDATE SKIP LOCKED` 领取不同任务。
+
+OpenAI 网络错误（例如 `SocketTimeoutException`）属于可重试故障。后台会把当前 AgentRun 和 Outbox 任务重新置为 `QUEUED`，按基础延迟的指数退避加随机抖动后自动再次领取；基础延迟、最大延迟和抖动比例通过 `AGENT_RETRY_DELAY`、`AGENT_RETRY_MAX_DELAY_MS`、`AGENT_RETRY_JITTER_RATIO` 配置。达到 `app.agent.worker.max-attempts` 后才转为 `FAILED`。前端详情页应显示“排队中”及错误码，避免把等待重试误认为仍在执行。Provider 成功后若平台校验或 Code Context 绑定失败，必须保留 `ApiException` 的 code/message，不得笼统标记为 `AGENT_EXECUTION_FAILED`。降低超时概率时，应优先检查部署环境到 OpenAI 端点的 DNS、代理、防火墙和出口稳定性，并根据模型响应耗时调整 `AGENT_TIMEOUT_SECONDS`；不要通过无限增加重试次数掩盖网络故障。

@@ -95,7 +95,7 @@ Architecture 可以提出架构评审参与者建议，但不得生成面向代�
 
 平台 Agent 在生成 Design、Spec 和 Build Plan 前，必须获得与当前仓库相关的代码上下文证据。该证据由 Code Context Provider 提供，而不是由用户手工描述替代。
 
-MVP 当前扩展默认使用 Git Provider 读取远程仓库的默认分支、Commit、目录树、文件元数据和白名单文件，形成 Repo Inventory。随后由平台 Agent 基于 Intent 和 Repo Inventory 生成 Context Plan，再由 Code Context Orchestrator 按计划读取相关文件和 Diff，形成版本化 Code Context。未来可以增加 Local Agent Provider，由本地 Connector 调用 Codex CLI 读取本地仓库并返回结构化证据。
+MVP 当前扩展默认使用 Git Provider 读取远程仓库的默认分支、Commit、目录树、文件元数据和白名单文件，形成 Repo Inventory。每次创建 Workflow 时系统都会排队一次新的仓库事实同步；Leader 或任一项目成员也可以手动刷新。刷新期间旧 Repo Inventory/Code Context 标记为过期，不能继续作为新的文档生成依据。随后由平台 Agent 基于最新 Intent 和 Repo Inventory 生成 Context Plan，再由 Code Context Orchestrator 按计划读取相关文件和 Diff，形成版本化 Code Context。未来可以增加 Local Agent Provider，由本地 Connector 调用 Codex CLI 读取本地仓库并返回结构化证据。
 
 职责划分：
 
@@ -294,10 +294,18 @@ Leader 创建项目并添加成员
 
 ## 7. 产品级完成定义
 
+### 7.0 Workflow 级 Pull Request 策略
+
+Feature、Change 和 CI Bootstrap Workflow 在创建时保存 pull_request_required 策略，默认值为 TRUE。创建者可以在 Intent 创建阶段关闭该策略；Architecture Workflow 不产生开发交付任务，服务端固定为不适用。
+
+策略为 TRUE 时，每个 TaskDelivery 必须提交 PR URL，且 Git Provider 必须校验 PR 属于目标仓库并且 PR head SHA 等于交付 Commit。策略为 FALSE 时，仍必须校验任务分支、Commit 和 CI，只有 PR URL 可以为空。
+
+该策略在 Workflow 创建后不自动修改；任务包会固化 createPullRequest = REQUIRED/OPTIONAL，避免开发过程中策略漂移。
+
 一个处于 `CI_REQUIRED` 项目的普通 Feature/Change Workflow 只有同时满足以下条件才能关闭：
 
 1. 所有必要 Task 已完成；
-2. 每个 Task 有有效的 Commit 和 PR；
+2. 每个 Task 有有效的 Commit；当 Workflow 的 pull_request_required = TRUE 时，还必须有与 Commit 匹配的 PR；
 3. 每个当前交付 Commit 的必要 CI 检查均通过；
 4. 没有未解决的 Blocker；
 5. Leader 执行关闭操作；

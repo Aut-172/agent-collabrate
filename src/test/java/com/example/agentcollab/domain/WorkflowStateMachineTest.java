@@ -14,6 +14,7 @@ class WorkflowStateMachineTest {
                 WorkflowCompletionMode.CI_REQUIRED, null, 1L);
         WorkflowStatus[] states = {
                 WorkflowStatus.DESIGN_PROPOSED,
+                WorkflowStatus.DESIGN_CONFIRMED,
                 WorkflowStatus.SPEC_PROPOSED,
                 WorkflowStatus.SPEC_CONFIRMED,
                 WorkflowStatus.BUILD_PLAN_PROPOSED,
@@ -49,7 +50,7 @@ class WorkflowStateMachineTest {
     }
 
     @Test
-    void usesIntentSpecificPathsWithoutAddingNewStatuses() {
+    void usesIntentSpecificPaths() {
         Workflow change = new Workflow(1L, "change", "description", IntentLevel.CHANGE,
                 WorkflowCompletionMode.CI_REQUIRED, null, 1L);
         stateMachine.transition(change, WorkflowStatus.BUILD_PLAN_PROPOSED);
@@ -62,6 +63,7 @@ class WorkflowStateMachineTest {
                 IntentLevel.ARCHITECTURE, WorkflowCompletionMode.ARCHITECTURE_BASELINE, null, 1L);
         WorkflowStatus[] planningStates = {
                 WorkflowStatus.DESIGN_PROPOSED,
+                WorkflowStatus.DESIGN_CONFIRMED,
                 WorkflowStatus.SPEC_PROPOSED,
                 WorkflowStatus.SPEC_CONFIRMED,
                 WorkflowStatus.BUILD_PLAN_PROPOSED,

@@ -3,6 +3,7 @@ package com.example.agentcollab.domain;
 public enum WorkflowStatus {
     INTENT,
     DESIGN_PROPOSED,
+    DESIGN_CONFIRMED,
     SPEC_PROPOSED,
     SPEC_CONFIRMED,
     BUILD_PLAN_PROPOSED,

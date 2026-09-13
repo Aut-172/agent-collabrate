@@ -68,6 +68,14 @@ public class AgentRun {
         errorMessage = message;
     }
 
+    public void queueRetry(String code, String message) {
+        requireStatus(AgentRunStatus.RUNNING);
+        retryCount++;
+        status = AgentRunStatus.QUEUED;
+        errorCode = code;
+        errorMessage = message;
+    }
+
     public void succeed(String summary) {
         requireStatus(AgentRunStatus.RUNNING);
         status = AgentRunStatus.SUCCEEDED;

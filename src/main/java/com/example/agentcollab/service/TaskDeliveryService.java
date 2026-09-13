@@ -78,6 +78,10 @@ public class TaskDeliveryService {
         if (!Objects.equals(task.getBranchName(), request.branchName())) {
             throw conflict("TASK_BRANCH_MISMATCH", "交付分支与任务分支不一致");
         }
+        if (workflow.isPullRequestRequired()
+                && (request.pullRequestUrl() == null || request.pullRequestUrl().isBlank())) {
+            throw conflict("PULL_REQUEST_REQUIRED", "当前 Workflow 要求提交 Pull Request");
+        }
 
         TaskDelivery delivery = deliveries.save(new TaskDelivery(taskId, actorId, current.getId(),
                 current.getPackageVersion(), current.getCodeContextVersionId(), current.getContextPlanId(),

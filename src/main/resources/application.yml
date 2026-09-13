@@ -16,6 +16,11 @@ spring:
   flyway:
     enabled: true
 
+# Include SLF4J key-value pairs emitted by the Agent diagnostics logs.
+logging:
+  pattern:
+    console: "%clr(%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}){faint} %clr(${LOG_LEVEL_PATTERN:%5p}) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m %kvp%n${LOG_EXCEPTION_CONVERSION_WORD:%wEx}"
+
 app:
   agent:
     provider: ${AGENT_PROVIDER:unconfigured}
@@ -31,10 +36,14 @@ app:
     diagnostics-enabled: ${AGENT_DIAGNOSTICS_ENABLED:false}
     worker:
       scheduling-enabled: true
+      concurrency: ${AGENT_WORKER_CONCURRENCY:4}
+      queue-capacity: ${AGENT_WORKER_QUEUE_CAPACITY:0}
       poll-delay-ms: 1000
-      retry-delay-ms: 1000
-      lock-timeout-ms: 300000
-      max-attempts: 2
+      retry-delay-ms: ${AGENT_RETRY_DELAY:10000}
+      retry-max-delay-ms: ${AGENT_RETRY_MAX_DELAY_MS:120000}
+      retry-jitter-ratio: ${AGENT_RETRY_JITTER_RATIO:0.25}
+      lock-timeout-ms: ${AGENT_WORKER_LOCK_TIMEOUT_MS:360000}
+      max-attempts: ${AGENT_MAX_ATTEMPTS:2}
   git:
     provider: ${GIT_PROVIDER:github}
     api-url: ${GIT_API_URL:https://api.github.com}

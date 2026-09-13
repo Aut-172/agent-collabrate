@@ -39,6 +39,8 @@ Leader 权限以 `project_members.project_role = LEADER` 为准。每项操作�
 - 已批准计划视为不可变快照；
 - 影响现有开发上下文时，相关 Task Package 必须变为 `STALE`。
 
+Workflow 创建时，Leader/创建者可以选择是否要求 Pull Request；Feature、Change 和 CI Bootstrap 默认开启，Architecture 不适用。该选择写入 Workflow 并由任务包固化，交付时由服务端校验。
+
 ## 4. 计划编辑与分配
 
 ### 4.1 Leader 编辑内容

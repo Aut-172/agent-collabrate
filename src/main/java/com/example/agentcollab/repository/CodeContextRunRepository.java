@@ -14,6 +14,12 @@ public interface CodeContextRunRepository extends JpaRepository<CodeContextRun, 
     Optional<CodeContextRun> findTopByProjectIdAndRunTypeAndStatusInOrderByCreatedAtDesc(
             Long projectId, CodeContextRun.Type runType, Collection<CodeContextRunStatus> statuses);
 
+    Optional<CodeContextRun> findTopByProjectIdAndRunTypeOrderByCreatedAtDesc(
+            Long projectId, CodeContextRun.Type runType);
+
+    Optional<CodeContextRun> findTopByContextPlanIdAndRunTypeOrderByCreatedAtDesc(
+            Long contextPlanId, CodeContextRun.Type runType);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from CodeContextRun r where r.id = :id")
     Optional<CodeContextRun> findByIdForUpdate(@Param("id") Long id);

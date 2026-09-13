@@ -144,6 +144,25 @@ class RepoInventoryIntegrationTest {
     }
 
     @Test
+    void workflowCreationQueuesFreshRepositoryInventoryRefresh() throws Exception {
+        String token = initialize("leader");
+        long projectId = createProject(token, "workflow-refresh");
+        long initialRun = requestSync(token, projectId);
+        assertThat(worker.processNext()).isTrue();
+        Long initialInventory = contextRuns.findById(initialRun).orElseThrow().getInventoryVersionId();
+
+        provider.useCommit("2222222222222222222222222222222222222222");
+        createWorkflow(token, projectId);
+
+        assertThat(inventories.findById(initialInventory).orElseThrow().getStatus())
+                .isEqualTo(RepoInventoryStatus.STALE);
+        assertThat(worker.processNext()).isTrue();
+        assertThat(inventories.findTopByProjectIdAndStatusOrderByCreatedAtDesc(
+                projectId, RepoInventoryStatus.CURRENT).orElseThrow().getCommitSha())
+                .isEqualTo("2222222222222222222222222222222222222222");
+    }
+
+    @Test
     void providerFailureIsVisibleAndDoesNotCreateInventory() throws Exception {
         String token = initialize("leader");
         long projectId = createProject(token, "failure");
@@ -165,7 +184,7 @@ class RepoInventoryIntegrationTest {
     }
 
     @Test
-    void onlyLeaderCanRequestSynchronization() throws Exception {
+    void everyProjectMemberCanRequestSynchronization() throws Exception {
         String leaderToken = initialize("leader");
         long projectId = createProject(leaderToken, "permission");
         long memberId = createUser(leaderToken, "member");
@@ -176,8 +195,8 @@ class RepoInventoryIntegrationTest {
 
         mvc.perform(post("/api/projects/{id}/code-context/sync", projectId)
                         .header("Authorization", bearer(login("member"))))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("LEADER_REQUIRED"));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.runId").isNumber());
     }
 
     @Test
@@ -187,6 +206,7 @@ class RepoInventoryIntegrationTest {
         requestSync(token, projectId);
         assertThat(worker.processNext()).isTrue();
         long workflowId = createWorkflow(token, projectId);
+        assertThat(worker.processNext()).isTrue();
 
         String response = mvc.perform(post("/api/workflows/{id}/code-context/refresh", workflowId)
                         .header("Authorization", bearer(token)))
@@ -233,6 +253,7 @@ class RepoInventoryIntegrationTest {
         requestSync(token, projectId);
         assertThat(worker.processNext()).isTrue();
         long workflowId = createWorkflow(token, projectId);
+        assertThat(worker.processNext()).isTrue();
         mvc.perform(post("/api/workflows/{id}/code-context/refresh", workflowId)
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isAccepted());
@@ -258,6 +279,7 @@ class RepoInventoryIntegrationTest {
         requestSync(token, projectId);
         assertThat(worker.processNext()).isTrue();
         long workflowId = createWorkflow(token, projectId);
+        assertThat(worker.processNext()).isTrue();
         mvc.perform(post("/api/workflows/{id}/code-context/refresh", workflowId)
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isAccepted());
@@ -320,7 +342,8 @@ class RepoInventoryIntegrationTest {
         String body = mvc.perform(post("/api/projects/{id}/workflows", projectId)
                         .header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("title", "context planning",
-                                "description", "collect repository evidence", "intentLevel", "FEATURE"))))
+                                "description", "collect repository evidence", "intentLevel", "FEATURE",
+                                "pullRequestRequired", false))))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return json.readTree(body).path("id").asLong();
     }

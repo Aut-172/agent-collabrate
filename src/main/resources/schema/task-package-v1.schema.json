@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "task", "project", "context", "objective", "scope", "nonGoals", "acceptanceCriteria", "verificationCommands", "executionPolicy", "allowedPaths", "forbiddenPaths", "deliverables"],
   "properties": {
     "schemaVersion": { "const": "1.0" },
-    "task": { "type": "object", "required": ["taskId", "workflowId", "taskVersion", "packageId", "packageVersion", "packageHash", "status", "generatedAt"], "properties": { "taskId": { "type": "string" }, "workflowId": { "type": "string" }, "taskVersion": { "type": "integer", "minimum": 0 }, "packageId": { "type": "integer", "minimum": 1 }, "packageVersion": { "type": "integer", "minimum": 1 }, "packageHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "status": { "const": "CURRENT" }, "generatedAt": { "type": "string", "format": "date-time" } }, "additionalProperties": true },
+    "task": { "type": "object", "required": ["taskId", "workflowId", "taskVersion", "packageId", "packageVersion", "branchName", "packageHash", "status", "generatedAt"], "properties": { "taskId": { "type": "string" }, "workflowId": { "type": "string" }, "taskVersion": { "type": "integer", "minimum": 0 }, "packageId": { "type": "integer", "minimum": 1 }, "packageVersion": { "type": "integer", "minimum": 1 }, "branchName": { "type": "string", "minLength": 1 }, "packageHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "status": { "const": "CURRENT" }, "generatedAt": { "type": "string", "format": "date-time" } }, "additionalProperties": true },
     "project": { "type": "object", "required": ["projectId", "name", "repositoryUrl", "defaultBranch"], "additionalProperties": true },
     "context": {
       "type": "object",

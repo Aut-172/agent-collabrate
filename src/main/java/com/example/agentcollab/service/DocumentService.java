@@ -73,6 +73,8 @@ public class DocumentService {
         workflowService.requireCreator(workflow, actorId);
         workflowService.requireActiveProject(workflow);
         DocumentVersion result = confirmLatest(workflow, DocumentType.DESIGN, versionNo, actorId);
+        stateMachine.transition(workflow, WorkflowStatus.DESIGN_CONFIRMED);
+        workflows.save(workflow);
         AuditSupport.record(audit, actorId, workflow.getProjectId(), "DOCUMENT_CONFIRMED", "DOCUMENT_VERSION", result.getId(), Map.of("type", "DESIGN", "version", versionNo));
         return result;
     }
@@ -107,7 +109,7 @@ public class DocumentService {
     public DocumentVersion recordGeneratedSpec(Long workflowId, String content, Long agentRunId) {
         Objects.requireNonNull(agentRunId, "agentRunId is required");
         Workflow workflow = workflowService.findForUpdate(workflowId);
-        requireStatusIn(workflow, WorkflowStatus.DESIGN_PROPOSED, WorkflowStatus.SPEC_PROPOSED);
+        requireStatusIn(workflow, WorkflowStatus.DESIGN_CONFIRMED, WorkflowStatus.SPEC_PROPOSED);
         workflowService.requireActiveProject(workflow);
         requireLatestConfirmed(workflowId, DocumentType.DESIGN);
         Long contextId = requireCurrentContext(workflow, agentRunId);

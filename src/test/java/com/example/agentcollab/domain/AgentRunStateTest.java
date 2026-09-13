@@ -11,7 +11,9 @@ class AgentRunStateTest {
         AgentRun run = new AgentRun(1L, AgentRunType.GENERATE_DESIGN, "mock", "model", "summary");
         assertThatThrownBy(() -> run.succeed("invalid")).isInstanceOf(IllegalStateException.class);
         run.start();
-        run.recordRetry("TIMEOUT", "temporary");
+        run.queueRetry("TIMEOUT", "temporary");
+        assertThat(run.getStatus()).isEqualTo(AgentRunStatus.QUEUED);
+        run.start();
         run.succeed("generated");
 
         assertThat(run.getStatus()).isEqualTo(AgentRunStatus.SUCCEEDED);

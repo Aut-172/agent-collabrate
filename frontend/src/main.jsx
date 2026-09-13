@@ -7,7 +7,18 @@ import './styles.css'
 
 const columns=[['TODO','待处理'],['ASSIGNED','已分配'],['IN_PROGRESS','开发中'],['BLOCKED','阻塞'],['DELIVERY_SUBMITTED','待交付'],['CI_RUNNING','CI 中'],['DONE','已完成'],['CANCELLED_OR_FAILED','已取消/失败']]
 const api=async(path,opts={})=>{const token=localStorage.getItem('ac_token');const r=await fetch(path,{...opts,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})}});if(r.status===401)throw Error('登录已过期');if(!r.ok){let m=`请求失败 (${r.status})`;try{const body=await r.json();m=body.message||m;if(body.code)m+=` [${body.code}]`;if(body.details)m+=`：${typeof body.details==='string'?body.details:JSON.stringify(body.details)}`}catch{}throw Error(m)}return r.status===204?null:r.json()}
-const stateLabel=s=>({CI_NOT_CONFIGURED:'未配置',CI_REQUIRED:'已启用门禁',TODO:'待处理',ASSIGNED:'已分配',IN_PROGRESS:'开发中',BLOCKED:'阻塞',DELIVERY_SUBMITTED:'待交付',CI_RUNNING:'CI 中',DONE:'已完成',CANCELLED:'已取消',FAILED:'失败',CURRENT:'当前',STALE:'已过期'}[s]||s||'未知')
+export const stateLabel=s=>({
+  INTENT:'Intent Proposed',DESIGN_PROPOSED:'Design Proposed',DESIGN_CONFIRMED:'Design Confirmed',
+  SPEC_PROPOSED:'Spec Proposed',SPEC_CONFIRMED:'Spec Confirmed',BUILD_PLAN_PROPOSED:'Build Plan Proposed',
+  PLAN_APPROVED:'Build Plan Approved',TASKS_READY:'Tasks Ready',IN_PROGRESS:'In Progress',
+  DELIVERY_SUBMITTED:'Delivery Submitted',CI_RUNNING:'CI Running',CI_PASSED:'CI Passed',
+  READY_TO_CLOSE:'Ready to Close',DONE:'Done',CANCELLED:'Cancelled',FAILED:'Failed',
+  CI_NOT_CONFIGURED:'CI Not Configured',CI_REQUIRED:'CI Required',TODO:'To Do',ASSIGNED:'Assigned',
+  BLOCKED:'Blocked',QUEUED:'Queued',RUNNING:'Running',SUCCEEDED:'Succeeded',UNKNOWN:'Unknown',
+  CURRENT:'Current',STALE:'Stale'
+}[s]||s||'Unknown')
+const ciConclusionLabel=value=>({NO_CHECK_RUNS:'当前 Commit 尚无 CI 检查',IN_PROGRESS:'CI 正在运行',SUCCESS:'CI 已通过',FAILURE:'CI 未通过'}[value]||value||'等待结果')
+const ciConclusionHint=value=>value==='NO_CHECK_RUNS'?'请确认该 Commit 已包含 .github/workflows 下的工作流、GitHub Actions 已启用，并在目标仓库中产生检查结果。':value==='Bootstrap 前置任务：CI 尚未建立，无需检查'?'这是初始化工程与 CI 的前置任务；它不要求 CI 检查，加入 .github/workflows 的任务才需要真实 CI。':''
 const roleLabel=role=>({LEADER:'Leader',MEMBER:'Member'}[role]||role||'未知身份')
 const effortLevels={HIGH:{label:'高',availability:'FULL_TIME',capacity:32},MEDIUM:{label:'中',availability:'PART_TIME',capacity:20},LOW:{label:'低',availability:'LIMITED',capacity:8}}
 const effortFromProfile=(availability,capacity)=>availability==='FULL_TIME'?'HIGH':availability==='PART_TIME'?'MEDIUM':availability==='LIMITED'?'LOW':capacity==null?'MEDIUM':capacity>=28?'HIGH':capacity>=14?'MEDIUM':'LOW'
@@ -54,7 +65,7 @@ const intentOptions={
 }
 const terminalWorkflowStatuses=new Set(['DONE','CANCELLED','FAILED'])
 function CreateWorkflowDialog({project,user,workflows,onClose,onCreated}){
-  const [form,setForm]=useState({workflowKind:'STANDARD',title:'',description:'',intentLevel:'FEATURE'})
+  const [form,setForm]=useState({workflowKind:'STANDARD',title:'',description:'',intentLevel:'FEATURE',pullRequestRequired:true})
   const [role,setRole]=useState(project.createdBy===user.userId?'LEADER':'')
   const [roleLoading,setRoleLoading]=useState(true)
   const [submitting,setSubmitting]=useState(false)
@@ -91,7 +102,7 @@ function CreateWorkflowDialog({project,user,workflows,onClose,onCreated}){
     return()=>document.removeEventListener('keydown',closeOnEscape)
   },[onClose,submitting])
 
-  const update=event=>setForm(current=>({...current,[event.target.name]:event.target.value}))
+  const update=event=>setForm(current=>({...current,[event.target.name]:event.target.type==='checkbox'?event.target.checked:event.target.value}))
   const submit=async event=>{
     event.preventDefault()
     setSubmitting(true)
@@ -99,8 +110,8 @@ function CreateWorkflowDialog({project,user,workflows,onClose,onCreated}){
     try{
       const path=bootstrapSelected?`/api/projects/${project.id}/ci-bootstrap`:`/api/projects/${project.id}/workflows`
       const body=bootstrapSelected
-        ?{title:form.title.trim(),description:form.description.trim()}
-        :{title:form.title.trim(),description:form.description.trim(),intentLevel:form.intentLevel,parentWorkflowId:null}
+        ?{title:form.title.trim(),description:form.description.trim(),pullRequestRequired:form.pullRequestRequired}
+        :{title:form.title.trim(),description:form.description.trim(),intentLevel:form.intentLevel,parentWorkflowId:null,...(form.intentLevel!=='ARCHITECTURE'?{pullRequestRequired:form.pullRequestRequired}:{})}
       const created=await api(path,{method:'POST',body:JSON.stringify(body)})
       if(!created||typeof created!=='object'||created.id==null)throw new Error('创建工作流响应无效')
       onCreated(created)
@@ -111,7 +122,7 @@ function CreateWorkflowDialog({project,user,workflows,onClose,onCreated}){
   }
 
   const bootstrapHint=roleLoading?'正在确认项目角色':role!=='LEADER'?'只有项目 Leader 可以初始化工程与 CI。':!projectHasNoCi?'项目已经启用 CI；后续 CI 修改请创建普通 Change 工作流。':activeBootstrap?`已有进行中的工程与 CI 初始化工作流：${activeBootstrap.title}`:'建立最小工程骨架、构建测试入口和第一条 CI；任务将直接分配给你。'
-  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget&&!submitting)onClose()}}><section className="dialog workflow-dialog" role="dialog" aria-modal="true" aria-labelledby="create-workflow-title"><header><div><h2 id="create-workflow-title">创建工作流</h2><p>{project.name} · {project.repositoryUrl}</p></div><button type="button" className="icon" onClick={onClose} disabled={submitting} aria-label="关闭创建工作流窗口"><X size={18}/></button></header><form onSubmit={submit}><div className="workflow-context"><div><small>默认分支</small><strong>{project.defaultBranch||'未设置'}</strong></div><div><small>项目 CI</small><Status value={project.ciStatus}/></div><div><small>当前身份</small><strong>{roleLoading?'正在确认':roleLabel(role)}</strong></div></div><fieldset className="workflow-kind-fieldset"><legend>工作流类别</legend><label className={form.workflowKind==='STANDARD'?'selected':''}><input type="radio" name="workflowKind" value="STANDARD" checked={form.workflowKind==='STANDARD'} onChange={update}/><span><strong>普通工作流</strong><small>功能、架构、代码或配置变更；后续修改 CI 也属于普通工作流。</small></span></label><label className={bootstrapSelected?'selected':''}><input type="radio" name="workflowKind" value="CI_BOOTSTRAP" checked={bootstrapSelected} onChange={update} disabled={roleLoading||!canBootstrap}/><span><strong>初始化工程与 CI</strong><small>{bootstrapHint}</small></span></label></fieldset><label>工作流标题<input autoFocus required maxLength={200} name="title" value={form.title} onChange={update} placeholder={bootstrapSelected?'例如：建立 Spring Boot 工程与 GitHub Actions':'例如：支持订单批量导出'}/></label><label>目标与验收描述<textarea required maxLength={20000} rows={5} name="description" value={form.description} onChange={update} placeholder={bootstrapSelected?'说明工程骨架、构建测试入口、CI 检查和通过标准。例如：建立 Spring Boot 基础工程，提供 Maven 构建与单元测试命令；GitHub Actions 在 PR 上执行测试且全部通过。':'说明要解决的问题、期望结果、主要约束和验收方式。例如：支持按时间范围导出订单 CSV；导出 1 万条订单应在 30 秒内完成，文件字段与筛选结果一致。'}/></label>{!bootstrapSelected&&<fieldset className="intent-fieldset"><legend>Intent 级别</legend><div className="intent-options">{Object.entries(intentOptions).map(([value,option])=><label className={form.intentLevel===value?'selected':''} key={value}><input type="radio" name="intentLevel" value={value} checked={form.intentLevel===value} onChange={update}/><strong>{option.label}</strong><small>{option.summary}</small></label>)}</div></fieldset>}<label>父级 Intent<input readOnly value="无" aria-readonly="true"/></label><section className="workflow-preview" aria-live="polite"><strong>预计流程</strong><p>{bootstrapSelected?'初始化目标 -> Design -> Spec -> Build Plan -> Leader 执行 -> 引导检查 -> 启用 CI 门禁':selectedIntent.path}</p><small>{bootstrapSelected?'仅用于建立初始工程与首条 CI，初始任务固定分配给创建该工作流的 Leader。':selectedIntent.policy}</small></section>{!bootstrapSelected&&projectHasNoCi&&needsCi&&<div className="profile-impact-note"><CircleAlert size={17}/><span>项目尚未初始化工程与 CI；普通 Feature/Change 可以保存，但完成初始化前不能创建可关闭的开发交付。</span></div>}{project.status&&project.status!=='ACTIVE'&&<p className="error dialog-error" role="alert">归档项目不能创建工作流</p>}{error&&<p className="error dialog-error" role="alert">{error}</p>}<footer><button type="button" className="button" onClick={onClose} disabled={submitting}>取消</button><button className="primary" disabled={submitting||(bootstrapSelected&&!canBootstrap)||(project.status&&project.status!=='ACTIVE')}>{submitting?'正在创建':bootstrapSelected?'初始化工程与 CI':'创建工作流'}</button></footer></form></section></div>
+  return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget&&!submitting)onClose()}}><section className="dialog workflow-dialog" role="dialog" aria-modal="true" aria-labelledby="create-workflow-title"><header><div><h2 id="create-workflow-title">创建工作流</h2><p>{project.name} · {project.repositoryUrl}</p></div><button type="button" className="icon" onClick={onClose} disabled={submitting} aria-label="关闭创建工作流窗口"><X size={18}/></button></header><form onSubmit={submit}><div className="workflow-context"><div><small>默认分支</small><strong>{project.defaultBranch||'未设置'}</strong></div><div><small>项目 CI</small><Status value={project.ciStatus}/></div><div><small>当前身份</small><strong>{roleLoading?'正在确认':roleLabel(role)}</strong></div></div><fieldset className="workflow-kind-fieldset"><legend>工作流类别</legend><label className={form.workflowKind==='STANDARD'?'selected':''}><input type="radio" name="workflowKind" value="STANDARD" checked={form.workflowKind==='STANDARD'} onChange={update}/><span><strong>普通工作流</strong><small>功能、架构、代码或配置变更；后续修改 CI 也属于普通工作流。</small></span></label><label className={bootstrapSelected?'selected':''}><input type="radio" name="workflowKind" value="CI_BOOTSTRAP" checked={bootstrapSelected} onChange={update} disabled={roleLoading||!canBootstrap}/><span><strong>初始化工程与 CI</strong><small>{bootstrapHint}</small></span></label></fieldset><label>工作流标题<input autoFocus required maxLength={200} name="title" value={form.title} onChange={update} placeholder={bootstrapSelected?'例如：建立 Spring Boot 工程与 GitHub Actions':'例如：支持订单批量导出'}/></label><label>目标与验收描述<textarea required maxLength={20000} rows={5} name="description" value={form.description} onChange={update} placeholder={bootstrapSelected?'说明工程骨架、构建测试入口、CI 检查和通过标准。例如：建立 Spring Boot 基础工程，提供 Maven 构建与单元测试命令；GitHub Actions 在 PR 上执行测试且全部通过。':'说明要解决的问题、期望结果、主要约束和验收方式。例如：支持按时间范围导出订单 CSV；导出 1 万条订单应在 30 秒内完成，文件字段与筛选结果一致。'}/></label>{!bootstrapSelected&&<fieldset className="intent-fieldset"><legend>Intent 级别</legend><div className="intent-options">{Object.entries(intentOptions).map(([value,option])=><label className={form.intentLevel===value?'selected':''} key={value}><input type="radio" name="intentLevel" value={value} checked={form.intentLevel===value} onChange={update}/><strong>{option.label}</strong><small>{option.summary}</small></label>)}</div></fieldset>}{(bootstrapSelected||form.intentLevel!=='ARCHITECTURE')&&<label className="checkbox-option"><input type="checkbox" name="pullRequestRequired" checked={form.pullRequestRequired} onChange={update}/><span><strong>要求 Pull Request</strong><small>默认开启；提交交付时必须提供与当前 Commit 匹配的 PR。取消后可仅凭任务分支、Commit 和 CI 完成交付。</small></span></label>}<label>父级 Intent<input readOnly value="无" aria-readonly="true"/></label><section className="workflow-preview" aria-live="polite"><strong>预计流程</strong><p>{bootstrapSelected?'初始化目标 -> Design -> Spec -> Build Plan -> Leader 执行 -> 引导检查 -> 启用 CI 门禁':selectedIntent.path}</p><small>{bootstrapSelected?'仅用于建立初始工程与首条 CI，初始任务固定分配给创建该工作流的 Leader。':selectedIntent.policy}</small></section>{!bootstrapSelected&&projectHasNoCi&&needsCi&&<div className="profile-impact-note"><CircleAlert size={17}/><span>项目尚未初始化工程与 CI；普通 Feature/Change 可以保存，但完成初始化前不能创建可关闭的开发交付。</span></div>}{project.status&&project.status!=='ACTIVE'&&<p className="error dialog-error" role="alert">归档项目不能创建工作流</p>}{error&&<p className="error dialog-error" role="alert">{error}</p>}<footer><button type="button" className="button" onClick={onClose} disabled={submitting}>取消</button><button className="primary" disabled={submitting||(bootstrapSelected&&!canBootstrap)||(project.status&&project.status!=='ACTIVE')}>{submitting?'正在创建':bootstrapSelected?'初始化工程与 CI':'创建工作流'}</button></footer></form></section></div>
 }
 export function App(){
   const [user,setUser]=useState(null)
@@ -174,7 +185,7 @@ export function App(){
     overview:<Overview project={project} workflows={projectWorkflows}/>,
     'my-tasks':<MyTasks project={project} workflows={projectWorkflows} user={user} onTask={task=>openTask(task,'my-tasks')}/>,
     workflows:<Workflows project={project} workflows={projectWorkflows} onCreate={()=>setCreateWorkflowOpen(true)} onSelect={id=>{setSelectedWorkflowId(id);setPage('workflow-detail')}} onBoard={id=>{setSelectedWorkflowId(id);setPage('board')}}/>,
-    'workflow-detail':<WorkflowDetail workflowId={selectedWorkflowId} project={project} onBack={()=>setPage('workflows')} onTask={id=>openTask({id,workflowId:selectedWorkflowId},'workflow-detail')} onUpdated={updated=>setWorkflows(current=>current.map(item=>item.id===updated.id?updated:item))}/>,
+    'workflow-detail':<WorkflowDetail workflowId={selectedWorkflowId} project={project} user={user} onBack={()=>setPage('workflows')} onTask={id=>openTask({id,workflowId:selectedWorkflowId},'workflow-detail')} onUpdated={updated=>{setWorkflows(current=>current.map(item=>item.id===updated.id?updated:item));api('/api/workflows').then(value=>setWorkflows(Array.isArray(value)?value:[])).catch(()=>{})}}/>,
     'task-detail':<TaskDetail taskId={selectedTaskId} project={project} user={user} onBack={()=>setPage(taskReturnPage)}/>,
     board:<Board workflows={projectWorkflows} workflowId={selectedWorkflowId} onWorkflowSelect={setSelectedWorkflowId}/>,
     members:<Members project={project} user={user}/>,
@@ -208,33 +219,48 @@ function MyTasks({project,workflows,user,onTask}){
   const visible=tasks.filter(task=>filter==='ALL'||(filter==='DONE'?['DONE','FAILED','CANCELLED'].includes(task.status):!['DONE','FAILED','CANCELLED'].includes(task.status)))
   return <><div className="page-head"><div><h1>我的任务</h1><p>{project?`${project.name} · 当前分配给你的任务`:'请选择项目后查看任务'}</p></div><div className="segmented" aria-label="任务筛选">{[['OPEN','进行中'],['DONE','已结束'],['ALL','全部']].map(([key,label])=><button key={key} className={filter===key?'active':''} onClick={()=>setFilter(key)}>{label}</button>)}</div></div>{error&&<div className="alert"><CircleAlert size={16}/>{error}</div>}{!project?<Empty text="暂无项目，请先选择项目"/>:loading?<Empty text="正在汇总当前项目任务"/>:<section className="my-task-grid">{visible.length?visible.map(task=><article className="my-task-card" key={task.id} onClick={()=>onTask(task)}><header><div><small>{task.workflowTitle}</small><h2>{task.externalKey} · {task.title}</h2></div><Status value={task.status}/></header><p>{task.description}</p><dl><div><dt>工作量</dt><dd>{task.effortPoints} 点</dd></div><div><dt>分支</dt><dd><code>{task.branchName||'-'}</code></dd></div><div><dt>任务包</dt><dd>v{task.currentPackageVersion||'-'}</dd></div></dl><button className="button">查看任务详情</button></article>):<Empty text={filter==='OPEN'?'当前项目没有分配给你的进行中任务':'没有符合筛选条件的任务'}/>}</section>}</>
 }
-function Workflows({project,workflows,onCreate,onSelect,onBoard}){return <><div className="page-head"><div><h1>工作流</h1><p>{project?'意图、文档版本和交付状态':'请选择项目后查看工作流'}</p></div>{project&&<button className="primary" onClick={onCreate} disabled={project.status&&project.status!=='ACTIVE'} title={project.status&&project.status!=='ACTIVE'?'归档项目不能创建工作流':'创建工作流'}><Plus size={16}/>创建工作流</button>}</div><section className="panel">{workflows.length?workflows.map(w=><div className="list-row clickable" key={w.id} onClick={()=>onSelect(w.id)}><div><strong>{w.title}</strong><small>{w.intentLevel} · {w.description}</small></div><Status value={w.status}/><button className="button" onClick={event=>{event.stopPropagation();onBoard(w.id)}}>看板</button></div>):<Empty text={project?'暂无 Workflow':'暂无项目，请先创建项目'}/>}</section></>}
+function Workflows({project,workflows,onCreate,onSelect,onBoard}){return <><div className="page-head"><div><h1>工作流</h1><p>{project?'意图、文档版本和交付状态':'请选择项目后查看工作流'}</p></div>{project&&<button className="primary" onClick={onCreate} disabled={project.status&&project.status!=='ACTIVE'} title={project.status&&project.status!=='ACTIVE'?'归档项目不能创建工作流':'创建工作流'}><Plus size={16}/>创建工作流</button>}</div><section className="panel">{workflows.length?workflows.map(w=><div className="list-row clickable" key={w.id} onClick={()=>onSelect(w.id)}><div><strong>{w.title}</strong><small>{w.intentLevel} · {w.description}</small><small>Pull Request：{w.intentLevel==='ARCHITECTURE'?'不适用':w.pullRequestRequired===false?'不要求':'必须'}</small></div><Status value={w.status}/><button className="button" onClick={event=>{event.stopPropagation();onBoard(w.id)}}>看板</button></div>):<Empty text={project?'暂无 Workflow':'暂无项目，请先创建项目'}/>}</section></>}
 function Board({workflows,workflowId,onWorkflowSelect}){const [data,setData]=useState(null);const [error,setError]=useState('');const wf=workflows.find(item=>String(item.id)===String(workflowId))||workflows[0]||null;useEffect(()=>{setData(null);setError('');if(wf){onWorkflowSelect?.(wf.id);api(`/api/workflows/${wf.id}/board`).then(setData).catch(e=>setError(e.message))}},[wf?.id]);const groups=useMemo(()=>Object.fromEntries((data?.columns||[]).map(c=>[c.key,c.cards])),[data]);return <><div className="page-head"><div><h1>任务看板</h1><p>{wf?.title||'当前项目暂无 Workflow'} · 只读聚合</p></div>{workflows.length>0&&<label className="board-workflow-select">Workflow<select aria-label="看板 Workflow" value={wf?.id||''} onChange={e=>onWorkflowSelect?.(e.target.value)}>{workflows.map(item=><option key={item.id} value={item.id}>{item.title}</option>)}</select></label>}</div>{error&&<p className="error">{error}</p>}{!wf?<Empty text="当前项目暂无 Workflow"/>:<div className="board-scroll"><div className="board">{columns.map(([key,label])=><section className="column" key={key}><h3>{label}<b>{(groups[key]||[]).length}</b></h3>{(groups[key]||[]).map(t=><article className="task" key={t.id}><strong>{t.externalKey||t.taskKey} · {t.title}</strong><Status value={t.status}/><small>负责人：{t.assignee?.username||'未分配'}</small><small>任务包 v{t.currentPackageVersion||'-'} · {t.branchName||'无分支'}</small><small>CI：{t.ciStatus||'--'} · {t.updatedAt||'--'}</small></article>)}{!(groups[key]||[]).length&&<Empty text="暂无任务"/>}</section>)}</div></div>}</>}
 
-function WorkflowDetail({workflowId,project,onBack,onTask,onUpdated}){
+function WorkflowDetail({workflowId,project,user,onBack,onTask,onUpdated}){
   const [workflow,setWorkflow]=useState(null),[documents,setDocuments]=useState([]),[context,setContext]=useState(null),[inventory,setInventory]=useState(null),[tasks,setTasks]=useState([]),[audits,setAudits]=useState([])
   const [loading,setLoading]=useState(true),[error,setError]=useState(''),[run,setRun]=useState(null),[contextRun,setContextRun]=useState(null),[contextPlanRun,setContextPlanRun]=useState(null),[busy,setBusy]=useState(false)
   const [planEditing,setPlanEditing]=useState(false),[planDraft,setPlanDraft]=useState('')
-  const loadContextData=async projectId=>{if(!projectId)return false;let nextContext=null,nextInventory=null;try{nextContext=await api(`/api/workflows/${workflowId}/code-context`)}catch{}try{nextInventory=await api(`/api/projects/${projectId}/repo-inventory/latest`)}catch{}setContext(nextContext);setInventory(nextInventory);return Boolean(nextContext&&nextContext.status==='CURRENT'&&nextInventory&&nextInventory.status==='CURRENT')}
-  const load=async()=>{if(workflowId==null)return;setLoading(true);setError('');try{const [w,d]=await Promise.all([api(`/api/workflows/${workflowId}`),api(`/api/workflows/${workflowId}/documents`)]);setWorkflow(w);setDocuments(Array.isArray(d)?d:[]);onUpdated?.(w);try{setTasks(await api(`/api/workflows/${workflowId}/tasks`))}catch{}try{const timeline=await api(`/api/workflows/${workflowId}/audit-logs?page=0&size=50`);setAudits(Array.isArray(timeline)?timeline:timeline?.content||[])}catch{setAudits([])}await loadContextData(w?.projectId)}catch(e){setError(e.message)}finally{setLoading(false)}}
+  const [documentEditing,setDocumentEditing]=useState(null),[documentDraft,setDocumentDraft]=useState(''),[projectMembers,setProjectMembers]=useState([])
+  const loadContextData=async projectId=>{if(!projectId)return false;let nextContext=null,nextInventory=null;try{nextContext=await api(`/api/workflows/${workflowId}/code-context`)}catch{}try{nextInventory=await api(`/api/projects/${projectId}/repo-inventory/latest`)}catch{}try{const latestRun=await api(`/api/projects/${projectId}/code-context/runs/latest`);setContextRun({...latestRun,runId:latestRun.id})}catch{setContextRun(null)}setContext(nextContext);setInventory(nextInventory);return Boolean(nextContext&&nextContext.status==='CURRENT'&&nextInventory&&nextInventory.status==='CURRENT')}
+  const load=async()=>{if(workflowId==null)return;setLoading(true);setError('');try{const [w,d]=await Promise.all([api(`/api/workflows/${workflowId}`),api(`/api/workflows/${workflowId}/documents`)]);setWorkflow(w);setDocuments(Array.isArray(d)?d:[]);const activeRuns=Array.isArray(w?.activeAgentRuns)?w.activeAgentRuns:[];const latestRuns=Array.isArray(w?.latestAgentRuns)?w.latestAgentRuns:[];const generationTypes=['GENERATE_DESIGN','GENERATE_SPEC','GENERATE_BUILD_PLAN'];const activeGeneration=activeRuns.find(item=>generationTypes.includes(item.runType));const latestGeneration=latestRuns.find(item=>generationTypes.includes(item.runType));const activeContextPlan=activeRuns.find(item=>item.runType==='GENERATE_CODE_CONTEXT_PLAN');const latestContextPlan=latestRuns.find(item=>item.runType==='GENERATE_CODE_CONTEXT_PLAN');const toRun=item=>item?{...item,runId:item.runId??item.id}:null;setRun(toRun(activeGeneration||latestGeneration));setContextPlanRun(toRun(activeContextPlan||latestContextPlan));onUpdated?.(w);try{setTasks(await api(`/api/workflows/${workflowId}/tasks`))}catch{}try{const timeline=await api(`/api/workflows/${workflowId}/audit-logs?page=0&size=50`);setAudits(Array.isArray(timeline)?timeline:timeline?.content||[])}catch{setAudits([])}await loadContextData(w?.projectId)}catch(e){setError(e.message)}finally{setLoading(false)}}
   useEffect(()=>{load();return()=>{}},[workflowId])
+  useEffect(()=>{
+    const terminal=terminalWorkflowStatuses.has(workflow?.status)
+    document.body.classList.toggle('workflow-terminal-context',terminal)
+    return()=>document.body.classList.remove('workflow-terminal-context')
+  },[workflow?.status])
+  useEffect(()=>{if(!project?.id){setProjectMembers([]);return}api(`/api/projects/${project.id}/members`).then(value=>setProjectMembers(Array.isArray(value)?value:[])).catch(()=>setProjectMembers([]))},[project?.id,user?.userId])
   useEffect(()=>{if(!run?.runId)return;let cancelled=false;let timer;const poll=async()=>{try{const r=await api(`/api/agent-runs/${run.runId}`);if(cancelled)return;setRun({...run,...r});if(['QUEUED','RUNNING'].includes(r.status))timer=setTimeout(poll,3500);else if(r.status==='SUCCEEDED')load();}catch(e){if(!cancelled)setError(e.message)}};poll();return()=>{cancelled=true;clearTimeout(timer)}},[run?.runId])
   useEffect(()=>{if(!contextPlanRun?.runId)return;let cancelled=false;let timer;const poll=async()=>{try{const r=await api(`/api/agent-runs/${contextPlanRun.runId}`);if(cancelled)return;setContextPlanRun({...contextPlanRun,...r});if(['QUEUED','RUNNING'].includes(r.status))timer=setTimeout(poll,3500);else if(r.status==='SUCCEEDED'){await load();} }catch(e){if(!cancelled)setError(e.message)}};poll();return()=>{cancelled=true;clearTimeout(timer)}},[contextPlanRun?.runId])
   useEffect(()=>{if(contextPlanRun?.status!=='SUCCEEDED'||!workflow?.projectId)return;let cancelled=false;let timer;let attempts=0;const poll=async()=>{const ready=await loadContextData(workflow.projectId);if(cancelled)return;if(!ready&&attempts++<10)timer=setTimeout(poll,3500)};poll();return()=>{cancelled=true;clearTimeout(timer)}},[contextPlanRun?.status,workflow?.projectId])
   useEffect(()=>{if(!contextRun?.runId)return;let cancelled=false;let timer;const poll=async()=>{try{const r=await api(`/api/projects/${project?.id||workflow?.projectId}/code-context/runs/${contextRun.runId}`);if(cancelled)return;setContextRun({...contextRun,...r});if(['QUEUED','RUNNING'].includes(r.status))timer=setTimeout(poll,3500);else if(r.status==='SUCCEEDED')load();}catch(e){if(!cancelled)setError(e.message)}};poll();return()=>{cancelled=true;clearTimeout(timer)}},[contextRun?.runId])
-  const action=async(path,body)=>{if(busy||run?.status==='QUEUED'||run?.status==='RUNNING')return;setBusy(true);setError('');try{const r=await api(path,{method:'POST',...(body?{body:JSON.stringify(body)}:{})});if(r?.runId)setRun(r);else await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  const action=async(path,body)=>{if(busy||run?.status==='QUEUED'||run?.status==='RUNNING')return;setBusy(true);setError('');try{const r=await api(path,{method:'POST',...(body?{body:JSON.stringify(body)}:{})});if(r?.runId)setRun({...r,runId:r.runId});else await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   const syncContext=async()=>{if(!project?.id||contextRun?.status==='QUEUED'||contextRun?.status==='RUNNING')return;setBusy(true);setError('');try{const r=await api(`/api/projects/${project.id}/code-context/sync`,{method:'POST'});setContextRun(r)}catch(e){setError(e.message)}finally{setBusy(false)}}
   const refreshWorkflowContext=async()=>{if(busy||contextPlanRun?.status==='QUEUED'||contextPlanRun?.status==='RUNNING')return;setBusy(true);setError('');try{const r=await api(`/api/workflows/${workflowId}/code-context/refresh`,{method:'POST'});setContextPlanRun(r)}catch(e){setError(e.message)}finally{setBusy(false)}}
   const confirm=type=>{const doc=documents.filter(d=>d.documentType===type).sort((a,b)=>b.versionNo-a.versionNo)[0];if(doc)action(`/api/workflows/${workflowId}/confirm-${type.toLowerCase().replace('_','-')}`,{versionNo:doc.versionNo})}
+  const startDocumentEdit=doc=>{setDocumentEditing(doc.documentType);setDocumentDraft(doc.content||'')}
+  const cancelDocumentEdit=()=>{setDocumentEditing(null);setDocumentDraft('')}
+  const saveDocument=async type=>{setBusy(true);setError('');try{await api(`/api/workflows/${workflowId}/${type.toLowerCase()}`,{method:'PUT',body:JSON.stringify({content:documentDraft})});cancelDocumentEdit();await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   const savePlan=async()=>{setBusy(true);setError('');try{JSON.parse(planDraft);await api(`/api/workflows/${workflowId}/plan-drafts`,{method:'PUT',body:JSON.stringify({content:planDraft})});setPlanEditing(false);await load()}catch(e){setError(e instanceof SyntaxError?'Build Plan 不是有效 JSON':e.message)}finally{setBusy(false)}}
+  const retryGeneration=()=>{if(run?.runId)action(`/api/agent-runs/${run.runId}/retry`)}
   if(workflowId==null)return <Empty text="请先从工作流列表选择一个 Workflow"/>;if(loading&&!workflow)return <Empty text="正在加载 Workflow 详情"/>;
   const latest=type=>documents.filter(d=>d.documentType===type).sort((a,b)=>b.versionNo-a.versionNo)[0];const build=latest('BUILD_PLAN');let plan=null;try{plan=build?.content?JSON.parse(build.content):null}catch{}
   const generate=['GENERATE_SPEC','CONFIRM_DESIGN_OR_GENERATE_SPEC'].includes(workflow?.nextAction)?['生成 Spec','/api/workflows/'+workflowId+'/generate-spec']:workflow?.nextAction==='GENERATE_BUILD_PLAN'?['生成 Build Plan','/api/workflows/'+workflowId+'/generate-build-plan']:workflow?.nextAction==='GENERATE_DESIGN'?['生成 Design','/api/workflows/'+workflowId+'/generate-design']:null
-  const contextReady=Boolean(context&&context.status==='CURRENT'&&inventory&&inventory.status==='CURRENT');return <><div className="page-head"><div><button className="button" onClick={onBack}>← 返回工作流</button><h1>{workflow?.title}</h1><p>{workflow?.description}</p></div><Status value={workflow?.status}/></div>{error&&<div className="alert"><CircleAlert size={16}/>{error}</div>}<section className="detail-grid"><div className="panel"><h2>基本信息</h2><div className="detail-meta"><span>Intent：{workflow?.intentLevel}</span><span>健康：<Status value={workflow?.health}/></span><span>下一步：{workflow?.nextAction}</span><span>更新时间：{formatTime(workflow?.updatedAt)}</span></div>{workflow?.status==='READY_TO_CLOSE'&&<button className="primary document-action" onClick={()=>window.confirm('确认关闭当前 Workflow？关闭后不能继续提交交付。')&&action(`/api/workflows/${workflowId}/close`)}>关闭 Workflow</button>}</div><div className="panel"><h2>Code Context</h2><p>Repo Inventory：<Status value={inventory?.status||contextRun?.status||'缺失'}/></p><p>Code Context：<Status value={context?.status||'缺失'}/></p>{!contextReady&&<p className="error">当前 Workflow 的 Code Context 尚未完成。请先同步仓库索引，再刷新当前 Workflow Code Context。</p>}<div className="action-row"><button className="primary" onClick={syncContext} disabled={busy||['QUEUED','RUNNING'].includes(contextRun?.status)}>{contextRun?.status==='RUNNING'?'同步中…':'同步 Code Context'}</button><button className="button" onClick={refreshWorkflowContext} disabled={busy||!inventory||['QUEUED','RUNNING'].includes(contextPlanRun?.status)}>{contextPlanRun?.status==='RUNNING'?'刷新中…':'刷新当前 Workflow Code Context'}</button></div>{contextRun&&<p>同步 Run：<Status value={contextRun.status}/> {contextRun.errorMessage}</p>}{contextPlanRun&&<p>Context Run：<Status value={contextPlanRun.status}/> {contextPlanRun.errorCode&&<span>{contextPlanRun.errorCode}</span>} {contextPlanRun.errorMessage}</p>}</div></section><section className="panel"><h2>AI 生成</h2>{generate?<button className="primary" onClick={()=>action(generate[1])} disabled={busy||!contextReady||['QUEUED','RUNNING'].includes(run?.status)}>{!contextReady?'请先刷新 Code Context':busy?'提交中…':generate[0]}</button>:<span>当前状态无需生成操作</span>}{run&&<div className="run-status"><Status value={run.status}/>{run.errorCode&&<span>{run.errorCode}</span>} {run.errorMessage&&<span>{run.errorMessage}</span>}</div>}</section><section className="panel workflow-documents"><h2>文档</h2>{['DESIGN','SPEC'].map(type=>{const doc=latest(type);return <article className="document" key={type}><h3>{type} {doc&&<small>v{doc.versionNo} · {doc.source} · {doc.contentFormat} · {doc.confirmed?'已确认':'未确认'}</small>}</h3>{doc?<><MarkdownContent content={doc.content} format={doc.contentFormat}/>{!doc.confirmed&&<button className="button document-action" onClick={()=>confirm(type)}>确认 {type}</button>}</>:<Empty text="暂无文档"/>}</article>})}</section>{build&&<BuildPlanSection workflow={workflow} document={build} plan={plan} editing={planEditing} draft={planDraft} busy={busy} onEdit={()=>{setPlanDraft(formatJson(build.content));setPlanEditing(true)}} onDraft={setPlanDraft} onCancel={()=>setPlanEditing(false)} onSave={savePlan} onApprove={()=>action(`/api/workflows/${workflowId}/approve-plan`,{versionNo:build.versionNo})} onCreateTasks={()=>action(`/api/workflows/${workflowId}/create-tasks`)}/>}<section className="panel"><h2>任务（{tasks.length}）</h2>{tasks.length?tasks.map(t=><div className="list-row clickable" key={t.id} onClick={()=>onTask(t.id)}><div><strong>{t.externalKey} · {t.title}</strong><small>{t.effortPoints} 点 · 分支 {t.branchName||'-'} · 任务包 v{t.currentPackageVersion||'-'}</small></div><Status value={t.status}/><button className="button">查看任务</button></div>):<Empty text="计划批准并创建任务后，将在这里显示任务"/>}</section><section className="panel"><h2>Workflow 时间线</h2>{audits.length?audits.map(item=><div className="audit" key={item.id}><time>{formatTime(item.createdAt)}</time><div><strong>{item.action} · {item.entityType} #{item.entityId}</strong><small>操作人：{item.actorUserId||'系统'}</small></div></div>):<Empty text="暂无 Workflow 审计记录"/>}</section></>
+  const contextReady=Boolean(context&&context.status==='CURRENT'&&inventory&&inventory.status==='CURRENT');const isLeader=projectMembers.some(member=>member.userId===user?.userId&&member.projectRole==='LEADER')||project?.createdBy===user?.userId;const generationLabel=run?.status==='FAILED'?`重新${generate?.[0]||'生成'}`:generate?.[0];return <><div className="page-head"><div><button className="button" onClick={onBack}>← 返回工作流</button><h1>{workflow?.title}</h1><p>{workflow?.description}</p></div><Status value={workflow?.status}/></div>{error&&<div className="alert"><CircleAlert size={16}/>{error}</div>}<section className="detail-grid"><div className="panel"><h2>基本信息</h2><div className="detail-meta"><span>Intent：{workflow?.intentLevel}</span><span>健康：<Status value={workflow?.health}/></span><span>下一步：{workflow?.nextAction}</span><span>更新时间：{formatTime(workflow?.updatedAt)}</span></div>{workflow?.status==='READY_TO_CLOSE'&&<button className="primary document-action" onClick={()=>window.confirm('确认关闭当前 Workflow？关闭后不能继续提交交付。')&&action(`/api/workflows/${workflowId}/close`)}>关闭 Workflow</button>}</div><div className="panel"><h2>Code Context</h2><p>Repo Inventory：<Status value={inventory?.status||'缺失'}/> {inventory?.commitSha&&<small>Commit：<code>{inventory.commitSha.slice(0,12)}…</code></small>}</p><p>Code Context：<Status value={context?.status||'缺失'}/></p><p className="context-steps">步骤 1：同步仓库索引；步骤 2：刷新当前 Workflow Code Context。两步都完成后才能生成 Design、Spec 或 Build Plan。</p>{contextRun?.status==='SUCCEEDED'&&!contextReady&&<p className="context-hint" role="status">仓库索引已同步成功，请继续刷新当前 Workflow Code Context。</p>}{!contextReady&&<p className="error">当前 Workflow 的 Code Context 尚未完成，请先完成上面的两步。</p>}<div className="action-row"><button className="primary" onClick={syncContext} disabled={busy||['QUEUED','RUNNING'].includes(contextRun?.status)}>{contextRun?.status==='RUNNING'?'同步仓库索引中…':'同步仓库索引'}</button><button className="button" onClick={refreshWorkflowContext} disabled={busy||!inventory||['QUEUED','RUNNING'].includes(contextPlanRun?.status)}>{contextPlanRun?.status==='RUNNING'?'刷新 Code Context 中…':'刷新当前 Workflow Code Context'}</button></div>{contextRun&&<p>仓库索引同步 Run：<Status value={contextRun.status}/> {contextRun.errorMessage}</p>}{contextPlanRun&&<p>Workflow Code Context Run：<Status value={contextPlanRun.status}/> {contextPlanRun.errorCode&&<span>{contextPlanRun.errorCode}</span>} {contextPlanRun.errorMessage}</p>}</div></section><section className="panel"><h2>AI 生成</h2>{generate?<button className="primary" onClick={()=>action(generate[1])} disabled={busy||!contextReady||['QUEUED','RUNNING'].includes(run?.status)}>{!contextReady?'请先刷新 Code Context':busy?'提交中…':generationLabel}</button>:<span>当前状态无需生成操作</span>}{run&&<div className="run-status"><Status value={run.status}/>{run.errorCode&&<span>{run.errorCode}</span>} {run.errorMessage&&<span>{run.errorMessage}</span>}</div>}</section><section className="panel workflow-documents"><h2>文档</h2>{['DESIGN','SPEC'].map(type=>{const doc=latest(type);const editing=documentEditing===type;return <article className="document" key={type}><h3><span className="document-title-mark">{type}</span> {doc&&<small>v{doc.versionNo} · {doc.source} · {doc.contentFormat} · {doc.confirmed?'已确认':'未确认'}</small>}</h3>{doc?(editing?<><textarea className="document-editor" aria-label={`编辑 ${type} 文档`} value={documentDraft} onChange={event=>setDocumentDraft(event.target.value)} spellCheck={false}/><div className="action-row"><button className="button" onClick={cancelDocumentEdit} disabled={busy}>取消</button><button className="primary" onClick={()=>saveDocument(type)} disabled={busy||!documentDraft.trim()}>保存文档</button></div></>:<><MarkdownContent content={doc.content} format={doc.contentFormat}/><div className="action-row document-actions">{!doc.confirmed&&<button className="button" onClick={()=>startDocumentEdit(doc)}><Pencil size={15}/>编辑</button>}{!doc.confirmed&&<button className="primary" onClick={()=>confirm(type)}>确认 {type}</button>}</div></>):<Empty text="暂无文档"/>}</article>})}</section>{build&&<BuildPlanSection workflow={workflow} document={build} plan={plan} editing={planEditing} draft={planDraft} busy={busy} canApprovePlan={isLeader} onEdit={()=>{setPlanDraft(formatJson(build.content));setPlanEditing(true)}} onDraft={setPlanDraft} onCancel={()=>setPlanEditing(false)} onSave={savePlan} onApprove={()=>action(`/api/workflows/${workflowId}/approve-plan`,{versionNo:build.versionNo})} onCreateTasks={()=>action(`/api/workflows/${workflowId}/create-tasks`)}/>}<section className="panel"><h2>任务（{tasks.length}）</h2>{tasks.length?tasks.map(t=><div className="list-row clickable" key={t.id} onClick={()=>onTask(t.id)}><div><strong>{t.externalKey} · {t.title}</strong><small>{t.effortPoints} 点 · 分支 {t.branchName||'-'} · 任务包 v{t.currentPackageVersion||'-'}</small></div><Status value={t.status}/><button className="button">查看任务</button></div>):<Empty text="计划批准并创建任务后，将在这里显示任务"/>}</section><section className="panel"><h2>Workflow 时间线</h2>{audits.length?audits.map(item=><div className="audit" key={item.id}><time>{formatTime(item.createdAt)}</time><div><strong>{item.action} · {item.entityType} #{item.entityId}</strong><small>操作人：{item.actorUserId||'系统'}</small></div></div>):<Empty text="暂无 Workflow 审计记录"/>}</section></>
 }
 
-function BuildPlanSection({workflow,document,plan,editing,draft,busy,onEdit,onDraft,onCancel,onSave,onApprove,onCreateTasks}){
-  return <section className="panel"><div className="section-head"><div><h2>Build Plan</h2><p>v{document.versionNo} · {document.confirmed?'已批准':'待审批'}</p></div>{workflow.status==='BUILD_PLAN_PROPOSED'&&!editing&&<button className="button" onClick={onEdit}><Pencil size={15}/>高级 JSON 编辑</button>}</div>{editing?<><textarea className="json-editor" value={draft} onChange={e=>onDraft(e.target.value)} spellCheck={false}/><div className="action-row"><button className="button" onClick={onCancel} disabled={busy}>取消</button><button className="primary" onClick={onSave} disabled={busy}>保存新版本</button></div></>:plan?<BuildPlanPreview plan={plan}/>:<pre className="document-source">{document.content}</pre>}<div className="action-row">{workflow.status==='BUILD_PLAN_PROPOSED'&&!editing&&<button className="primary" onClick={onApprove} disabled={busy}>批准 v{document.versionNo}</button>}{workflow.status==='PLAN_APPROVED'&&<button className="primary" onClick={onCreateTasks} disabled={busy}>创建任务</button>}</div></section>
+function AgentGenerationPanel({generate,run,busy,contextReady,onGenerate,onRetry}){
+  return <section className="panel"><h2>AI 生成</h2>{generate?<button className="primary" onClick={onGenerate} disabled={busy||!contextReady||['QUEUED','RUNNING'].includes(run?.status)}>{!contextReady?'请先刷新 Code Context':busy?'提交中…':run?.status==='FAILED'?'重新生成':generate[0]}</button>:<span>当前状态无需生成操作</span>}{run&&<div className="run-status"><Status value={run.status}/>{run.errorCode&&<span>{run.errorCode}</span>} {run.errorMessage&&<span>{run.errorMessage}</span>}{run.status==='FAILED'&&<button className="button" onClick={onRetry} disabled={busy}>重试本次生成</button>}</div>}</section>
+}
+
+function BuildPlanSection({workflow,document,plan,editing,draft,busy,canApprovePlan,onEdit,onDraft,onCancel,onSave,onApprove,onCreateTasks}){
+  return <section className="panel"><div className="section-head"><div><h2>Build Plan</h2><p>v{document.versionNo} · {document.confirmed?'已批准':'待审批'}</p></div>{workflow.status==='BUILD_PLAN_PROPOSED'&&!editing&&<button className="button" onClick={onEdit}><Pencil size={15}/>高级 JSON 编辑</button>}</div>{editing?<><textarea className="json-editor" value={draft} onChange={e=>onDraft(e.target.value)} spellCheck={false}/><div className="action-row"><button className="button" onClick={onCancel} disabled={busy}>取消</button><button className="primary" onClick={onSave} disabled={busy}>保存新版本</button></div></>:plan?<BuildPlanPreview plan={plan}/>:<pre className="document-source">{document.content}</pre>}<div className="action-row">{workflow.status==='BUILD_PLAN_PROPOSED'&&!editing&&(canApprovePlan?<button className="primary" onClick={onApprove} disabled={busy}>批准 v{document.versionNo}</button>:<span className="plan-waiting" role="status">等待 Leader 批准 Build Plan</span>)}{workflow.status==='PLAN_APPROVED'&&<button className="primary" onClick={onCreateTasks} disabled={busy}>{workflow.intentLevel==='ARCHITECTURE'?'创建并开启子 Workflow':'创建任务'}</button>}</div></section>
 }
 function BuildPlanPreview({plan}){
   const assignmentByTask=Object.fromEntries((plan.assignments||[]).map(item=>[item.taskKey,item]))
@@ -263,7 +289,8 @@ function JsonView({value,label}){
     return <div className="json-line" key={index}><span className="json-line-number" aria-hidden="true">{index+1}</span><code>{content}</code></div>
   })}</div>
 }
-function KeyValueBlock({title,value,className=''}){return <div className={`plan-note ${className}`.trim()}><strong>{title}</strong><JsonView value={value} label={title}/></div>}
+function KeyValueBlock({title,value,className=''}){if(title==='子 Intent')return <ChildIntentTable items={Array.isArray(value)?value:[]}/>;return <div className={`plan-note ${className}`.trim()}><strong>{title}</strong><JsonView value={value} label={title}/></div>}
+export function ChildIntentTable({items}){return <div className="plan-note child-intent-table"><strong>子 Intent</strong><div className="table-scroll"><table className="data-table"><thead><tr><th>标题</th><th>Intent 级别</th><th>目标与说明</th><th>后续流程</th></tr></thead><tbody>{items.map((item,index)=><tr key={`${item.title||'child'}-${index}`}><td><strong>{item.title||'-'}</strong></td><td><span className="status info">{item.intentLevel||'-'}</span></td><td>{item.description||'-'}</td><td><small>创建后作为独立 Workflow</small><small>{item.intentLevel==='CHANGE'?'Build Plan → 任务交付':'Design → Spec → Build Plan → 任务交付'}</small></td></tr>)}</tbody></table></div></div>}
 
 const blockerReasons=[
   ['REQUIREMENT_CLARIFICATION','需求需要澄清'],
@@ -290,6 +317,7 @@ function TaskDetail({ taskId, project, user, onBack }) {
   const [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
+    [deliveryError, setDeliveryError] = useState(""),
     [notice, setNotice] = useState("");
   const [reassign, setReassign] = useState({
     assigneeUserId: "",
@@ -346,9 +374,10 @@ function TaskDetail({ taskId, project, user, onBack }) {
     const timer = setTimeout(() => setNotice(""), 3000);
     return () => clearTimeout(timer);
   }, [notice]);
-  const submit = async (path, method = "POST", body) => {
+  const submit = async (path, method = "POST", body, onFailure) => {
     setBusy(true);
     setError("");
+    onFailure?.("");
     setNotice("");
     try {
       await api(path, {
@@ -359,7 +388,9 @@ function TaskDetail({ taskId, project, user, onBack }) {
       await load(true);
       return true;
     } catch (e) {
-      setError(e.message);
+      const message=e instanceof Error?e.message:"操作失败，请稍后重试";
+      setError(message);
+      onFailure?.(message);
       return false;
     } finally {
       setBusy(false);
@@ -421,15 +452,23 @@ function TaskDetail({ taskId, project, user, onBack }) {
       finalReport.git.pullRequestUrl.trim()
         ? finalReport.git.pullRequestUrl.trim()
         : null;
-    await submit(`/api/tasks/${taskId}/delivery`, "POST", {
-      packageId: taskPackage.id,
-      packageVersion: taskPackage.packageVersion,
-      packageHash: taskPackage.contentHash,
-      finalReport,
-      branchName,
-      commitSha,
-      pullRequestUrl,
-    });
+    await submit(
+      `/api/tasks/${taskId}/delivery`,
+      "POST",
+      {
+        packageId: taskPackage.id,
+        packageVersion: taskPackage.packageVersion,
+        packageHash: taskPackage.contentHash,
+        finalReport,
+        branchName,
+        commitSha,
+        pullRequestUrl,
+      },
+      setDeliveryError,
+    );
+  };
+  const retryCi = async (runId) => {
+    await submit(`/api/tasks/${taskId}/ci-runs/${runId}/retry`);
   };
   const download = (name, content, type = "text/plain", successMessage) => {
     try {
@@ -526,6 +565,15 @@ function TaskDetail({ taskId, project, user, onBack }) {
               </dd>
             </div>
           </dl>
+          {task.branchName && (
+            <div className="branch-requirement" role="note" aria-label="分支开发要求">
+              <CircleAlert size={17} />
+              <span>
+                请在任务分支 <code>{task.branchName}</code> 上开发、提交并推送。
+                {project?.defaultBranch && <>默认分支 <code>{project.defaultBranch}</code> 仅作为基线，请勿直接修改或推送。</>}
+              </span>
+            </div>
+          )}
           {task.planDetails && (
             <>
               <h3>范围与验收</h3>
@@ -739,14 +787,19 @@ function TaskDetail({ taskId, project, user, onBack }) {
         </section>
       )}
       {task.status === "IN_PROGRESS" && own && taskPackage && (
+        <>
+        <p className="delivery-policy" role="status">{taskPackage.contentJson?.executionPolicy?.git?.createPullRequest==='REQUIRED'?'当前 Workflow 要求 Pull Request；提交时必须填写与 Commit 匹配的 PR URL。':'当前 Workflow 不强制要求 Pull Request；仍必须提交任务分支、Commit 和 CI 结果。'}</p>
         <DeliveryForm
           onSubmit={submitDelivery}
-          busy={busy}
-          task={task}
-          taskPackage={taskPackage}
-        />
+        busy={busy}
+        task={task}
+        taskPackage={taskPackage}
+        serverError={deliveryError}
+        onClearError={()=>{setDeliveryError("");setError("")}}
+      />
+        </>
       )}
-      <EvidencePanel deliveries={deliveries} gitOps={gitOps} ciRuns={ciRuns} />
+      <EvidencePanel deliveries={deliveries} gitOps={gitOps} ciRuns={ciRuns} canRetryCi={own||leader} busy={busy} onRetryCi={retryCi} />
       {blockers.length > 0 && (
         <section className="panel">
           <h2>Blocker 历史</h2>
@@ -794,9 +847,10 @@ function createDeliveryReport(task,taskPackage){
   const report={
     schemaVersion:'1.0',taskId:task.externalKey,packageId:taskPackage.id,
     packageVersion:taskPackage.packageVersion,packageHash:taskPackage.contentHash,
-    outcome:'READY_FOR_REVIEW',summary:'',changedFiles:[],tests:[],
+    outcome:'READY_FOR_REVIEW',summary:'',changedFiles:[],
+    tests:(task.planDetails?.verificationCommands||[]).map(command=>({command,status:'NOT_RUN',summary:''})),
     git:{branchName:task.branchName||'',commitSha:'',pullRequestUrl:null},
-    acceptanceCriteria:(task.planDetails?.acceptanceCriteria||[]).map(item=>({criterion:typeof item==='string'?item:JSON.stringify(item),status:'PASSED',evidence:''})),
+    acceptanceCriteria:(task.planDetails?.acceptanceCriteria||[]).map(item=>({criterion:typeof item==='string'?item:JSON.stringify(item),status:'NOT_VERIFIED',evidence:''})),
     unresolvedIssues:[],outOfScopeChanges:[],blockers:[]
   }
   if(taskPackage.codeContextVersionId&&taskPackage.contextPlanId&&taskPackage.baseCommit){report.codeContextVersionId=taskPackage.codeContextVersionId;report.contextPlanId=taskPackage.contextPlanId;report.baseCommitSha=taskPackage.baseCommit}
@@ -815,38 +869,137 @@ function cleanDeliveryReport(value){
   report.git={...report.git,branchName:String(report.git?.branchName||'').trim(),commitSha:String(report.git?.commitSha||'').trim(),pullRequestUrl:typeof report.git?.pullRequestUrl==='string'&&report.git.pullRequestUrl.trim()?report.git.pullRequestUrl.trim():null}
   return report
 }
-function DeliveryForm({onSubmit,busy,task,taskPackage}){
+const finalReportRequired=['schemaVersion','taskId','packageId','packageVersion','packageHash','outcome','summary','changedFiles','tests','git','acceptanceCriteria','unresolvedIssues','outOfScopeChanges','blockers']
+const finalReportAllowed=[...finalReportRequired,'codeContextVersionId','contextPlanId','baseCommitSha']
+const record=value=>Boolean(value)&&typeof value==='object'&&!Array.isArray(value)
+const extraFields=(value,allowed)=>record(value)?Object.keys(value).filter(key=>!allowed.includes(key)):[]
+function normalizeDeliveryReport(value,defaults){
+  const report=JSON.parse(JSON.stringify(value)),notices=[]
+  const note=message=>{if(!notices.includes(message))notices.push(message)}
+  for(const field of ['changedFiles','tests','acceptanceCriteria','unresolvedIssues','outOfScopeChanges','blockers']){
+    if(!(field in report)){report[field]=JSON.parse(JSON.stringify(defaults[field]||[]));note(`已补齐 ${field}`)}
+  }
+  if(record(report.git)&&!('pullRequestUrl' in report.git)){report.git.pullRequestUrl=null;note('已补齐 git.pullRequestUrl: null')}
+  if(Array.isArray(report.tests))report.tests.forEach((item,index)=>{
+    if(!record(item))return
+    const extras=extraFields(item,['command','status','summary'])
+    extras.forEach(field=>delete item[field])
+    if(extras.length)note(`已忽略 tests[${index}] 的未知字段：${extras.join('、')}`)
+  })
+  if(record(report.git)){
+    const extras=extraFields(report.git,['branchName','commitSha','pullRequestUrl'])
+    extras.forEach(field=>delete report.git[field])
+    if(extras.length)note(`已忽略 git 的未知字段：${extras.join('、')}`)
+  }
+  if(Array.isArray(report.acceptanceCriteria))report.acceptanceCriteria.forEach((item,index)=>{
+    const extras=extraFields(item,['criterion','status','evidence'])
+    extras.forEach(field=>delete item[field])
+    if(extras.length)note(`已忽略 acceptanceCriteria[${index}] 的未知字段：${extras.join('、')}`)
+  })
+  const rootExtras=extraFields(report,finalReportAllowed)
+  rootExtras.forEach(field=>delete report[field])
+  if(rootExtras.length)note(`已忽略顶层未知字段：${rootExtras.join('、')}`)
+  return {report,notices}
+}
+function validateDeliveryReport(value){
+  if(!record(value))return 'Final Report 必须是一个 JSON 对象。'
+  const missing=finalReportRequired.filter(field=>!(field in value))
+  if(missing.length)return `Final Report 缺少必填字段：${missing.join('、')}。`
+  const extras=extraFields(value,finalReportAllowed)
+  if(extras.length)return `Final Report 包含不支持的字段：${extras.join('、')}。`
+  if(value.schemaVersion!=='1.0')return 'schemaVersion 必须是 "1.0"。'
+  if(!['READY_FOR_REVIEW','BLOCKED','FAILED'].includes(value.outcome))return 'outcome 只能是 READY_FOR_REVIEW、BLOCKED 或 FAILED。'
+  if(typeof value.taskId!=='string'||!value.taskId.trim())return 'taskId 必须是非空字符串。'
+  if(!Number.isInteger(value.packageId)||value.packageId<1||!Number.isInteger(value.packageVersion)||value.packageVersion<1)return 'packageId 和 packageVersion 必须是大于 0 的整数。'
+  if(!/^sha256:[a-f0-9]{64}$/.test(value.packageHash||''))return 'packageHash 必须是 sha256: 开头的 64 位小写十六进制哈希。'
+  if(typeof value.summary!=='string'||!value.summary.trim())return 'summary 必须是非空字符串。'
+  for(const field of ['changedFiles','unresolvedIssues','outOfScopeChanges']){
+    if(!Array.isArray(value[field])||value[field].some(item=>typeof item!=='string'||!item.trim()))return `${field} 必须是字符串数组，空列表请填写 []。`
+  }
+  if(!Array.isArray(value.tests))return 'tests 必须是数组。'
+  for(let index=0;index<value.tests.length;index++){
+    const item=value.tests[index]
+    if(!record(item))return `tests[${index}] 必须是对象。`
+    const itemMissing=['command','status','summary'].filter(field=>!(field in item))
+    const itemExtras=extraFields(item,['command','status','summary'])
+    if(itemMissing.length||itemExtras.length){
+      const parts=[]
+      if(itemMissing.length)parts.push(`缺少必填字段 ${itemMissing.join('、')}`)
+      if(itemExtras.length)parts.push(`包含不支持字段 ${itemExtras.join('、')}`)
+      const hint=itemExtras.includes('result')?' 请删除 result，并使用 status：PASSED、FAILED、SKIPPED 或 NOT_RUN。':''
+      return `tests[${index}] ${parts.join('，')}。${hint}`
+    }
+    if(typeof item.command!=='string'||!item.command.trim()||typeof item.summary!=='string'||!item.summary.trim())return `tests[${index}] 的 command 和 summary 必须是非空字符串。`
+    if(!['PASSED','FAILED','SKIPPED','NOT_RUN'].includes(item.status))return `tests[${index}].status 只能是 PASSED、FAILED、SKIPPED 或 NOT_RUN。`
+  }
+  if(!record(value.git))return 'git 必须是对象。'
+  const gitMissing=['branchName','commitSha','pullRequestUrl'].filter(field=>!(field in value.git))
+  const gitExtras=extraFields(value.git,['branchName','commitSha','pullRequestUrl'])
+  if(gitMissing.length)return `git 缺少必填字段：${gitMissing.join('、')}。`
+  if(gitExtras.length)return `git 包含不支持的字段：${gitExtras.join('、')}。`
+  if(typeof value.git.branchName!=='string'||!value.git.branchName.trim())return 'git.branchName 必须是非空字符串。'
+  if(!/^[a-fA-F0-9]{7,64}$/.test(value.git.commitSha||''))return 'git.commitSha 必须是 7～64 位十六进制字符。'
+  if(value.git.pullRequestUrl!==null&&typeof value.git.pullRequestUrl!=='string')return 'git.pullRequestUrl 必须是 URL 字符串或 null。'
+  if(!Array.isArray(value.acceptanceCriteria))return 'acceptanceCriteria 必须是数组。'
+  for(let index=0;index<value.acceptanceCriteria.length;index++){
+    const item=value.acceptanceCriteria[index]
+    if(!record(item))return `acceptanceCriteria[${index}] 必须是对象。`
+    const itemMissing=['criterion','status','evidence'].filter(field=>!(field in item))
+    const itemExtras=extraFields(item,['criterion','status','evidence'])
+    if(itemMissing.length)return `acceptanceCriteria[${index}] 缺少必填字段：${itemMissing.join('、')}。`
+    if(itemExtras.length)return `acceptanceCriteria[${index}] 包含不支持的字段：${itemExtras.join('、')}。`
+    if(typeof item.criterion!=='string'||!item.criterion.trim()||typeof item.evidence!=='string')return `acceptanceCriteria[${index}] 的 criterion 必须非空，evidence 必须是字符串。`
+    if(!['PASSED','FAILED','NOT_VERIFIED'].includes(item.status))return `acceptanceCriteria[${index}].status 只能是 PASSED、FAILED 或 NOT_VERIFIED。`
+  }
+  if(!Array.isArray(value.blockers))return 'blockers 必须是数组。'
+  const contextFields=['codeContextVersionId','contextPlanId','baseCommitSha']
+  const contextCount=contextFields.filter(field=>field in value).length
+  if(contextCount!==0&&contextCount!==contextFields.length)return `代码上下文字段必须同时提供：${contextFields.join('、')}。`
+  if(contextCount===contextFields.length&&(!Number.isInteger(value.codeContextVersionId)||value.codeContextVersionId<1||!Number.isInteger(value.contextPlanId)||value.contextPlanId<1||!/^[a-fA-F0-9]{7,100}$/.test(value.baseCommitSha||'')))return '代码上下文 ID 必须是大于 0 的整数，baseCommitSha 必须是 7～100 位十六进制字符。'
+  return ''
+}
+function DeliveryForm({onSubmit,busy,task,taskPackage,serverError,onClearError}){
   const initial=()=>createDeliveryReport(task,taskPackage)
-  const [mode,setMode]=useState('JSON'),[report,setReport]=useState(initial),[draft,setDraft]=useState(()=>JSON.stringify(initial(),null,2)),[jsonError,setJsonError]=useState('')
-  useEffect(()=>{const next=initial();setReport(next);setDraft(JSON.stringify(next,null,2));setJsonError('')},[task.id,taskPackage.id,taskPackage.packageVersion])
+  const [mode,setMode]=useState('JSON'),[report,setReport]=useState(initial),[draft,setDraft]=useState(()=>JSON.stringify(initial(),null,2)),[jsonError,setJsonError]=useState(''),[compatibilityNotice,setCompatibilityNotice]=useState('')
+  useEffect(()=>{const next=initial();setReport(next);setDraft(JSON.stringify(next,null,2));setJsonError('');setCompatibilityNotice('')},[task.id,taskPackage.id,taskPackage.packageVersion])
+  const clearErrors=()=>{setJsonError('');setCompatibilityNotice('');onClearError?.()}
   const switchMode=next=>{
     if(next===mode)return
     if(next==='FORM'){
-      try{const parsed=JSON.parse(draft);if(!parsed||Array.isArray(parsed)||typeof parsed!=='object')throw new Error();setReport(parsed);setJsonError('')}
+      try{const parsed=JSON.parse(draft);if(!record(parsed))throw new Error();const normalized=normalizeDeliveryReport(parsed,initial());setReport(normalized.report);setDraft(JSON.stringify(normalized.report,null,2));setCompatibilityNotice(normalized.notices.join('；'));setJsonError('')}
       catch{setJsonError('JSON 格式不正确，修正后才能切换到表单模式。');return}
     }else setDraft(JSON.stringify(cleanDeliveryReport(report),null,2))
     setMode(next)
   }
-  const update=(field,value)=>setReport(current=>({...current,[field]:value}))
-  const updateGit=(field,value)=>setReport(current=>({...current,git:{...current.git,[field]:value}}))
+  const update=(field,value)=>{clearErrors();setReport(current=>({...current,[field]:value}))}
+  const updateGit=(field,value)=>{clearErrors();setReport(current=>({...current,git:{...current.git,[field]:value}}))}
   const updateList=(field,value)=>update(field,value.split(/\r?\n/))
-  const test=report.tests?.[0]||{command:'',status:'PASSED',summary:''}
-  const updateTest=(field,value)=>setReport(current=>({...current,tests:field==='command'&&!value?[]:[{...(current.tests?.[0]||{command:'',status:'PASSED',summary:''}),[field]:value}]}))
-  const updateCriterion=(index,field,value)=>setReport(current=>({...current,acceptanceCriteria:current.acceptanceCriteria.map((item,itemIndex)=>itemIndex===index?{...item,[field]:value}:item)}))
+  const tests=report.tests?.length?report.tests:[{command:'',status:'NOT_RUN',summary:''}]
+  const updateTest=(index,field,value)=>{clearErrors();setReport(current=>{const items=current.tests?.length?[...current.tests]:[{command:'',status:'NOT_RUN',summary:''}];items[index]={...items[index],[field]:value};return {...current,tests:items}})}
+  const updateCriterion=(index,field,value)=>{clearErrors();setReport(current=>({...current,acceptanceCriteria:current.acceptanceCriteria.map((item,itemIndex)=>itemIndex===index?{...item,[field]:value}:item)}))}
   const submitReport=event=>{
     event.preventDefault();setJsonError('')
-    let next
-    try{next=cleanDeliveryReport(mode==='JSON'?JSON.parse(draft):report)}catch{setJsonError('JSON 格式不正确，请检查括号、引号和逗号。');return}
+    let parsed
+    try{parsed=mode==='JSON'?JSON.parse(draft):report}catch{setJsonError('JSON 格式不正确，请确保只粘贴一个纯 JSON 对象，并检查括号、引号和逗号。');return}
+    const normalized=normalizeDeliveryReport(parsed,initial())
+    setCompatibilityNotice(normalized.notices.join('；'))
+    setReport(normalized.report)
+    if(mode==='JSON')setDraft(JSON.stringify(normalized.report,null,2))
+    const schemaError=validateDeliveryReport(normalized.report)
+    if(schemaError){setJsonError(schemaError);return}
+    const next=cleanDeliveryReport(normalized.report)
     if(next.taskId!==task.externalKey||Number(next.packageId)!==Number(taskPackage.id)||Number(next.packageVersion)!==Number(taskPackage.packageVersion)||next.packageHash!==taskPackage.contentHash){setJsonError('Final Report 的任务包标识与当前任务包不一致，请使用页面预填值。');return}
     if(!next.summary){setJsonError('请填写交付摘要 summary。');return}
     if(!next.git?.branchName||!next.git?.commitSha){setJsonError('请填写 git.branchName 和 git.commitSha。');return}
     if(!/^[a-fA-F0-9]{7,64}$/.test(next.git.commitSha)){setJsonError('git.commitSha 必须是 7～64 位十六进制字符。');return}
+    const pullRequestRequired=taskPackage?.contentJson?.executionPolicy?.git?.createPullRequest==='REQUIRED'
+    if(pullRequestRequired&&!next.git.pullRequestUrl){setJsonError('当前 Workflow 要求 Pull Request，请填写与 Commit 匹配的 PR URL。');return}
     onSubmit(next)
   }
-  return <section className="panel delivery-panel"><div className="section-head"><div><h2>提交交付</h2><p>Final Report</p></div><div className="segmented" aria-label="交付填写方式"><button type="button" className={mode==='JSON'?'active':''} onClick={()=>switchMode('JSON')}>JSON</button><button type="button" className={mode==='FORM'?'active':''} onClick={()=>switchMode('FORM')}>表单</button></div></div><form className="form-stack" onSubmit={submitReport}>{mode==='JSON'?<label>Final Report JSON<textarea className="delivery-json-editor" aria-label="Final Report JSON" spellCheck={false} value={draft} onChange={event=>{setDraft(event.target.value);setJsonError('')}}/></label>:<><label>交付摘要<textarea required rows={3} placeholder="例如：完成支付回调验签和重复通知幂等处理，并补充相关测试。" value={report.summary||''} onChange={event=>update('summary',event.target.value)}/></label><div className="form-grid"><label>任务分支<input required value={report.git?.branchName||''} onChange={event=>updateGit('branchName',event.target.value)}/></label><label>Commit SHA<input required pattern="[a-fA-F0-9]{7,64}" value={report.git?.commitSha||''} onChange={event=>updateGit('commitSha',event.target.value)}/></label></div><label>Pull Request URL（可选）<input type="url" value={report.git?.pullRequestUrl||''} onChange={event=>updateGit('pullRequestUrl',event.target.value)}/></label><label>变更文件（每行一个）<textarea required rows={4} placeholder={'例如：\nsrc/main/java/example/PaymentService.java\nsrc/test/java/example/PaymentServiceTest.java'} value={(report.changedFiles||[]).join('\n')} onChange={event=>updateList('changedFiles',event.target.value)}/></label><div className="form-grid"><label>本地验证命令<input value={test.command} onChange={event=>updateTest('command',event.target.value)} placeholder="例如：mvn test"/></label><label>验证状态<select value={test.status} onChange={event=>updateTest('status',event.target.value)}><option value="PASSED">通过（PASSED）</option><option value="FAILED">失败（FAILED）</option><option value="SKIPPED">已跳过（SKIPPED）</option><option value="NOT_RUN">未执行（NOT_RUN）</option></select></label></div>{test.command&&<label>验证摘要<input required value={test.summary} onChange={event=>updateTest('summary',event.target.value)} placeholder="例如：全部 42 项测试通过。"/></label>}{(report.acceptanceCriteria||[]).length>0&&<div className="criteria-editor"><strong>验收证据</strong>{report.acceptanceCriteria.map((item,index)=><label key={`${index}-${item.criterion}`}><span>{item.criterion}</span><textarea rows={2} value={item.evidence||''} onChange={event=>updateCriterion(index,'evidence',event.target.value)} placeholder="说明如何验证该项验收标准。"/></label>)}</div>}<details className="delivery-advanced"><summary>更多交付信息</summary><div className="form-grid"><label>未解决问题（每行一个）<textarea rows={3} value={(report.unresolvedIssues||[]).join('\n')} onChange={event=>updateList('unresolvedIssues',event.target.value)} placeholder="没有则留空"/></label><label>范围外变更（每行一个）<textarea rows={3} value={(report.outOfScopeChanges||[]).join('\n')} onChange={event=>updateList('outOfScopeChanges',event.target.value)} placeholder="没有则留空"/></label></div></details></>}{jsonError&&<p className="error" role="alert">{jsonError}</p>}<button className="primary" disabled={busy}>{busy?'正在提交…':'提交交付并开始 Git 校验'}</button></form></section>
+  return <section className="panel delivery-panel"><div className="section-head"><div><h2>提交交付</h2><p>Final Report</p></div><div className="segmented" aria-label="交付填写方式"><button type="button" className={mode==='JSON'?'active':''} onClick={()=>switchMode('JSON')}>JSON</button><button type="button" className={mode==='FORM'?'active':''} onClick={()=>switchMode('FORM')}>表单</button></div></div><form className="form-stack" onSubmit={submitReport}>{mode==='JSON'?<label>Final Report JSON<textarea className="delivery-json-editor" aria-label="Final Report JSON" spellCheck={false} value={draft} onChange={event=>{setDraft(event.target.value);clearErrors()}}/></label>:<><label>交付摘要（顶层 summary）<textarea required rows={3} placeholder="例如：完成支付回调验签和重复通知幂等处理，并补充相关测试。" value={report.summary||''} onChange={event=>update('summary',event.target.value)}/></label><div className="form-grid"><label>任务分支<input required value={report.git?.branchName||''} onChange={event=>updateGit('branchName',event.target.value)}/></label><label>Commit SHA<input required pattern="[a-fA-F0-9]{7,64}" value={report.git?.commitSha||''} onChange={event=>updateGit('commitSha',event.target.value)}/></label></div><label>Pull Request URL（可选）<input type="url" value={report.git?.pullRequestUrl||''} onChange={event=>updateGit('pullRequestUrl',event.target.value)}/></label><label>变更文件（每行一个）<textarea required rows={4} placeholder={'例如：\nsrc/main/java/example/PaymentService.java\nsrc/test/java/example/PaymentServiceTest.java'} value={(report.changedFiles||[]).join('\n')} onChange={event=>updateList('changedFiles',event.target.value)}/></label><div className="criteria-editor delivery-tests"><strong>验证结果（tests）</strong>{tests.map((test,index)=><div className="delivery-result-row" key={`${test.command}-${index}`}><div className="form-grid"><label>验证命令（command）<input value={test.command||''} onChange={event=>updateTest(index,'command',event.target.value)} placeholder="例如：mvn test"/></label><label>验证状态（status）<select value={test.status||'NOT_RUN'} onChange={event=>updateTest(index,'status',event.target.value)}><option value="PASSED">通过（PASSED）</option><option value="FAILED">失败（FAILED）</option><option value="SKIPPED">已跳过（SKIPPED）</option><option value="NOT_RUN">未执行（NOT_RUN）</option></select></label></div><label>验证结果摘要（summary）<input required={Boolean(test.command)} value={test.summary||''} onChange={event=>updateTest(index,'summary',event.target.value)} placeholder="例如：全部 42 项测试通过。"/></label></div>)}</div>{(report.acceptanceCriteria||[]).length>0&&<div className="criteria-editor"><strong>验收结果（acceptanceCriteria）</strong>{report.acceptanceCriteria.map((item,index)=><div className="delivery-result-row" key={`${index}-${item.criterion}`}><strong>{item.criterion}</strong><div className="form-grid"><label>验收状态（status）<select value={item.status||'NOT_VERIFIED'} onChange={event=>updateCriterion(index,'status',event.target.value)}><option value="PASSED">通过（PASSED）</option><option value="FAILED">失败（FAILED）</option><option value="NOT_VERIFIED">未验证（NOT_VERIFIED）</option></select></label><label>验收证据（evidence）<textarea rows={3} value={item.evidence||''} onChange={event=>updateCriterion(index,'evidence',event.target.value)} placeholder="例如：PaymentServiceTest.retryOnFailure 测试通过。"/></label></div></div>)}</div>}<details className="delivery-advanced"><summary>更多交付信息</summary><div className="form-grid"><label>未解决问题（每行一个）<textarea rows={3} value={(report.unresolvedIssues||[]).join('\n')} onChange={event=>updateList('unresolvedIssues',event.target.value)} placeholder="没有则留空"/></label><label>范围外变更（每行一个）<textarea rows={3} value={(report.outOfScopeChanges||[]).join('\n')} onChange={event=>updateList('outOfScopeChanges',event.target.value)} placeholder="没有则留空"/></label></div></details></>}{compatibilityNotice&&<div className="delivery-compat" role="status"><CircleAlert size={16}/><span>提交前已自动兼容：{compatibilityNotice}。</span></div>}{jsonError&&<div className="delivery-error" role="alert"><CircleAlert size={16}/><span>{jsonError}</span></div>}{serverError&&<div className="delivery-error" role="alert"><CircleAlert size={16}/><span>{serverError}</span></div>}<button className="primary" disabled={busy}>{busy?'正在提交…':'提交交付并开始 Git 校验'}</button></form></section>
 }
 
-function EvidencePanel({deliveries,gitOps,ciRuns}){return <section className="panel"><h2>交付与验证</h2>{deliveries.length===0?<Empty text="暂无交付记录"/>:deliveries.map(item=><div className="evidence-item" key={item.id}><div><strong>交付 #{item.id}</strong><Status value={item.status}/></div><small><code>{item.commitSha}</code> · {item.branchName} · {formatTime(item.submittedAt)}</small>{item.rejectionReason&&<p className="error">{item.rejectionReason}</p>}</div>)}{gitOps.length>0&&<><h3>Git 校验</h3>{gitOps.map(item=><div className="list-row" key={item.id}><div><strong>{item.operationType} · <code>{item.commitSha}</code></strong><small>{item.errorMessage||`已验证 Commit：${item.verifiedCommitSha||'-'}`}</small></div><Status value={item.status}/></div>)}</>}{ciRuns.length>0&&<><h3>CI Runs</h3>{ciRuns.map(item=><div className="list-row" key={item.id}><div><strong><code>{item.commitSha}</code> · {item.conclusion||'等待结果'}</strong><small>最近同步：{formatTime(item.lastSyncedAt)}</small>{item.detailsUrl&&<a href={item.detailsUrl} target="_blank" rel="noreferrer">查看 CI 详情</a>}</div><Status value={item.status}/></div>)}</>}</section>}
+export function EvidencePanel({deliveries,gitOps,ciRuns,canRetryCi,busy,onRetryCi}){return <section className="panel"><h2>交付与验证</h2>{deliveries.length===0?<Empty text="暂无交付记录"/>:deliveries.map(item=><div className="evidence-item" key={item.id}><div><strong>交付 #{item.id}</strong><Status value={item.status}/></div><small><code>{item.commitSha}</code> · {item.branchName} · {formatTime(item.submittedAt)}</small>{item.rejectionReason&&<p className="error">{item.rejectionReason}</p>}</div>)}{gitOps.length>0&&<><h3>Git 校验</h3>{gitOps.map(item=><div className="list-row" key={item.id}><div><strong>{item.operationType} · <code>{item.commitSha}</code></strong><small>{item.errorMessage||`已验证 Commit：${item.verifiedCommitSha||'-'}`}</small></div><Status value={item.status}/></div>)}</>}{ciRuns.length>0&&<><h3>CI Runs</h3>{ciRuns.map(item=><div className="list-row" key={item.id}><div><strong><code>{item.commitSha}</code> · {ciConclusionLabel(item.conclusion)}</strong><small>最近同步：{formatTime(item.lastSyncedAt)}</small>{ciConclusionHint(item.conclusion)&&<small>{ciConclusionHint(item.conclusion)}</small>}{item.detailsUrl&&<a href={item.detailsUrl} target="_blank" rel="noreferrer">查看 CI 详情</a>}</div><Status value={item.status}/>{canRetryCi&&item.status==='UNKNOWN'&&item.conclusion!=='Bootstrap 前置任务：CI 尚未建立，无需检查'&&<button className="button icon-text" disabled={busy} onClick={()=>onRetryCi(item.id)}><RefreshCw size={15}/>重新同步 CI</button>}</div>)}</>}</section>}
 const emptyCollectionState={items:[],loading:false,error:''}
 function useProjectCollection(projectId,path,selectItems=value=>value){
   const [state,setState]=useState(emptyCollectionState)

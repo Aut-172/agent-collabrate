@@ -100,6 +100,8 @@
 
 创建 Workflow 时先选择“普通工作流”或“初始化工程与 CI”。普通工作流继续选择 Architecture、Feature 或 Change；选择“初始化工程与 CI”后不再向用户展示 Intent 层级，请求体只提交标题和描述，服务端固定按 Feature 创建。该选项向 Member 展示但禁用，并提示只有 Leader 可以创建。项目已启用 CI 或已有进行中的 Bootstrap 时也必须禁用并说明原因。
 
+Workflow 创建后系统自动刷新一次 Repo Inventory。Workflow 详情页的 Code Context 区域允许 Leader 和所有项目成员手动重新同步；刷新运行中或尚未完成时，应显示“等待仓库索引刷新”，不允许基于旧 Inventory 生成 Context Plan。
+
 Bootstrap 页面显示：
 
 - 当前项目 `ci_status`；
@@ -113,6 +115,8 @@ Bootstrap 页面显示：
 Bootstrap 覆盖最小工程骨架、构建/测试入口和第一条 CI，任务固定初始分配给创建该 Workflow 的 Leader。已有框架的仓库可以只填写缺失部分；后续修改 CI 配置不使用该入口，而是创建普通 Change Workflow。
 
 页面不提供“手工标记 CI 通过”按钮。所有通过状态必须来自 Git/CI Provider 同步。
+
+普通 Workflow 和 Bootstrap Workflow 创建时显示“要求 Pull Request”选项，默认勾选。Architecture Workflow 不显示该选项；任务详情和交付表单显示当前策略，并在策略开启且未填写 PR URL 时阻止提交。
 
 ### 5.2 Workflow 详情
 
@@ -137,6 +141,10 @@ Bootstrap 覆盖最小工程骨架、构建/测试入口和第一条 CI，任务
 时间线
   -> 审批、分配、阻塞、交付、CI 和审计
 ```
+
+Design、Spec 和其他未确认的 AI 文档在工作流详情中提供编辑入口。编辑保存会生成新的用户版本，保留原版本记录；确认按钮使用主按钮样式。Build Plan 的批准按钮仅对项目 Leader 显示，普通成员显示“等待 Leader 批准 Build Plan”。
+
+Architecture Build Plan 的子 Intent 使用表格展示标题、Intent 级别、目标说明和后续 Workflow 流程；批准并创建后，每一行对应一个自动开启的子 Workflow。
 
 根据 `intent_level` 调整页面：
 
@@ -341,6 +349,7 @@ Leader 和 Member 都可以编辑自己的画像。Leader 可以查看项目成�
 ### 6.3 操作反馈
 
 - 长耗时操作显示运行状态和 `runId`；
+- 离开并重新进入详情页时，必须从服务端恢复当前 Workflow 的 `QUEUED`/`RUNNING` AgentRun，并继续轮询，不能要求用户重复点击生成；
 - 失败信息说明原因和可执行的下一步；
 - 版本冲突使用 409 页面状态，而不是普通 Toast；
 - 危险操作需要确认；

@@ -2,9 +2,16 @@ import React from 'react'
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest'
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {App} from './main.jsx'
+import {App,ChildIntentTable,EvidencePanel,stateLabel} from './main.jsx'
 
 const okResponse=body=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(body)})
+
+describe('status labels',()=>{
+  it('uses the Intent and Task labels consistently',()=>{
+    expect(stateLabel('INTENT')).toBe('Intent Proposed')
+    expect(stateLabel('TASKS_READY')).toBe('Tasks Ready')
+  })
+})
 
 describe('project-scoped navigation',()=>{
   beforeEach(()=>{
@@ -40,7 +47,7 @@ describe('project-scoped navigation',()=>{
 
     expect(screen.queryByText('页面暂时无法显示')).toBeNull()
     expect(fetchMock).toHaveBeenCalledTimes(4)
-  })
+  },10000)
 
   it('aborts stale member requests when switching to audit logs',async()=>{
     let abortedMemberRequests=0
@@ -73,6 +80,14 @@ describe('project-scoped navigation',()=>{
 
     await waitFor(()=>expect(abortedMemberRequests).toBe(10))
     expect(screen.queryByText('页面暂时无法显示')).toBeNull()
+  })
+
+  it('shows Architecture child Intents as standalone Workflow rows',()=>{
+    render(<ChildIntentTable items={[{title:'用户认证',description:'实现登录和权限校验',intentLevel:'FEATURE'},{title:'登录限流',description:'限制失败尝试次数',intentLevel:'CHANGE'}]}/>)
+    expect(screen.getByRole('table')).toBeTruthy()
+    expect(screen.getByText('用户认证')).toBeTruthy()
+    expect(screen.getByText('CHANGE')).toBeTruthy()
+    expect(screen.getAllByText('创建后作为独立 Workflow')).toHaveLength(2)
   })
 
   it('creates and selects a project from the top bar',async()=>{
@@ -130,6 +145,7 @@ describe('project-scoped navigation',()=>{
     expect(parent.value).toBe('无')
     expect(parent.readOnly).toBe(true)
     await user.click(within(dialog).getByRole('radio',{name:/^Architecture/}))
+    expect(within(dialog).queryByRole('checkbox',{name:/要求 Pull Request/})).toBeNull()
     await user.type(within(dialog).getByRole('textbox',{name:'工作流标题'}),'服务边界设计')
     await user.type(within(dialog).getByRole('textbox',{name:'目标与验收描述'}),'明确服务边界和验收约束')
     await user.click(within(dialog).getByRole('button',{name:'创建工作流'}))
@@ -163,6 +179,7 @@ describe('project-scoped navigation',()=>{
     await waitFor(()=>expect(bootstrap.disabled).toBe(false))
     await user.click(bootstrap)
     expect(within(dialog).queryByRole('group',{name:'Intent 级别'})).toBeNull()
+    expect(within(dialog).getByRole('checkbox',{name:/要求 Pull Request/}).checked).toBe(true)
     expect(within(dialog).getByText(/仅用于建立初始工程与首条 CI/)).toBeTruthy()
     expect(within(dialog).getByRole('textbox',{name:'目标与验收描述'}).placeholder).toContain('例如：建立 Spring Boot 基础工程')
     await user.type(within(dialog).getByRole('textbox',{name:'工作流标题'}),'初始化 Actions')
@@ -171,7 +188,7 @@ describe('project-scoped navigation',()=>{
 
     await screen.findByText('初始化 Actions')
     const createCall=fetchMock.mock.calls.find(([path,options])=>path==='/api/projects/7/ci-bootstrap'&&options.method==='POST')
-    expect(JSON.parse(createCall[1].body)).toEqual({title:'初始化 Actions',description:'建立项目 CI 门禁'})
+    expect(JSON.parse(createCall[1].body)).toEqual({title:'初始化 Actions',description:'建立项目 CI 门禁',pullRequestRequired:true})
   })
 
   it('shows CI initialization to members without allowing selection',async()=>{
@@ -196,6 +213,111 @@ describe('project-scoped navigation',()=>{
     expect(bootstrap.disabled).toBe(true)
     expect(within(dialog).getByRole('radio',{name:/^普通工作流/}).checked).toBe(true)
     expect(within(dialog).getByRole('group',{name:'Intent 级别'})).toBeTruthy()
+  })
+
+  it('allows editing an unconfirmed Design and keeps plan approval with the Leader',async()=>{
+    const project={id:7,name:'测试项目',repositoryUrl:'https://github.com/example/repo',defaultBranch:'main',ciStatus:'CI_REQUIRED',status:'ACTIVE',createdBy:1}
+    const workflow={id:21,projectId:7,title:'文档工作流',description:'验证文档编辑',intentLevel:'FEATURE',status:'BUILD_PLAN_PROPOSED',health:'HEALTHY',nextAction:'CONTINUE'}
+    const documents=[
+      {id:31,workflowId:21,documentType:'DESIGN',versionNo:1,source:'AGENT',contentFormat:'MARKDOWN',content:'# 原始 Design',confirmed:false},
+      {id:32,workflowId:21,documentType:'SPEC',versionNo:1,source:'AGENT',contentFormat:'MARKDOWN',content:'# 原始 Spec',confirmed:false},
+      {id:33,workflowId:21,documentType:'BUILD_PLAN',versionNo:1,source:'AGENT',contentFormat:'JSON',content:'{"intentLevel":"FEATURE"}',confirmed:false}
+    ]
+    const fetchMock=vi.fn((path,options={})=>{
+      if(path==='/api/projects')return okResponse([project])
+      if(path==='/api/workflows')return okResponse([workflow])
+      if(path==='/api/me')return okResponse({userId:1,username:'leader'})
+      if(path==='/api/notifications')return okResponse([])
+      if(path==='/api/projects/7/members')return okResponse([{userId:1,username:'leader',projectRole:'LEADER'}])
+      if(path==='/api/workflows/21')return okResponse(workflow)
+      if(path==='/api/workflows/21/documents')return okResponse(documents)
+      if(path==='/api/workflows/21/tasks')return okResponse([])
+      if(path==='/api/workflows/21/code-context')return okResponse({status:'CURRENT'})
+      if(path==='/api/projects/7/repo-inventory/latest')return okResponse({status:'CURRENT'})
+      if(path.startsWith('/api/projects/7/code-context/runs/latest'))return okResponse({id:91,status:'SUCCEEDED'})
+      if(path.startsWith('/api/workflows/21/audit-logs'))return okResponse([])
+      if(path==='/api/workflows/21/design'&&options.method==='PUT')return okResponse({...documents[0],versionNo:2,content:JSON.parse(options.body).content})
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    const user=userEvent.setup()
+
+    render(<App/>)
+    await screen.findByRole('heading',{name:'测试项目'})
+    await user.click(screen.getByRole('button',{name:'工作流'}))
+    await user.click(screen.getByText('文档工作流'))
+    await screen.findByText('原始 Design')
+    expect(screen.getByText('DESIGN').classList.contains('document-title-mark')).toBe(true)
+    expect(screen.getByRole('button',{name:'批准 v1'}).classList.contains('primary')).toBe(true)
+    await user.click(screen.getAllByRole('button',{name:'编辑'})[0])
+    const editor=screen.getByRole('textbox',{name:'编辑 DESIGN 文档'})
+    await user.clear(editor)
+    await user.type(editor,'# 修改后的 Design')
+    await user.click(screen.getByRole('button',{name:'保存文档'}))
+    await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/workflows/21/design',expect.objectContaining({method:'PUT'})))
+    expect(screen.queryByRole('textbox',{name:'编辑 DESIGN 文档'})).toBeNull()
+  })
+
+  it('restores an active Design run when re-entering workflow details',async()=>{
+    const project={id:7,name:'测试项目',repositoryUrl:'https://github.com/example/repo',defaultBranch:'main',ciStatus:'CI_REQUIRED',status:'ACTIVE',createdBy:1}
+    const workflow={id:21,projectId:7,title:'生成中工作流',description:'恢复后台运行状态',intentLevel:'FEATURE',status:'INTENT',health:'HEALTHY',nextAction:'GENERATE_DESIGN',activeAgentRuns:[{id:99,workflowId:21,runType:'GENERATE_DESIGN',status:'RUNNING'}]}
+    const fetchMock=vi.fn((path,options={})=>{
+      if(path==='/api/projects')return okResponse([project])
+      if(path==='/api/workflows')return okResponse([workflow])
+      if(path==='/api/me')return okResponse({userId:1,username:'leader'})
+      if(path==='/api/notifications')return okResponse([])
+      if(path==='/api/projects/7/members')return okResponse([{userId:1,username:'leader',projectRole:'LEADER'}])
+      if(path==='/api/workflows/21')return okResponse(workflow)
+      if(path==='/api/workflows/21/documents')return okResponse([])
+      if(path==='/api/workflows/21/tasks')return okResponse([])
+      if(path==='/api/workflows/21/code-context')return okResponse({status:'CURRENT'})
+      if(path==='/api/projects/7/repo-inventory/latest')return okResponse({status:'CURRENT'})
+      if(path.startsWith('/api/projects/7/code-context/runs/latest'))return okResponse({id:91,status:'SUCCEEDED'})
+      if(path.startsWith('/api/workflows/21/audit-logs'))return okResponse([])
+      if(path==='/api/agent-runs/99')return okResponse(workflow.activeAgentRuns[0])
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    const user=userEvent.setup()
+
+    render(<App/>)
+    await screen.findByRole('heading',{name:'测试项目'})
+    await user.click(screen.getByRole('button',{name:'工作流'}))
+    await user.click(screen.getByText('生成中工作流'))
+
+    const generateButton=await screen.findByRole('button',{name:'生成 Design'})
+    expect(generateButton.disabled).toBe(true)
+    expect(screen.getByText('Running')).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledWith('/api/agent-runs/99',expect.any(Object))
+  })
+
+  it('shows waiting text instead of plan approval for a project member',async()=>{
+    const project={id:7,name:'测试项目',repositoryUrl:'https://github.com/example/repo',defaultBranch:'main',ciStatus:'CI_REQUIRED',status:'ACTIVE',createdBy:1}
+    const workflow={id:21,projectId:7,title:'成员工作流',description:'验证审批权限',intentLevel:'FEATURE',status:'BUILD_PLAN_PROPOSED',health:'HEALTHY',nextAction:'CONTINUE'}
+    const fetchMock=vi.fn((path)=>{
+      if(path==='/api/projects')return okResponse([project])
+      if(path==='/api/workflows')return okResponse([workflow])
+      if(path==='/api/me')return okResponse({userId:2,username:'member'})
+      if(path==='/api/notifications')return okResponse([])
+      if(path==='/api/projects/7/members')return okResponse([{userId:1,username:'leader',projectRole:'LEADER'},{userId:2,username:'member',projectRole:'MEMBER'}])
+      if(path==='/api/workflows/21')return okResponse(workflow)
+      if(path==='/api/workflows/21/documents')return okResponse([{id:33,documentType:'BUILD_PLAN',versionNo:1,source:'AGENT',contentFormat:'JSON',content:'{"intentLevel":"FEATURE"}',confirmed:false}])
+      if(path==='/api/workflows/21/tasks')return okResponse([])
+      if(path==='/api/workflows/21/code-context')return okResponse({status:'CURRENT'})
+      if(path==='/api/projects/7/repo-inventory/latest')return okResponse({status:'CURRENT'})
+      if(path.startsWith('/api/projects/7/code-context/runs/latest'))return okResponse({id:91,status:'SUCCEEDED'})
+      if(path.startsWith('/api/workflows/21/audit-logs'))return okResponse([])
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    const user=userEvent.setup()
+
+    render(<App/>)
+    await screen.findByRole('heading',{name:'测试项目'})
+    await user.click(screen.getByRole('button',{name:'工作流'}))
+    await user.click(screen.getByText('成员工作流'))
+    expect(await screen.findByText('等待 Leader 批准 Build Plan')).toBeTruthy()
+    expect(screen.queryByRole('button',{name:'批准 v1'})).toBeNull()
   })
 
   it('lets a project leader invite a registered user by username',async()=>{
@@ -282,6 +404,7 @@ describe('project-scoped navigation',()=>{
     const project={id:7,name:'测试项目',repositoryUrl:'https://github.com/example/repo',defaultBranch:'main',ciStatus:'CI_REQUIRED',status:'ACTIVE',createdBy:1}
     const workflow={id:21,projectId:7,title:'交付闭环',description:'验证任务交付流程',intentLevel:'FEATURE',status:'TASKS_READY',health:'HEALTHY',nextAction:'CONTINUE_TASKS'}
     let taskStatus='ASSIGNED'
+    let deliveryAttempts=0
     const task=()=>({id:31,workflowId:21,externalKey:'TASK-001',title:'实现接口',description:'完成核心接口',effortPoints:3,status:taskStatus,sourcePlanVersion:1,sourceSpecVersion:1,branchName:'agent/task-001',currentPackageVersion:1,planDetails:{acceptanceCriteria:['接口测试通过'],verificationCommands:['npm test']},currentAssignment:{assigneeUserId:1,assignmentVersion:1,assignmentReason:'技能匹配',assignmentScore:0.9,profileVersion:1,workloadSnapshot:{openEffortPoints:3}}})
     const taskPackage={id:41,taskId:31,packageVersion:1,status:'CURRENT',contentMarkdown:'# TASK-001\n\n完成接口。',contentJson:{task:{taskId:'TASK-001'}},contentHash:`sha256:${'a'.repeat(64)}`,baseCommit:'abcdef1',codeContextVersionId:51,contextPlanId:61}
     const fetchMock=vi.fn((path,options={})=>{
@@ -298,7 +421,11 @@ describe('project-scoped navigation',()=>{
       if(path==='/api/tasks/31/deliveries'||path==='/api/tasks/31/blockers'||path==='/api/tasks/31/git-operations'||path==='/api/tasks/31/ci-runs')return okResponse([])
       if(path==='/api/projects/7/members')return okResponse([{userId:1,username:'leader',projectRole:'LEADER',profileCompleted:true}])
       if(path==='/api/tasks/31/packages/1/confirm'&&options.method==='POST'){taskStatus='IN_PROGRESS';return okResponse({taskStatus})}
-      if(path==='/api/tasks/31/delivery'&&options.method==='POST')return okResponse({id:81,status:'SUBMITTED'})
+      if(path==='/api/tasks/31/delivery'&&options.method==='POST'){
+        deliveryAttempts++
+        if(deliveryAttempts===1)return Promise.resolve({ok:false,status:400,json:()=>Promise.resolve({code:'INVALID_FINAL_REPORT',message:'Final Report 不符合 JSON Schema'})})
+        return okResponse({id:81,status:'SUBMITTED'})
+      }
       throw new Error(`Unexpected request: ${path}`)
     })
     vi.stubGlobal('fetch',fetchMock)
@@ -314,6 +441,8 @@ describe('project-scoped navigation',()=>{
     await user.click(screen.getByRole('button',{name:'查看任务'}))
     expect(await screen.findByRole('heading',{name:'任务包'})).toBeTruthy()
     expect(screen.getByRole('heading',{name:'TASK-001 · 实现接口'})).toBeTruthy()
+    expect(screen.getByRole('note',{name:'分支开发要求'}).textContent).toContain('agent/task-001')
+    expect(screen.getByRole('note',{name:'分支开发要求'}).textContent).toContain('默认分支 main 仅作为基线')
     expect(screen.getByRole('region',{name:'任务计划 JSON'}).querySelector('.json-key')?.textContent).toBe('"acceptanceCriteria"')
     expect(screen.getByRole('button',{name:'复制任务说明'}).title).toContain('可直接交给开发 Agent')
     expect(screen.getByRole('button',{name:'下载任务包 (.md)'}).title).toContain('内容相同')
@@ -338,11 +467,15 @@ describe('project-scoped navigation',()=>{
     const jsonEditor=screen.getByRole('textbox',{name:'Final Report JSON'})
     expect(JSON.parse(jsonEditor.value)).toMatchObject({
       taskId:'TASK-001',packageId:41,packageVersion:1,packageHash:taskPackage.contentHash,
-      codeContextVersionId:51,contextPlanId:61,baseCommitSha:'abcdef1'
+      codeContextVersionId:51,contextPlanId:61,baseCommitSha:'abcdef1',summary:'',
+      tests:[{command:'npm test',status:'NOT_RUN',summary:''}],
+      acceptanceCriteria:[{criterion:'接口测试通过',status:'NOT_VERIFIED',evidence:''}]
     })
 
     await user.click(screen.getByRole('button',{name:'表单'}))
-    expect(screen.getByPlaceholderText('例如：完成支付回调验签和重复通知幂等处理，并补充相关测试。')).toBeTruthy()
+    expect(screen.getByRole('textbox',{name:'交付摘要（顶层 summary）'})).toBeTruthy()
+    expect(screen.getByRole('textbox',{name:'验证结果摘要（summary）'})).toBeTruthy()
+    expect(screen.getByRole('textbox',{name:'验收证据（evidence）'})).toBeTruthy()
     const advanced=screen.getByText('更多交付信息').closest('details')
     expect(advanced.open).toBe(false)
     expect(screen.getByRole('option',{name:'需求需要澄清（REQUIREMENT_CLARIFICATION）'})).toBeTruthy()
@@ -356,17 +489,54 @@ describe('project-scoped navigation',()=>{
     const finalReport=JSON.parse(refreshedJsonEditor.value)
     finalReport.summary='完成核心接口并通过测试'
     finalReport.changedFiles=['src/main.jsx']
-    finalReport.tests=[{command:'npm test',status:'PASSED',summary:'全部测试通过'}]
+    finalReport.tests=[{command:'npm test',result:'执行完成但未说明状态',summary:'完成验证'}]
     finalReport.git.commitSha='abcdef1234567'
     fireEvent.change(refreshedJsonEditor,{target:{value:JSON.stringify(finalReport)}})
     await user.click(screen.getByRole('button',{name:'提交交付并开始 Git 校验'}))
-    await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/tasks/31/delivery',expect.objectContaining({method:'POST'})))
-    const deliveryCall=fetchMock.mock.calls.find(([path,options])=>path==='/api/tasks/31/delivery'&&options.method==='POST')
+    expect(await screen.findByText(/tests\[0\].*缺少必填字段 status/)).toBeTruthy()
+    expect(screen.getByText(/已忽略 tests\[0\] 的未知字段：result/)).toBeTruthy()
+    expect(deliveryAttempts).toBe(0)
+
+    finalReport.tests=[{command:'npm test',status:'PASSED',summary:'全部测试通过'}]
+    delete finalReport.blockers
+    finalReport.agentComment='此字段不属于 Final Report Schema'
+    fireEvent.change(refreshedJsonEditor,{target:{value:`\`\`\`json\n${JSON.stringify(finalReport)}\n\`\`\``}})
+    await user.click(screen.getByRole('button',{name:'提交交付并开始 Git 校验'}))
+    expect(await screen.findByText(/只粘贴一个纯 JSON 对象/)).toBeTruthy()
+    expect(deliveryAttempts).toBe(0)
+
+    fireEvent.change(refreshedJsonEditor,{target:{value:JSON.stringify(finalReport)}})
+    await user.click(screen.getByRole('button',{name:'提交交付并开始 Git 校验'}))
+    const deliveryPanel=screen.getByRole('heading',{name:'提交交付'}).closest('section')
+    expect(within(deliveryPanel).getByText(/已补齐 blockers/)).toBeTruthy()
+    expect(within(deliveryPanel).getByText(/已忽略顶层未知字段：agentComment/)).toBeTruthy()
+    expect(await within(deliveryPanel).findByText('Final Report 不符合 JSON Schema [INVALID_FINAL_REPORT]')).toBeTruthy()
+    const normalizedCall=fetchMock.mock.calls.find(([path,options])=>path==='/api/tasks/31/delivery'&&options.method==='POST')
+    const normalizedReport=JSON.parse(normalizedCall[1].body).finalReport
+    expect(normalizedReport.tests[0]).toEqual({command:'npm test',status:'PASSED',summary:'全部测试通过'})
+    expect(normalizedReport.blockers).toEqual([])
+    expect(normalizedReport).not.toHaveProperty('agentComment')
+
+    await user.click(screen.getByRole('button',{name:'提交交付并开始 Git 校验'}))
+    await waitFor(()=>expect(deliveryAttempts).toBe(2))
+    const deliveryCall=fetchMock.mock.calls.filter(([path,options])=>path==='/api/tasks/31/delivery'&&options.method==='POST').at(-1)
     expect(JSON.parse(deliveryCall[1].body)).toMatchObject({
       packageId:41,packageVersion:1,packageHash:taskPackage.contentHash,
       branchName:'agent/task-001',commitSha:'abcdef1234567',pullRequestUrl:null,
       finalReport:{summary:'完成核心接口并通过测试',git:{branchName:'agent/task-001',commitSha:'abcdef1234567',pullRequestUrl:null}}
     })
+  })
+
+  it('shows an actionable Chinese message for an unknown CI run',async()=>{
+    const retry=vi.fn()
+    const user=userEvent.setup()
+    render(<EvidencePanel deliveries={[]} gitOps={[]} ciRuns={[{id:71,commitSha:'abcdef1234567',status:'UNKNOWN',conclusion:'NO_CHECK_RUNS',lastSyncedAt:'2026-09-12T06:00:00Z'}]} canRetryCi busy={false} onRetryCi={retry}/>)
+
+    expect(screen.getByText(/当前 Commit 尚无 CI 检查/)).toBeTruthy()
+    expect(screen.getByText(/\.github\/workflows/)).toBeTruthy()
+    expect(screen.getByText('Unknown')).toBeTruthy()
+    await user.click(screen.getByRole('button',{name:'重新同步 CI'}))
+    expect(retry).toHaveBeenCalledWith(71)
   })
 
   it('hides task package copy and download actions from non-assignees',async()=>{

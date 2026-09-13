@@ -8,6 +8,7 @@ import com.example.agentcollab.repository.ProjectRepository;
 import com.example.agentcollab.repository.TaskBlockerRepository;
 import com.example.agentcollab.repository.WorkflowMemberRepository;
 import com.example.agentcollab.repository.WorkflowRepository;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,13 +30,15 @@ public class WorkflowService {
     private final TaskCancellationService taskCancellation;
     private final TaskBlockerRepository blockers;
     private final AuditLogService audit;
+    private final ObjectProvider<CodeContextService> codeContextService;
 
     public WorkflowService(WorkflowRepository workflows, WorkflowMemberRepository workflowMembers,
                            ProjectRepository projects, ProjectMemberRepository projectMembers,
                            ProjectAccessService access, WorkflowStateMachine stateMachine,
                            AgentRunCancellationService runCancellation,
                            TaskCancellationService taskCancellation,
-                           TaskBlockerRepository blockers, AuditLogService audit) {
+                           TaskBlockerRepository blockers, AuditLogService audit,
+                           ObjectProvider<CodeContextService> codeContextService) {
         this.workflows = workflows;
         this.workflowMembers = workflowMembers;
         this.projects = projects;
@@ -46,6 +49,7 @@ public class WorkflowService {
         this.taskCancellation = taskCancellation;
         this.blockers = blockers;
         this.audit = audit;
+        this.codeContextService = codeContextService;
     }
 
     @Transactional
@@ -64,12 +68,17 @@ public class WorkflowService {
         if (project.getStatus() != Project.Status.ACTIVE) {
             throw new ApiException(HttpStatus.CONFLICT, "PROJECT_ARCHIVED", "归档项目不能创建 Workflow");
         }
-        Long parentWorkflowId = validateParent(projectId, request.parentWorkflowId());
+        Long parentWorkflowId = validateParent(projectId, request.parentWorkflowId(), request.intentLevel());
         WorkflowCompletionMode completionMode = resolveCompletionMode(
                 actorId, project, request.intentLevel(), request.completionMode());
+        boolean pullRequestRequired = request.intentLevel() != IntentLevel.ARCHITECTURE
+                && (request.pullRequestRequired() == null || request.pullRequestRequired());
         Workflow workflow = workflows.save(new Workflow(projectId, request.title(), request.description(),
-                request.intentLevel(), completionMode, parentWorkflowId, actorId));
+                request.intentLevel(), completionMode, parentWorkflowId, actorId, pullRequestRequired));
         workflowMembers.save(new WorkflowMember(workflow.getId(), actorId, WorkflowMember.Role.OWNER));
+        // Every Workflow starts from a fresh remote-repository fact snapshot. The
+        // request is queued here, while the provider call remains asynchronous.
+        codeContextService.getObject().requestSync(actorId, projectId);
         AuditSupport.record(audit, actorId, projectId, "WORKFLOW_CREATED", "WORKFLOW", workflow.getId(), Map.of("intentLevel", request.intentLevel().name()));
         return workflow;
     }
@@ -79,7 +88,7 @@ public class WorkflowService {
                                       WorkflowDtos.CreateCiBootstrapRequest request) {
         return createInternal(actorId, projectId, new WorkflowDtos.CreateWorkflowRequest(
                 request.title(), request.description(), IntentLevel.FEATURE, null,
-                WorkflowCompletionMode.CI_BOOTSTRAP));
+                WorkflowCompletionMode.CI_BOOTSTRAP, request.pullRequestRequired()));
     }
 
     @Transactional(readOnly = true)
@@ -175,13 +184,17 @@ public class WorkflowService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "WORKFLOW_NOT_FOUND", "Workflow 不存在"));
     }
 
-    private Long validateParent(Long projectId, Long parentWorkflowId) {
+    private Long validateParent(Long projectId, Long parentWorkflowId, IntentLevel childLevel) {
         if (parentWorkflowId == null) return null;
         Workflow parent = workflows.findById(parentWorkflowId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
                         "PARENT_WORKFLOW_NOT_FOUND", "父 Workflow 不存在"));
         if (!parent.getProjectId().equals(projectId)) {
             throw new ApiException(HttpStatus.NOT_FOUND, "PARENT_WORKFLOW_NOT_FOUND", "父 Workflow 不存在");
+        }
+        if (parent.getIntentLevel() == IntentLevel.ARCHITECTURE && childLevel == IntentLevel.ARCHITECTURE) {
+            throw badRequest("INVALID_CHILD_INTENT_LEVEL",
+                    "Architecture 只能创建 Feature 或 Change 子 Intent，不能嵌套 Architecture");
         }
         return parent.getId();
     }

@@ -46,6 +46,7 @@ TASK-001.json
     "taskVersion": 3,
     "packageId": 3003,
     "packageVersion": 2,
+    "branchName": "agent/wf-42/task-001",
     "packageHash": "sha256:...",
     "status": "CURRENT",
     "generatedAt": "2026-09-09T10:00:00Z"
@@ -130,7 +131,7 @@ TASK-001.json
       "createBranch": true,
       "commit": true,
       "push": true,
-      "createPullRequest": "OPTIONAL",
+      "createPullRequest": "REQUIRED",
       "merge": false,
       "forcePush": false,
       "deleteRemoteBranch": false
@@ -160,6 +161,8 @@ TASK-001.json
 `baseCommitSha` 是任务包的规范字段；MVP v1 同时输出值相同的 `baseCommit` 兼容字段，后续消费者应优先读取 `baseCommitSha`。
 
 `blockerHistory` 只包含已经 `RESOLVED` 或 `CANCELLED` 的历史 Blocker。新生成的初始任务包使用空数组；关闭 Blocker 后生成的新任务包必须写入原因、摘要、关闭状态和解决说明，不能只递增版本号或哈希。为兼容已经固化且不可覆盖的早期 v1 任务包，Schema 读取时允许该字段缺失。
+
+createPullRequest 由 Workflow 的 pull_request_required 策略固化为 REQUIRED 或 OPTIONAL，新建 Feature、Change 和 CI Bootstrap Workflow 默认是 REQUIRED。无论策略取值如何，任务分支、Commit、Push、CI 和禁止 Merge/Force Push 等规则不变；只有 OPTIONAL 才允许 Final Report 的 git.pullRequestUrl 为 null。
 
 ## 4. Markdown 模板
 

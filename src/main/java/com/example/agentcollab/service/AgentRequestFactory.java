@@ -79,7 +79,7 @@ public class AgentRequestFactory {
         RepoInventoryVersion inventory = inventories.findById(run.getInventoryVersionId())
                 .filter(value -> value.getStatus() == RepoInventoryStatus.CURRENT)
                 .orElseThrow(() -> new AgentProviderException(
-                        "REPO_INVENTORY_MISSING", "当前项目缺少可用 Repo Inventory", false));
+                        "REPO_INVENTORY_REFRESH_REQUIRED", "当前项目缺少可用 Repo Inventory，请先完成刷新", false));
         var files = inventoryFiles.findByInventoryVersionIdOrderByPath(inventory.getId()).stream()
                 .limit(maxInventoryFiles)
                 .map(file -> new AgentGenerationRequest.InventoryFileContext(file.getPath(),
