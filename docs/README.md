@@ -4,9 +4,9 @@
 
 ## 当前实现基线
 
-当前 `main` 已完成后端核心 MVP 与最小管理前端：User/JWT、Project/ProjectMember/能力画像、Workflow/DocumentVersion/状态机、Code Context、AgentRun/Outbox、Build Plan/Task/TaskPackage/TaskDelivery、GitHub Git/Actions Adapter、8 列任务看板、站内通知、Task Blocker、签名 Webhook、V19 不可变 AuditLog，以及 `frontend/` 下的 Vite + React 管理界面。
+当前 `main` 已完成后端核心 MVP 与管理前端：User/JWT、Project/ProjectMember/能力画像、Workflow/DocumentVersion/状态机、Code Context、AgentRun/Outbox、Build Plan/Task/TaskPackage/TaskDelivery、GitHub Git/Actions Adapter、8 列任务看板、站内通知、Task Blocker、签名 Webhook、V19 不可变 AuditLog，以及 V20 Workflow PR 策略、V21 Design 确认状态、V22 按 Context Plan 并行取证和 `frontend/` 下的 Vite + React 管理界面。
 
-数据库已执行到 Flyway V19。V1-V19 不得修改，后续 migration 从 V20 开始。
+数据库已执行到 Flyway V22。V1-V22 不得修改，后续 migration 从 V23 开始。
 
 后端使用 `mvn spring-boot:run` 启动，前端使用 `cd frontend; npm install; npm run dev` 启动；详细环境变量和测试命令见根目录 README。
 
@@ -47,7 +47,7 @@
 |---|---|
 | 应用形态 | Java 17+、Spring Boot 3.x 单体应用 |
 | 数据库 | PostgreSQL，使用 Flyway 管理结构 |
-| Agent 文档生成 | 测试使用 Mock Provider；生产环境当前为显式未配置占位适配器，真实 Agent Adapter 待后续阶段接入 |
+| Agent 文档生成 | 测试使用 Mock Provider；生产环境已接入 OpenAI Responses API，未配置 `AGENT_PROVIDER=openai` 时使用显式未配置占位适配器 |
 | 代码上下文 | 引入 Code Context Provider；MVP 当前扩展先用 Git Provider 建立 Repo Inventory，再由 Context Plan 引导多轮取证，预留 Local Agent Provider |
 | Agent 代码执行 | 成员本地使用 Codex CLI 或其他 Agent |
 | 本地 Agent Key | 只保存在成员本机，不上传平台 |
@@ -80,6 +80,6 @@
 
 ## 当前已知边界
 
-- 生产 GitHub Git/Actions Adapter、Webhook、通知和审计已经可用；真实 Agent Provider Adapter 尚未接入。
+- 生产 GitHub Git/Actions Adapter、Webhook、通知、审计和 OpenAI Agent Adapter 已接入；外部服务仍需通过环境变量配置并承担网络可用性。
 - 生产 Profile 启动时使用 `UnavailableAgentProviderClient`，调用生成接口会返回可解释的未配置错误，不会误用 Mock 数据。
-- Vite + React 当前提供查询型管理页面；文档编辑、Plan 审批、任务包下载/差异、Blocker 操作和交付分步表单仍在后续迭代。
+- Vite + React 当前提供登录、项目/成员、Workflow 文档与 Plan 编辑确认、Code Context 刷新、任务包复制/下载/差异、Blocker、Final Report JSON/表单交付、Git/CI 证据、通知和审计页面；Architecture 子 Intent 的独立手工创建入口仍由服务端在批准 Plan 后自动创建。

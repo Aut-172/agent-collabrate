@@ -310,6 +310,7 @@ webhook_events
 
 ```text
 POST /api/auth/login
+POST /api/auth/register
 GET  /api/me
 POST /api/users
 POST /api/projects
@@ -334,6 +335,7 @@ POST /api/projects/{projectId}/code-context/sync
 GET  /api/projects/{projectId}/repo-inventory/latest
 GET  /api/projects/{projectId}/code-context/runs/latest
 GET  /api/workflows/{id}/code-context
+GET  /api/workflows/{id}/code-context/run
 POST /api/workflows/{id}/code-context/refresh
 POST /api/workflows/{id}/generate-design
 PUT  /api/workflows/{id}/design
@@ -359,9 +361,9 @@ POST /api/workflows/{id}/cancel
 
 `approve-plan` 必须校验输出 Schema 与 Intent 层级一致。`create-tasks` 对 Architecture 只能创建子 Intent，不得创建开发 Task。
 
-`generate-design`、`generate-spec` 和 `generate-build-plan` 必须解析当前可用 Code Context。`generate-design` 前必须先基于 Repo Inventory 生成 Context Plan，再由 Orchestrator 调 Git Provider 定向读取证据。若 Code Context 缺失或明显过期，默认拒绝生成并提示刷新；Leader 选择降级时，系统必须在 AgentRun 中记录原因。
+`generate-design`、`generate-spec` 和 `generate-build-plan` 必须解析当前可用 Code Context。Workflow Code Context 刷新会先基于 Repo Inventory 生成 Context Plan，再由 Orchestrator 调 Git Provider 定向读取证据并建立 `CURRENT` 版本；若 Code Context 缺失或明显过期，生成接口拒绝请求并提示刷新。当前 MVP 不提供无上下文降级生成路径。
 
-`POST /api/projects/{id}/ci-bootstrap` 只能由 Leader 在 `ci_status = CI_NOT_CONFIGURED` 时调用，请求体只包含标题和描述。服务端固定创建 `FEATURE + CI_BOOTSTRAP` Workflow，并确保项目内同时只有一个进行中的 Bootstrap。普通 Workflow 创建接口不得接受客户端显式声明 `completion_mode = CI_BOOTSTRAP`。
+`POST /api/projects/{id}/ci-bootstrap` 只能由 Leader 在 `ci_status = CI_NOT_CONFIGURED` 时调用，请求体包含标题、描述和可选的 `pullRequestRequired`。服务端固定创建 `FEATURE + CI_BOOTSTRAP` Workflow，并确保项目内同时只有一个进行中的 Bootstrap。普通 Workflow 创建接口不得接受客户端显式声明 `completion_mode = CI_BOOTSTRAP`。
 
 项目创建时不接受客户端直接设置 `ci_status`；服务端固定初始化为 `CI_NOT_CONFIGURED`。`ci_status` 只能由 Bootstrap 成功关闭这一条业务路径更新为 `CI_REQUIRED`。
 
@@ -385,22 +387,19 @@ GET  /api/tasks/{id}/packages/{version}
 GET  /api/tasks/{id}/packages/diff?from={from}&to={to}
 POST /api/tasks/{id}/packages/{version}/confirm
 POST /api/tasks/{id}/block
+GET  /api/tasks/{id}/blockers
 POST /api/tasks/{id}/blockers/{blockerId}/resolve
+POST /api/tasks/{id}/blockers/{blockerId}/cancel
 POST /api/tasks/{id}/delivery
-POST /api/tasks/{id}/complete
-POST /api/tasks/{id}/cancel
+GET  /api/tasks/{id}/deliveries
+GET  /api/tasks/{id}/git-operations
+GET  /api/tasks/{id}/ci-runs
+POST /api/tasks/{id}/ci-runs/{runId}/retry
 ```
 
 ### 7.5 Git、CI 和审计
 
 ```text
-POST /api/tasks/{id}/git-operations
-POST /api/tasks/{id}/pull-request
-GET  /api/tasks/{id}/deliveries
-GET  /api/tasks/{id}/git-operations
-GET  /api/tasks/{id}/ci-runs
-POST /api/projects/{id}/git-sync
-POST /api/projects/{id}/ci-sync
 POST /api/webhooks/git/{provider}
 GET  /api/audit-logs
 GET  /api/workflows/{id}/audit-logs
@@ -408,23 +407,24 @@ GET  /api/notifications
 POST /api/notifications/{id}/read
 ```
 
+诊断接口 `POST /api/agent-diagnostics/generate` 只在 `agent-diagnostics` Profile 且显式启用时注册，不创建 AgentRun 或修改业务状态。
+
 ## 8. 异步处理
 
 ### 8.1 创建任务
 
-业务请求在一个事务中：
+生成文档的业务请求在一个事务中只负责校验上下文并排队 AgentRun；代码上下文同步和取证是独立的后台任务：
 
 ```text
 校验权限和状态
-  -> 校验 Repo Inventory
-  -> 生成 Context Plan
-  -> 按计划获取 Code Evidence
-  -> 校验或绑定 Code Context
+  -> 校验当前 Repo Inventory/Code Context
   -> 创建 AgentRun = QUEUED
   -> 创建 OutboxJob = PENDING
   -> 写入审计
   -> 返回 runId
 ```
+
+Workflow 创建会自动排队 Repo Inventory 刷新。刷新期间旧 Inventory/Code Context 标记为 `STALE`。Workflow Code Context 刷新先排队 Context Plan AgentRun，再由 Evidence Worker 按计划读取文件并创建 `CURRENT` CodeContextVersion，成功后 Design/Spec/Build Plan AgentRun 才能继续。
 
 ### 8.2 Worker
 
@@ -485,32 +485,26 @@ app:
     secret: ${JWT_SECRET}
     access-token-expiration: 3600000
 
-git:
-  provider: ${GIT_PROVIDER:github}
-  api-url: ${GIT_API_URL:https://api.github.com}
-  token: ${GIT_TOKEN}
-
-ci:
-  webhook-secret: ${CI_WEBHOOK_SECRET}
-  sync-interval-seconds: 30
-
-code-context:
-  provider: ${CODE_CONTEXT_PROVIDER:git}
-  max-context-rounds: 2
-  max-files-per-round: 20
-  max-file-bytes: 200000
-  included-paths:
-    - README*
-    - pom.xml
-    - src/main/**
-    - src/test/**
-    - src/main/resources/db/migration/**
-    - .github/workflows/**
-    - docs/**
-
-jobs:
-  poll-interval-seconds: 5
-  max-concurrency: 4
+  git:
+    provider: ${GIT_PROVIDER:github}
+    api-url: ${GIT_API_URL:https://api.github.com}
+    token: ${GIT_TOKEN:}
+    worker:
+      poll-delay-ms: 1000
+      max-attempts: 3
+  ci:
+    webhook-secret: ${CI_WEBHOOK_SECRET:}
+    worker:
+      poll-delay-ms: 5000
+      max-attempts: 3
+  code-context:
+    max-context-rounds: 2
+    max-files-per-round: 20
+    max-file-bytes: 200000
+    max-total-evidence-bytes: 1000000
+    worker:
+      poll-delay-ms: 1000
+      max-attempts: 3
 ```
 
 当 `app.agent.provider=openai` 时，后端使用 OpenAI Responses API 适配器；API Key 只从后端环境变量 `AGENT_API_KEY` 读取，不进入前端、任务包、日志或数据库。默认 `unconfigured` 使用显式失败占位适配器。为隔离验证而提供的 `POST /api/agent-diagnostics/generate` 仅在 `agent-diagnostics` Profile 且 `app.agent.diagnostics-enabled=true` 时注册；它直接返回结构化请求和原始模型输出，不创建 AgentRun 或修改业务状态。
@@ -548,10 +542,10 @@ jobs:
 2. Project、ProjectMember、能力画像和画像版本；
 3. 文档版本和状态机；
 4. Code Context Provider、Repo Inventory、Context Plan 和 Git 仓库上下文同步；
-5. AgentRun、OutboxJob 和 Mock Provider（仅 `test/mock-provider` Profile）；生产环境使用未配置占位适配器，真实 Agent Provider 待后续接入；
+5. AgentRun、OutboxJob、Mock Provider（仅 `test/mock-provider` Profile）和可选的 OpenAI Responses API Provider；未配置真实 Provider 时使用未配置占位适配器；
 6. Plan Schema、Task、TaskAssignment；
 7. TaskPackage、Blocker 和看板；
 8. Git/PR/CI 同步；
-9. Webhook、通知和 V19 审计日志；
-10. Vite + React 最小管理界面和验收回归（当前已完成基础页面）；
-11. 后续补齐管理编辑交互、细粒度异步错误恢复和更完整验收覆盖。
+9. Webhook、通知和 V19 审计日志，以及 V20-V22 的 PR 策略、Design 确认状态和代码取证并发约束；
+10. Vite + React 管理界面和验收回归（当前已完成主要交互）；
+11. 已完成文档/Plan 编辑确认、任务包下载差异、Blocker、Final Report 交付和 Git/CI 证据页面；后续仅补充更细粒度的异步错误恢复和验收覆盖。

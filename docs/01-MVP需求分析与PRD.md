@@ -267,7 +267,7 @@ Leader 创建项目并添加成员
 - JWT Secret、Agent API Key、Git Token 和 Webhook Secret 不入库；
 - 资源访问必须进行项目级权限校验；
 - Agent 分配输入必须使用当前项目成员画像；
-- Agent 文档生成输入必须包含可追溯 Code Context，除非 Leader 明确选择降级且系统记录原因；
+- Agent 文档生成输入必须包含可追溯且为 `CURRENT` 的 Code Context；当前 MVP 不提供无上下文降级生成路径；
 - Agent 分工建议必须区分 Intent 层级，不能为 Architecture 生成开发分工；
 - Feature/Change 的分工建议必须记录成员画像和当前工作量快照；
 - 任务分配必须保存当时使用的画像快照；

@@ -140,8 +140,8 @@ Vite 将 `/api` 代理到 `http://localhost:8080`。全量后端测试使用 `mv
 9. TaskPackage、版本确认和 Blocker；
 10. 看板和通知；
 11. Git/PR/CI 同步；
-12. Webhook、审计、错误恢复和 Vite + React 最小前端（当前已完成）；
-13. 后续阶段补充更完整的管理交互和验收覆盖。
+12. Webhook、审计、错误恢复和 Vite + React 管理前端（当前已完成主要交互）；
+13. 后续阶段补充更细粒度的异步错误恢复、Architecture 子 Intent 手工入口和验收覆盖。
 
 ## 5. 开发会话的停止条件
 

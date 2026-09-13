@@ -262,7 +262,7 @@ MVP 建议平台使用项目级最小权限 Token：
 
 | 情况 | 平台状态 |
 |---|---|
-| Git API 暂时不可达 | `SYNC_PENDING` 或 `UNKNOWN` |
+| Git API 暂时不可达 | GitOperation 保持 `PENDING` 或转为 `FAILED`；Provider 错误保留可重试原因 |
 | Webhook 验签失败 | 丢弃并记录安全日志 |
 | Webhook 重复 | 忽略业务重复处理 |
 | Commit 不存在 | 交付校验失败 |

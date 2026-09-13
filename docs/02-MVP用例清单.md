@@ -137,21 +137,19 @@
 
 - Workflow 为 `INTENT`；
 - 没有同类 `QUEUED/RUNNING` 的 AgentRun。
-- 存在可用 Code Context，或 Leader 明确选择有记录的降级生成。
+- 存在可用且为 `CURRENT` 的 Code Context；当前 MVP 不提供无上下文降级生成路径。
 
 主流程：
 
-1. 用户点击生成；
-2. 平台读取 Repo Inventory；
-3. 平台 Agent 生成 Context Plan；
-4. Code Context Orchestrator 按计划获取 Code Evidence，必要时执行受控补充轮次；
-5. 平台绑定 Code Context 版本；
-6. 平台创建 `AgentRun` 和 `OutboxJob`；
-7. API 返回 202 和 `runId`；
-8. Worker 调用 Agent Provider；
-9. 保存 Design `DocumentVersion`，记录使用的 Code Context；
-10. Workflow 进入 `DESIGN_PROPOSED`；
-11. 写入成功审计。
+1. 用户先完成 Repo Inventory 同步并刷新当前 Workflow Code Context；
+2. Context Plan AgentRun 和 Evidence Worker 按计划获取 Code Evidence，必要时执行受控补充轮次；
+3. 用户点击生成 Design；
+4. 平台校验 `CURRENT` Code Context，创建 `AgentRun` 和 `OutboxJob`；
+5. API 返回 202 和 `runId`；
+6. Worker 调用 Agent Provider；
+7. 保存 Design `DocumentVersion`，记录使用的 Code Context；
+8. Workflow 进入 `DESIGN_PROPOSED`；
+9. 写入成功审计。
 
 异常：
 
@@ -207,7 +205,7 @@
 - 任务没有验收标准，拒绝批准；
 - JSON Schema 不通过，拒绝保存；
 - Spec 已更新，旧 Plan 标记为 `STALE`。
-- Code Context 已过期，需要刷新或记录降级原因。
+- Code Context 已过期，必须刷新后才能继续生成。
 
 ### UC-011 创建 Task
 

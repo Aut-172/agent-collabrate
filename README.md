@@ -15,9 +15,10 @@
 - 任务看板、站内通知、Task Blocker 完整流程；
 - GitHub Webhook HMAC 验签、delivery 幂等和轮询兜底；
 - V19 不可变 AuditLog、项目权限隔离、分页查询和敏感字段脱敏；
+- V20 Workflow Pull Request 策略、V21 Design 确认状态和 V22 按 Context Plan 并行代码取证；
 - `frontend/` 下的 Vite + React 最小管理界面。
 
-数据库结构由 Flyway V1-V19 管理，禁止修改已推送 migration；后续结构从 V20 开始。
+数据库结构由 Flyway V1-V22 管理，禁止修改已推送 migration；后续结构从 V23 开始。
 
 ## 启动方法
 
@@ -32,7 +33,7 @@ docker compose up --build -d
 docker compose ps
 ```
 
-启动完成后访问前端 <http://localhost:5173>。后端 API 仍可通过 <http://localhost:8080> 直接访问；前端 Nginx 会将 `/api` 请求代理到后端容器。后端启动时自动执行 Flyway V1-V19。
+启动完成后访问前端 <http://localhost:5173>。后端 API 仍可通过 <http://localhost:8080> 直接访问；前端 Nginx 会将 `/api` 请求代理到后端容器。后端启动时自动执行 Flyway V1-V22。
 
 查看日志和停止服务：
 
@@ -65,7 +66,7 @@ mvn spring-boot:run
 
 可选配置：`GIT_PROVIDER`、`GIT_API_URL`、`GIT_TOKEN`、`CI_WEBHOOK_SECRET`、Agent Provider 相关环境变量。生产环境必须通过环境变量或密钥管理服务提供凭证，不要写入代码、任务包、日志或数据库。
 
-当前支持通过 OpenAI Responses API 调用平台 Agent。启用真实 Provider 时配置：
+当前已接入 OpenAI Responses API 平台 Agent。启用真实 Provider 时配置：
 
 ```powershell
 $env:AGENT_PROVIDER = "openai"

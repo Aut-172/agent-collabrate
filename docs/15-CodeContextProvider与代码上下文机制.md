@@ -259,7 +259,7 @@ repo_commit_delta
 - 可以创建 Intent；
 - 可以等待上下文同步；
 - 不能生成正式 Design/Spec/Plan；
-- 可以允许 Leader 或任一项目成员手动触发同步或选择降级模式。
+- Leader 或任一项目成员可以手动触发同步；当前 MVP 不提供无上下文降级生成模式。
 
 ### 7.3 TaskPackage 级上下文
 
@@ -298,17 +298,21 @@ GET  /api/projects/{id}/repo-inventory/latest
 GET  /api/projects/{id}/code-context/runs/latest
 GET  /api/projects/{id}/code-context/runs/{runId}
 GET  /api/workflows/{id}/code-context
+GET  /api/workflows/{id}/code-context/run
 POST /api/workflows/{id}/code-context/refresh
 ```
 
 生成 Design / Spec / Build Plan 时，服务端内部应先解析可用的 Code Context：
 
 ```text
-POST /api/workflows/{id}/generate-design
-  -> require Repo Inventory
+POST /api/workflows/{id}/code-context/refresh
+  -> require current Repo Inventory
   -> generate Context Plan
   -> fetch Code Evidence
-  -> require CodeContext CURRENT
+  -> persist CURRENT CodeContextVersion
+
+POST /api/workflows/{id}/generate-design
+  -> require Repo Inventory and CURRENT CodeContextVersion
   -> create AgentRun
 
 POST /api/workflows/{id}/generate-spec

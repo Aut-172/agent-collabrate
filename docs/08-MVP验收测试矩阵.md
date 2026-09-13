@@ -83,7 +83,7 @@
 | AT-042 | 初始分配、重新分配和任务包更新通知当前负责人 | 服务/集成测试 |
 | AT-043 | Blocker 创建通知 Leader 与 Workflow 创建者并去重，关闭后通知当前负责人 | 服务/集成测试 |
 
-当前回归基线：后端全量测试 61/61 通过，Flyway V1-V19 在 PostgreSQL Testcontainers 空库迁移通过；前端 `npm run build` 通过。已覆盖实现包括看板、通知、Webhook、审计和 Profile 隔离。尚未覆盖的前端交互详见 docs/12 的“后续页面补齐项”。
+当前回归基线：后端 Maven 测试共 49 项，其中非容器测试通过；3 个 PostgreSQL Testcontainers 集成测试需要可用 Docker Engine，Docker 不可用时应明确记为环境阻塞而不是代码失败。前端 Vitest 18 项通过，`npm run build` 通过。Flyway 当前迁移为 V1-V22。已覆盖实现包括看板、通知、Webhook、审计、Profile 隔离、任务包交接、Blocker、Final Report 和 Git/CI 证据页面。
 
 ## 3. 关键状态机测试
 

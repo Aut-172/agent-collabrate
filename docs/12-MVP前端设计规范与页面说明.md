@@ -98,7 +98,7 @@
 
 ### 5.1A 初始化工程与 CI
 
-创建 Workflow 时先选择“普通工作流”或“初始化工程与 CI”。普通工作流继续选择 Architecture、Feature 或 Change；选择“初始化工程与 CI”后不再向用户展示 Intent 层级，请求体只提交标题和描述，服务端固定按 Feature 创建。该选项向 Member 展示但禁用，并提示只有 Leader 可以创建。项目已启用 CI 或已有进行中的 Bootstrap 时也必须禁用并说明原因。
+创建 Workflow 时先选择“普通工作流”或“初始化工程与 CI”。普通工作流继续选择 Architecture、Feature 或 Change；选择“初始化工程与 CI”后不再向用户展示 Intent 层级，请求体提交标题、描述和可选的 `pullRequestRequired`，服务端固定按 Feature 创建。该选项向 Member 展示但禁用，并提示只有 Leader 可以创建。项目已启用 CI 或已有进行中的 Bootstrap 时也必须禁用并说明原因。
 
 Workflow 创建后系统自动刷新一次 Repo Inventory。Workflow 详情页的 Code Context 区域允许 Leader 和所有项目成员手动重新同步；刷新运行中或尚未完成时，应显示“等待仓库索引刷新”，不允许基于旧 Inventory 生成 Context Plan。
 
@@ -380,11 +380,11 @@ frontend/
 
 启动命令：`cd frontend; npm install; npm run dev`。生产构建命令：`npm run build`。
 
-当前已实现登录、项目切换、项目概览、Workflow 列表、8 列只读看板、成员列表、通知列表/标记已读和审计日志页面。任务卡展示负责人、任务包版本、分支、CI 和更新时间；状态变更仍通过后端具名业务 API。
+当前已实现登录/注册、项目切换、项目概览、Workflow 列表、Workflow 文档和 Build Plan 编辑确认、Code Context 刷新、8 列只读看板、成员邀请与能力画像、通知列表/标记已读、审计日志、任务包确认/复制/下载/差异、Blocker 报告与处理、Final Report JSON/表单交付、Git/CI 证据和 CI 重试页面。任务卡展示负责人、任务包版本、分支、CI 和更新时间；状态变更仍通过后端具名业务 API。
 
 ## 8.1 后续页面补齐项
 
-以下页面规范仍是后续迭代目标，当前 React MVP 尚未提供完整编辑交互：Workflow 文档版本编辑/确认、Build Plan 表单审批、任务包复制/下载/差异、Blocker 报告和处理、Final Report/TaskDelivery 分步提交、Git/PR/CI 详情和完整审计时间线。
+以下属于后续迭代目标：Architecture 子 Intent 的独立手工创建入口（当前由服务端在批准 Architecture Build Plan 后自动创建）、更细粒度的异步错误恢复和更完整的跨页面实时刷新。文档编辑/确认、Build Plan 审批、任务包复制/下载/差异、Blocker、Final Report/TaskDelivery、Git/PR/CI 详情和审计时间线已在当前 React MVP 提供。
 
 ## 8.2 前端技术建议（历史）
 
