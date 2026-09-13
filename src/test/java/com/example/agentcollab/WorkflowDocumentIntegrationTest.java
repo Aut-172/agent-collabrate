@@ -360,7 +360,9 @@ class WorkflowDocumentIntegrationTest {
         assertThat(duplicateRunId).isEqualTo(runId);
         assertThat(documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
                 workflowId, DocumentType.DESIGN)).isEmpty();
-        assertThat(outboxJobs.count()).isEqualTo(1);
+        assertThat(outboxJobs.findAll().stream()
+                .filter(job -> job.getJobType() == OutboxJobType.AGENT_RUN)
+                .count()).isEqualTo(1);
 
         mvc.perform(get("/api/workflows/{id}", workflowId)
                         .header("Authorization", bearer(leaderToken)))
@@ -953,6 +955,7 @@ class WorkflowDocumentIntegrationTest {
         ((com.fasterxml.jackson.databind.node.ObjectNode) validReport.path("git"))
                 .put("pullRequestUrl", "https://github.com/example/delivery/pull/1");
         var validRequest = deliveryRequest(taskPackage, validReport, task.getBranchName(), commitSha);
+        validRequest.put("pullRequestUrl", "https://github.com/example/delivery/pull/1");
 
         var noPrReport = validReport.deepCopy();
         ((com.fasterxml.jackson.databind.node.ObjectNode) noPrReport.path("git")).putNull("pullRequestUrl");

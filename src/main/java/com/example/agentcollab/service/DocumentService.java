@@ -109,9 +109,9 @@ public class DocumentService {
     public DocumentVersion recordGeneratedSpec(Long workflowId, String content, Long agentRunId) {
         Objects.requireNonNull(agentRunId, "agentRunId is required");
         Workflow workflow = workflowService.findForUpdate(workflowId);
-        requireStatusIn(workflow, WorkflowStatus.DESIGN_CONFIRMED, WorkflowStatus.SPEC_PROPOSED);
         workflowService.requireActiveProject(workflow);
         requireLatestConfirmed(workflowId, DocumentType.DESIGN);
+        requireStatusIn(workflow, WorkflowStatus.DESIGN_CONFIRMED, WorkflowStatus.SPEC_PROPOSED);
         Long contextId = requireCurrentContext(workflow, agentRunId);
         DocumentVersion document = saveAgentVersion(
                 workflow, DocumentType.SPEC, DocumentFormat.MARKDOWN, content, agentRunId, contextId);

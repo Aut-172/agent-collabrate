@@ -143,7 +143,6 @@ public class AgentRunService {
                 if (workflow.getIntentLevel() == IntentLevel.CHANGE) {
                     throw notAllowed("Change 不生成 Spec");
                 }
-                requireStatusIn(workflow, WorkflowStatus.DESIGN_CONFIRMED, WorkflowStatus.SPEC_PROPOSED);
                 DocumentVersion design = documents
                         .findTopByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(workflow.getId(), DocumentType.DESIGN)
                         .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT,
@@ -152,6 +151,7 @@ public class AgentRunService {
                     throw new ApiException(HttpStatus.CONFLICT,
                             "DOCUMENT_NOT_CONFIRMED", "当前 Design 版本尚未确认");
                 }
+                requireStatusIn(workflow, WorkflowStatus.DESIGN_CONFIRMED, WorkflowStatus.SPEC_PROPOSED);
             }
             case GENERATE_BUILD_PLAN -> {
                 WorkflowStatus initialStatus = workflow.getIntentLevel() == IntentLevel.CHANGE
