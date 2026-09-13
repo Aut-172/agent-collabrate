@@ -87,7 +87,7 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          push: true
+          load: true
           provenance: false
           sbom: false
           tags: |
@@ -95,12 +95,19 @@ jobs:
             ${{ steps.image.outputs.namespace }}/agent-collab-backend:latest
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
+      - name: Push backend image to ACR
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${{ steps.image.outputs.namespace }}/agent-collab-backend"
+          timeout 15m docker push "$image:${GITHUB_SHA}"
+          timeout 15m docker push "$image:latest"
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
         with:
           context: frontend
           file: frontend/Dockerfile
-          push: true
+          load: true
           provenance: false
           sbom: false
           tags: |
@@ -108,6 +115,13 @@ jobs:
             ${{ steps.image.outputs.namespace }}/agent-collab-frontend:latest
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
+      - name: Push frontend image to ACR
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${{ steps.image.outputs.namespace }}/agent-collab-frontend"
+          timeout 15m docker push "$image:${GITHUB_SHA}"
+          timeout 15m docker push "$image:latest"
 
   deploy-production:
     name: Deploy to ECS
