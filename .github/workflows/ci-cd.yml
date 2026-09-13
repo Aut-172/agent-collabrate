@@ -10,10 +10,6 @@ concurrency:
   group: ci-cd-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAMESPACE: ghcr.io/${{ github.repository_owner }}
-
 permissions:
   contents: read
 
@@ -49,26 +45,43 @@ jobs:
       - run: npm run build
 
   publish-images:
-    name: Publish container images
+    name: Publish images to Alibaba Cloud ACR
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [backend-test, frontend-test]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    environment: production
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Normalize image namespace
+      - name: Validate and normalize ACR image namespace
         id: image
+        env:
+          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+          ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
         shell: bash
-        run: echo "namespace=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
-      - name: Log in to GitHub Container Registry
+        run: |
+          set -euo pipefail
+          test -n "$ACR_REGISTRY"
+          test -n "$ACR_NAMESPACE"
+          test -n "$ACR_USERNAME"
+          test -n "$ACR_PASSWORD"
+          registry="${ACR_REGISTRY,,}"
+          registry="${registry%/}"
+          namespace="${ACR_NAMESPACE,,}"
+          namespace="${namespace#/}"
+          namespace="${namespace%/}"
+          test -n "$registry"
+          test -n "$namespace"
+          printf 'registry=%s\n' "$registry" >> "$GITHUB_OUTPUT"
+          printf 'namespace=%s/%s\n' "$registry" "$namespace" >> "$GITHUB_OUTPUT"
+      - name: Log in to Alibaba Cloud ACR
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ steps.image.outputs.registry }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
       - name: Build and push backend image
         uses: docker/build-push-action@v6
         with:
@@ -93,112 +106,88 @@ jobs:
           cache-to: type=gha,mode=max,scope=frontend
 
   deploy-production:
-    name: Deploy production VPS
+    name: Deploy to ECS
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: publish-images
     runs-on: ubuntu-latest
     environment: production
+    env:
+      ECS_HOST: ${{ secrets.ECS_HOST }}
+      ECS_SSH_PORT: ${{ secrets.ECS_SSH_PORT || '22' }}
+      ECS_USER: ${{ secrets.ECS_USER }}
+      ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+      ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+      ACR_PULL_REGISTRY: ${{ secrets.ACR_PULL_REGISTRY }}
+      ACR_NAMESPACE: ${{ secrets.ACR_NAMESPACE }}
+      DEPLOY_PATH: /opt/agent-collab
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare SSH and deployment environment
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
-          PROD_JWT_SECRET: ${{ secrets.PROD_JWT_SECRET }}
-          PROD_GIT_TOKEN: ${{ secrets.PROD_GIT_TOKEN }}
-          PROD_CI_WEBHOOK_SECRET: ${{ secrets.PROD_CI_WEBHOOK_SECRET }}
-          PROD_AGENT_PROVIDER: ${{ secrets.PROD_AGENT_PROVIDER }}
-          PROD_AGENT_API_KEY: ${{ secrets.PROD_AGENT_API_KEY }}
-          PROD_AGENT_MODEL: ${{ secrets.PROD_AGENT_MODEL }}
-          PROD_DEPLOY_DOMAIN: ${{ secrets.PROD_DEPLOY_DOMAIN }}
-          PROD_ACME_EMAIL: ${{ secrets.PROD_ACME_EMAIL }}
+      - name: Prepare SSH and image environment
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$DEPLOY_HOST"
-          test -n "$DEPLOY_USER"
-          test -n "$DEPLOY_PATH"
-          test -n "$GHCR_USERNAME"
-          test -n "$GHCR_TOKEN"
-          test -n "$DEPLOY_KNOWN_HOSTS"
-          test -n "$DEPLOY_SSH_KEY"
-          test -n "$PROD_DB_PASSWORD"
-          test -n "$PROD_JWT_SECRET"
-          test -n "$PROD_DEPLOY_DOMAIN"
-          test -n "$PROD_ACME_EMAIL"
+          test -n "$ECS_HOST"
+          test -n "$ECS_USER"
+          test -n "$ECS_SSH_PORT"
+          test -n "$ACR_USERNAME"
+          test -n "$ACR_PASSWORD"
+          test -n "$ACR_PULL_REGISTRY"
+          test -n "$ACR_NAMESPACE"
           install -m 700 -d "$HOME/.ssh" .deploy
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keyscan -p "$ECS_SSH_PORT" -H "$ECS_HOST" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
-          printf '%s\n' "$DEPLOY_SSH_KEY" > .deploy/deploy_key
+          printf '%s\n' '${{ secrets.ECS_SSH_KEY }}' > .deploy/deploy_key
           chmod 600 .deploy/deploy_key
-          cat > .deploy/.env <<EOF
-          IMAGE_NAMESPACE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}
-          IMAGE_TAG=${GITHUB_SHA}
-          DEPLOY_DOMAIN=${PROD_DEPLOY_DOMAIN}
-          ACME_EMAIL=${PROD_ACME_EMAIL}
-          DB_NAME=agent_collab
-          DB_USERNAME=agent_collab
-          DB_PASSWORD=${PROD_DB_PASSWORD}
-          JWT_SECRET=${PROD_JWT_SECRET}
-          GIT_PROVIDER=github
-          GIT_API_URL=https://api.github.com
-          GIT_TOKEN=${PROD_GIT_TOKEN}
-          CI_WEBHOOK_SECRET=${PROD_CI_WEBHOOK_SECRET}
-          AGENT_PROVIDER=${PROD_AGENT_PROVIDER:-unconfigured}
-          AGENT_API_URL=https://api.openai.com/v1/responses
-          AGENT_API_KEY=${PROD_AGENT_API_KEY}
-          AGENT_MODEL=${PROD_AGENT_MODEL}
-          AGENT_DISABLE_RESPONSE_STORAGE=true
-          AGENT_NETWORK_ACCESS=enabled
-          AGENT_TIMEOUT_SECONDS=120
-          AGENT_MAX_OUTPUT_TOKENS=12000
-          AGENT_RETRY_DELAY=10000
-          AGENT_RETRY_MAX_DELAY_MS=120000
-          AGENT_RETRY_JITTER_RATIO=0.25
-          AGENT_MAX_ATTEMPTS=2
-          AGENT_DIAGNOSTICS_ENABLED=false
-          EOF
-          sed -i 's/^          //' .deploy/.env
-      - name: Create deployment directory
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        run: ssh -i .deploy/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH'"
-      - name: Upload deployment files
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          pull_registry="${ACR_PULL_REGISTRY,,}"
+          pull_registry="${pull_registry%/}"
+          namespace="${ACR_NAMESPACE,,}"
+          namespace="${namespace#/}"
+          namespace="${namespace%/}"
+          printf 'IMAGE_NAMESPACE=%s/%s\nIMAGE_TAG=%s\n' \
+            "$pull_registry" "$namespace" "$GITHUB_SHA" > .deploy/image.env
+      - name: Create ECS deployment directory
         run: |
-          scp -i .deploy/deploy_key -P "$DEPLOY_PORT" compose.prod.yaml Caddyfile \
-            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
-          scp -i .deploy/deploy_key -P "$DEPLOY_PORT" .deploy/.env \
-            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/.env"
-      - name: Pull images and restart services
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          ssh -i .deploy/deploy_key -o BatchMode=yes -p "$ECS_SSH_PORT" \
+            "$ECS_USER@$ECS_HOST" "mkdir -p '$DEPLOY_PATH'"
+      - name: Upload deployment files
+        run: |
+          scp -i .deploy/deploy_key -o BatchMode=yes -P "$ECS_SSH_PORT" \
+            compose.prod.yaml Caddyfile .deploy/image.env \
+            "$ECS_USER@$ECS_HOST:$DEPLOY_PATH/"
+      - name: Log in to ACR and restart services
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s' "$GHCR_TOKEN" | ssh -i .deploy/deploy_key -p "$DEPLOY_PORT" \
-            "$DEPLOY_USER@$DEPLOY_HOST" "docker login ghcr.io --username '$GHCR_USERNAME' --password-stdin"
-          ssh -i .deploy/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd '$DEPLOY_PATH' && docker compose --env-file .env -f compose.prod.yaml pull && docker compose --env-file .env -f compose.prod.yaml up -d --remove-orphans && docker compose --env-file .env -f compose.prod.yaml ps"
+          printf '%s' "$ACR_PASSWORD" | ssh -i .deploy/deploy_key -o BatchMode=yes -p "$ECS_SSH_PORT" \
+            "$ECS_USER@$ECS_HOST" "docker login '$ACR_PULL_REGISTRY' --username '$ACR_USERNAME' --password-stdin"
+          ssh -i .deploy/deploy_key -o BatchMode=yes -p "$ECS_SSH_PORT" "$ECS_USER@$ECS_HOST" \
+            "bash -s -- '$DEPLOY_PATH'" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          deploy_path="$1"
+          cd "$deploy_path"
+          test -f .env || { echo 'Missing /opt/agent-collab/.env; create it on ECS with DB/JWT/domain settings.' >&2; exit 1; }
+          grep -Eq '^DB_PASSWORD=.+$' .env || { echo 'Missing DB_PASSWORD in ECS .env.' >&2; exit 1; }
+          grep -Eq '^JWT_SECRET=.+$' .env || { echo 'Missing JWT_SECRET in ECS .env.' >&2; exit 1; }
+          grep -Eq '^DEPLOY_DOMAIN=.+$' .env || { echo 'Missing DEPLOY_DOMAIN in ECS .env.' >&2; exit 1; }
+          grep -Eq '^ACME_EMAIL=.+$' .env || { echo 'Missing ACME_EMAIL in ECS .env.' >&2; exit 1; }
+          tmp_env="$(mktemp)"
+          awk '!/^IMAGE_NAMESPACE=|^IMAGE_TAG=/' .env > "$tmp_env"
+          cat image.env >> "$tmp_env"
+          chmod 600 "$tmp_env"
+          mv "$tmp_env" .env
+          docker compose --env-file .env -f compose.prod.yaml pull
+          docker compose --env-file .env -f compose.prod.yaml up -d --remove-orphans
+          docker compose --env-file .env -f compose.prod.yaml ps
+          curl --fail --show-error --silent --retry 12 --retry-delay 5 http://127.0.0.1/healthz
+          REMOTE_SCRIPT
       - name: Verify public HTTPS endpoint
-        env:
-          DEPLOY_DOMAIN: ${{ secrets.PROD_DEPLOY_DOMAIN }}
-        run: curl --fail --show-error --silent --retry 12 --retry-delay 5 "https://${DEPLOY_DOMAIN}/healthz"
+        shell: bash
+        run: |
+          set -euo pipefail
+          deploy_domain="$(ssh -i .deploy/deploy_key -o BatchMode=yes -p "$ECS_SSH_PORT" \
+            "$ECS_USER@$ECS_HOST" "sed -n 's/^DEPLOY_DOMAIN=//p' '$DEPLOY_PATH/.env' | head -n 1")"
+          test -n "$deploy_domain"
+          curl --fail --show-error --silent --location \
+            --retry 24 --retry-delay 5 \
+            --resolve "${deploy_domain}:443:${ECS_HOST}" \
+            "https://${deploy_domain}/healthz"

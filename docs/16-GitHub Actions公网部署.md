@@ -1,6 +1,6 @@
-# GitHub Actions 公网部署
+# GitHub Actions + ACR + ECS 公网部署
 
-当前仓库的 CI/CD 默认部署目标是一台可以通过 SSH 访问、安装了 Docker Engine 和 Docker Compose v2 的公网 VPS：
+当前仓库的 CI/CD 部署目标是一台可以通过 SSH 访问、安装了 Docker Engine 和 Docker Compose v2 的阿里云 ECS：
 
 ```text
 Pull Request / push
@@ -8,79 +8,87 @@ Pull Request / push
   -> 前端 Vitest + Vite build
 main push
   -> 构建 backend/frontend 镜像
-  -> 推送 GitHub Container Registry
-  -> SSH 同步生产 Compose、Caddyfile 和环境文件
-  -> VPS 拉取指定 Commit 镜像并重启
+  -> 推送阿里云 ACR
+  -> SSH 同步生产 Compose、Caddyfile 和镜像环境文件到 ECS
+  -> ECS 拉取指定 Commit 镜像并重启
   -> Caddy 自动申请/续期 HTTPS
-  -> https://部署域名/healthz
+  -> ECS 本机和公网 HTTPS /healthz 检查
 ```
 
-## 1. VPS 前置条件
+## 1. ECS 前置条件
 
-部署服务器需要：
+ECS 需要准备：
 
 - Ubuntu 22.04/24.04 或兼容 Linux；
 - Docker Engine 和 Docker Compose v2；
 - 一个专用部署用户，加入 `docker` 用户组；
-- 防火墙放行 TCP 22、80、443；
-- DNS 的 A/AAAA 记录已经指向 VPS；
-- 部署用户目录中由 Workflow 写入 `DEPLOY_PATH`，不需要手工复制仓库。
+- 安全组/防火墙放行 TCP `22`、`80`、`443`；
+- DNS 的 A/AAAA 记录指向 ECS；
+- `/opt/agent-collab/.env` 由管理员首次创建，权限设为 `600`。
 
-Caddy 负责公网入口和 HTTPS，PostgreSQL、Spring Boot 和前端容器只在 Compose 内网通信，不直接暴露数据库或后端端口。PostgreSQL 使用命名卷 `agent-collab-postgres`，仍应在 VPS 上配置备份。
+Caddy 负责公网入口和 HTTPS，PostgreSQL、Spring Boot 和前端容器只在 Compose 内网通信，不直接暴露数据库或后端端口。PostgreSQL 使用命名卷 `agent-collab-postgres`，仍应在 ECS 上配置备份。
 
-## 2. GitHub Secrets
+首次部署前，在 ECS 创建运行时 `.env`（不要提交到仓库）：
 
-在仓库 `Settings -> Secrets and variables -> Actions` 中创建以下 Secrets。建议在 `production` Environment 下创建，并为环境设置 required reviewers。
+```dotenv
+DB_NAME=agent_collab
+DB_USERNAME=agent_collab
+DB_PASSWORD=<strong-database-password>
+JWT_SECRET=<at-least-32-byte-secret>
+DEPLOY_DOMAIN=app.example.com
+ACME_EMAIL=ops@example.com
+GIT_PROVIDER=github
+GIT_API_URL=https://api.github.com
+GIT_TOKEN=
+CI_WEBHOOK_SECRET=
+AGENT_PROVIDER=unconfigured
+AGENT_API_KEY=
+AGENT_MODEL=
+```
+
+`DEPLOY_DOMAIN` 必须解析到 ECS，Caddy 才能申请公网证书。Workflow 每次只更新 `.env` 中的 `IMAGE_NAMESPACE` 和 `IMAGE_TAG`，不会覆盖上述运行时凭证。
+
+## 2. GitHub Environment Secrets
+
+在仓库 `Settings -> Environments -> production -> Environment secrets` 中创建以下 Secrets。Workflow 使用的名称必须与下表完全一致：
 
 | Secret | 必填 | 用途 |
 |---|---:|---|
-| `DEPLOY_HOST` | 是 | VPS 公网域名或 IP |
-| `DEPLOY_PORT` | 否 | SSH 端口，默认 `22` |
-| `DEPLOY_USER` | 是 | VPS 部署用户 |
-| `DEPLOY_PATH` | 是 | VPS 上的部署目录，例如 `/opt/agent-collab` |
-| `DEPLOY_SSH_KEY` | 是 | 部署用户专用 SSH 私钥；对应公钥写入 `~/.ssh/authorized_keys` |
-| `DEPLOY_KNOWN_HOSTS` | 是 | `ssh-keyscan -H <host>` 的完整输出，用于主机密钥校验 |
-| `GHCR_USERNAME` | 是 | 能读取该 Package 的 GitHub 用户名 |
-| `GHCR_TOKEN` | 是 | GitHub PAT，至少有 `read:packages`，供 VPS `docker login ghcr.io` 使用 |
-| `PROD_DEPLOY_DOMAIN` | 是 | Caddy 对外域名，例如 `app.example.com` |
-| `PROD_ACME_EMAIL` | 是 | Let's Encrypt 联系邮箱 |
-| `PROD_DB_PASSWORD` | 是 | PostgreSQL 密码；建议使用 URL-safe 随机字符串 |
-| `PROD_JWT_SECRET` | 是 | JWT 签名密钥，至少 32 字节；不要复用数据库密码 |
-| `PROD_GIT_TOKEN` | 否 | GitHub Provider 读取仓库、PR、Checks/Actions 的 Token |
-| `PROD_CI_WEBHOOK_SECRET` | 否 | GitHub Webhook HMAC Secret；启用 Webhook 时必须与 GitHub 配置一致 |
-| `PROD_AGENT_PROVIDER` | 否 | 设为 `openai` 才启用真实 Agent；留空时使用未配置占位 Provider |
-| `PROD_AGENT_API_KEY` | 否 | `PROD_AGENT_PROVIDER=openai` 时的服务端 OpenAI Key |
-| `PROD_AGENT_MODEL` | 否 | `PROD_AGENT_PROVIDER=openai` 时的模型 ID |
+| `ECS_HOST` | 是 | ECS 公网 IP 或 SSH 域名 |
+| `ECS_SSH_KEY` | 是 | ECS 部署用户的 SSH 私钥；公钥写入 `~/.ssh/authorized_keys` |
+| `ECS_SSH_PORT` | 是 | SSH 端口，通常为 `22` |
+| `ECS_USER` | 是 | ECS 部署用户，必须能执行 Docker |
+| `ACR_USERNAME` | 是 | 阿里云 ACR 用户名 |
+| `ACR_NAMESPACE` | 是 | ACR 命名空间，例如 `agent-collab` |
+| `ACR_PASSWORD` | 是 | ACR 登录密码或访问凭证 |
+| `ACR_PULL_REGISTRY` | 是 | ECS 拉取镜像的 ACR Registry 地址；可使用 ECS 内网 Registry 地址 |
+| `ACR_REGISTRY` | 是 | GitHub Actions 推送镜像的 ACR Registry 地址 |
 
-`GITHUB_TOKEN` 不需要手工创建。它由 GitHub Actions 自动提供，只用于 Workflow 将镜像推送到当前仓库的 GHCR。VPS 端使用单独的 `GHCR_TOKEN`，不要把 PAT 写入仓库或镜像。
-
-`DEPLOY_SSH_KEY` 建议使用只用于部署的专用密钥。`DEPLOY_KNOWN_HOSTS` 可以在可信终端生成：
-
-```bash
-ssh-keyscan -H your-vps.example.com
-```
-
-## 3. GitHub Container Registry
-
-Workflow 会推送两个镜像：
+建议对 `production` Environment 设置 required reviewers。`ACR_REGISTRY` 和 `ACR_PULL_REGISTRY` 只填写主机名，不要带 `https://` 或末尾 `/`，例如：
 
 ```text
-ghcr.io/<owner>/agent-collab-backend:<commit-sha>
-ghcr.io/<owner>/agent-collab-frontend:<commit-sha>
+registry.cn-hangzhou.aliyuncs.com
+registry-vpc.cn-hangzhou.aliyuncs.com
 ```
 
-部署使用 Commit SHA 标签，不依赖漂移的 `latest`。首次部署前，使用 `GHCR_USERNAME/GHCR_TOKEN` 在 VPS 上验证：
+Workflow 发布的镜像为：
 
-```bash
-echo "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+```text
+<ACR_REGISTRY>/<ACR_NAMESPACE>/agent-collab-backend:<commit-sha>
+<ACR_REGISTRY>/<ACR_NAMESPACE>/agent-collab-frontend:<commit-sha>
 ```
 
-## 4. 发布和回滚
+ECS 使用 `ACR_PULL_REGISTRY` 拉取相同命名空间和 Commit SHA 的镜像。若 ECS 不能访问 ACR 内网地址，将 `ACR_PULL_REGISTRY` 设置为 ECS 可访问的公网 Registry 地址。
 
-- Pull Request：只运行后端和前端测试，不发布、不部署；
-- `main` push：测试通过后发布镜像并部署 `main` 的 Commit；
-- `workflow_dispatch`：当前用于手动触发 Workflow；生产部署仍要求 push 到 `main` 的条件；
-- 回滚：在 VPS 的 `.env` 中把 `IMAGE_TAG` 改为上一个已发布 Commit SHA，然后执行：
+SSH 私钥建议使用专用 Ed25519 密钥。由于当前 Secrets 清单没有单独的 known-host Secret，Workflow 会在运行器上通过 `ssh-keyscan` 获取 `ECS_HOST` 的主机密钥；生产环境建议定期审阅并固定该主机密钥。
+
+## 3. 发布、部署和回滚
+
+- Pull Request：只运行后端和前端测试，不推送镜像、不部署；
+- `main` push：测试通过后推送 ACR 镜像，并 SSH 部署到 `/opt/agent-collab`；
+- `workflow_dispatch`：可手动运行测试，但生产部署仍只对 `main` push 生效；
+- 部署前会检查 ECS `.env` 中的 `DB_PASSWORD`、`JWT_SECRET`、`DEPLOY_DOMAIN` 和 `ACME_EMAIL`；缺少时会明确失败，不会使用示例凭证；
+- 回滚时在 ECS 的 `.env` 中将 `IMAGE_TAG` 改为上一个已发布 Commit SHA，然后执行：
 
 ```bash
 cd /opt/agent-collab
