@@ -88,6 +88,10 @@ mvn spring-boot:run
 
 然后向 `POST /api/agent-diagnostics/generate` 发送一个 `AgentGenerationRequest` JSON。接口直接返回回显的结构化输入、Provider 输出格式和原始输出文本，不创建 AgentRun、不修改 Workflow；仍需要登录 JWT。该接口默认关闭，不建议在公网生产环境启用。
 
+### GitHub Actions 公网部署
+
+`.github/workflows/ci-cd.yml` 会在 Pull Request 上运行后端 Testcontainers 和前端测试/构建；`main` 通过后构建并推送 GHCR 镜像，再通过 SSH 部署到公网 Docker VPS。生产部署使用 [compose.prod.yaml](compose.prod.yaml) 和 Caddy 自动 HTTPS。VPS、DNS、GitHub Secrets 和回滚说明见 [docs/16-GitHub Actions公网部署.md](docs/16-GitHub%20Actions%E5%85%AC%E7%BD%91%E9%83%A8%E7%BD%B2.md)。
+
 Build Plan 的 Prompt 会明确要求使用后端 `build-plan-v1.schema.json` 的字段：顶层必须是 `intentLevel`、`staffingRecommendation`、`tasks`、`assignments`、`alternatives`、`warnings`；任务使用 `effortPoints`、`verificationCommands`，分配使用 `userId`、`fitReason` 等字段。模型输出仍会经过服务端 JSON Schema 校验，不符合协议的结果会使 AgentRun 失败，不会创建任务。
 
 后端 API：<http://localhost:8080>。OpenAPI：<http://localhost:8080/api/openapi>，Swagger UI：<http://localhost:8080/api/swagger-ui>。

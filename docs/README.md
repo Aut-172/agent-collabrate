@@ -40,6 +40,7 @@
 13. [13-任务包确认与交付流程补充.md](13-任务包确认与交付流程补充.md)
 14. [14-Intent层级与AI分工策略.md](14-Intent层级与AI分工策略.md)
 15. [15-CodeContextProvider与代码上下文机制.md](15-CodeContextProvider与代码上下文机制.md)
+16. [16-GitHub Actions公网部署.md](16-GitHub Actions公网部署.md)
 
 ## 已冻结的 MVP 决策
 

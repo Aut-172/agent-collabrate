@@ -509,7 +509,7 @@ app:
 
 当 `app.agent.provider=openai` 时，后端使用 OpenAI Responses API 适配器；API Key 只从后端环境变量 `AGENT_API_KEY` 读取，不进入前端、任务包、日志或数据库。默认 `unconfigured` 使用显式失败占位适配器。为隔离验证而提供的 `POST /api/agent-diagnostics/generate` 仅在 `agent-diagnostics` Profile 且 `app.agent.diagnostics-enabled=true` 时注册；它直接返回结构化请求和原始模型输出，不创建 AgentRun 或修改业务状态。
 
-仓库提供三服务 Docker Compose 编排：PostgreSQL、Spring Boot 后端，以及提供 Vite 构建产物和 `/api` 反向代理的 Nginx 前端。后端与前端都使用多阶段构建，最终镜像不包含 Maven、Node.js、源码或本地依赖目录。Flyway 随后端启动执行；数据库使用命名卷持久化并应定期备份。生产环境在 Compose 或同等编排基础上配置 HTTPS，凭证只能通过环境变量或密钥管理服务注入，不能写入镜像。
+仓库提供三服务 Docker Compose 编排：PostgreSQL、Spring Boot 后端，以及提供 Vite 构建产物和 `/api` 反向代理的 Nginx 前端。后端与前端都使用多阶段构建，最终镜像不包含 Maven、Node.js、源码或本地依赖目录。Flyway 随后端启动执行；数据库使用命名卷持久化并应定期备份。生产部署由 `.github/workflows/ci-cd.yml` 在 `main` 通过 CI 后构建并推送 GHCR 镜像，再通过 SSH 将 `compose.prod.yaml`、`Caddyfile` 和环境文件同步到公网 VPS；Caddy 对外提供 80/443 和自动 HTTPS，PostgreSQL、后端及前端只加入 Compose 内网。生产凭证只能通过 GitHub Environment Secrets、环境变量或密钥管理服务注入，不能写入镜像。具体 VPS 前置条件、Secret 清单和回滚步骤见 [16-GitHub Actions公网部署.md](16-GitHub%20Actions%E5%85%AC%E7%BD%91%E9%83%A8%E7%BD%B2.md)。
 
 ## 11. 测试策略
 
