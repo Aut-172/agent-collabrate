@@ -88,6 +88,8 @@ jobs:
           context: .
           file: Dockerfile
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ steps.image.outputs.namespace }}/agent-collab-backend:${{ github.sha }}
             ${{ steps.image.outputs.namespace }}/agent-collab-backend:latest
@@ -99,6 +101,8 @@ jobs:
           context: frontend
           file: frontend/Dockerfile
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ steps.image.outputs.namespace }}/agent-collab-frontend:${{ github.sha }}
             ${{ steps.image.outputs.namespace }}/agent-collab-frontend:latest
