@@ -77,17 +77,19 @@ public class PlanService {
         JsonNode plan = validate(latest.getContent(), workflow.getIntentLevel());
         validateAssignees(workflow, plan, true);
         List<TaskGranularityValidator.Warning> warnings = granularity.analyze(plan, workflow.getIntentLevel());
+        if (!warnings.isEmpty() && (reason == null || reason.isBlank())) {
+            throw conflict("TASK_GRANULARITY_REASON_REQUIRED", "当前 Build Plan 仍有任务粒度警告，批准前必须填写保留拆分理由");
+        }
         latest.confirm(actorId);
         stateMachine.transition(workflow, WorkflowStatus.PLAN_APPROVED);
         workflows.save(workflow);
         DocumentVersion result = documents.save(latest);
-        Map<String, Object> details = new LinkedHashMap<>(); details.put("version", versionNo);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("version", versionNo);
         if (!warnings.isEmpty()) {
             details.put("granularityWarnings", warnings.stream().map(TaskGranularityValidator.Warning::message).toList());
-            if (reason != null && !reason.isBlank()) {
-                details.put("overrideReason", reason);
-                details.put("overrideAction", "APPROVE_WITH_SPLIT");
-            }
+            details.put("overrideReason", reason.trim());
+            details.put("overrideAction", "APPROVE_WITH_SPLIT");
         }
         AuditSupport.record(audit, actorId, workflow.getProjectId(), "BUILD_PLAN_APPROVED", "DOCUMENT_VERSION", result.getId(), details);
         return result;
@@ -110,43 +112,104 @@ public class PlanService {
         JsonNode root = validate(latest.getContent(), workflow.getIntentLevel());
         List<String> keys = request.taskKeys() == null ? List.of() : request.taskKeys().stream().distinct().toList();
         if ("KEEP_SPLIT".equalsIgnoreCase(request.operation())) {
-            if (request.reason() == null || request.reason().isBlank()) throw conflict("TASK_GRANULARITY_REASON_REQUIRED", "保留任务拆分必须填写理由");
-            AuditSupport.record(audit, actorId, workflow.getProjectId(), "TASK_SPLIT_RETAINED", "DOCUMENT_VERSION", latest.getId(), Map.of("taskKeys", keys, "reason", request.reason()));
+            if (request.reason() == null || request.reason().isBlank()) {
+                throw conflict("TASK_GRANULARITY_REASON_REQUIRED", "保留任务拆分必须填写理由");
+            }
+            AuditSupport.record(audit, actorId, workflow.getProjectId(), "TASK_SPLIT_RETAINED",
+                    "DOCUMENT_VERSION", latest.getId(),
+                    Map.of("taskKeys", keys, "reason", request.reason().trim()));
             return latest;
         }
-        if (!"MERGE".equalsIgnoreCase(request.operation()) || keys.size() < 2) throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_TASK_MERGE", "合并操作至少需要选择两个 Task");
-        ObjectNode mutable = (ObjectNode) root.deepCopy(); ArrayNode taskArray = (ArrayNode) mutable.withArray("tasks");
-        ObjectNode merged = null; Set<String> selected = new LinkedHashSet<>(keys); List<JsonNode> removed = new ArrayList<>();
-        for (JsonNode task : taskArray) if (selected.contains(task.path("taskKey").asText())) { if (merged == null) merged = (ObjectNode) task.deepCopy(); else removed.add(task); }
-        if (merged == null || removed.size() != keys.size()-1) throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_TASK_MERGE", "选择的 Task 不存在");
+        if (!"MERGE".equalsIgnoreCase(request.operation()) || keys.size() < 2) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_TASK_MERGE", "合并操作至少需要选择两个 Task");
+        }
+        ObjectNode mutable = (ObjectNode) root.deepCopy();
+        ArrayNode taskArray = (ArrayNode) mutable.withArray("tasks");
+        ObjectNode merged = null;
+        Set<String> selected = new LinkedHashSet<>(keys);
+        List<JsonNode> removed = new ArrayList<>();
+        for (JsonNode task : taskArray) {
+            if (!selected.contains(task.path("taskKey").asText())) continue;
+            if (merged == null) merged = (ObjectNode) task.deepCopy();
+            else removed.add(task);
+        }
+        if (merged == null || removed.size() != keys.size() - 1) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_TASK_MERGE", "选择的 Task 不存在");
+        }
         String keep = merged.path("taskKey").asText();
-        mergeArrayValues(merged, removed, "scope"); mergeArrayValues(merged, removed, "nonGoals"); mergeArrayValues(merged, removed, "acceptanceCriteria"); mergeArrayValues(merged, removed, "verificationCommands");
-        int effort = merged.path("effortPoints").asInt(); for (JsonNode n : removed) effort += n.path("effortPoints").asInt(); merged.put("effortPoints", Math.min(8, effort));
+        mergeArrayValues(merged, removed, "scope");
+        mergeArrayValues(merged, removed, "nonGoals");
+        mergeArrayValues(merged, removed, "acceptanceCriteria");
+        mergeArrayValues(merged, removed, "verificationCommands");
+        int effort = merged.path("effortPoints").asInt();
+        for (JsonNode task : removed) effort += task.path("effortPoints").asInt();
+        if (effort > 8) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_TASK_MERGE",
+                    "合并后的 Task 工作量不能超过 8 点，请先调整估算或保留拆分");
+        }
+        merged.put("effortPoints", effort);
         LinkedHashSet<String> dependencies = new LinkedHashSet<>();
-        for (JsonNode n : taskArray) for (JsonNode d : n.path("dependencies")) {
-            String dependency = d.asText();
-            if (!selected.contains(dependency) && !dependency.equals(keep)) dependencies.add(dependency);
+        for (JsonNode task : taskArray) {
+            if (!selected.contains(task.path("taskKey").asText())) continue;
+            for (JsonNode value : task.path("dependencies")) {
+                String dependency = value.asText();
+                if (!selected.contains(dependency) && !dependency.equals(keep)) dependencies.add(dependency);
+            }
         }
         merged.set("dependencies", json.valueToTree(dependencies));
-        for (int i=0;i<taskArray.size();i++) if (taskArray.get(i).path("taskKey").asText().equals(keep)) taskArray.set(i, merged);
-        for (int i=taskArray.size()-1;i>=0;i--) if (selected.contains(taskArray.get(i).path("taskKey").asText()) && !taskArray.get(i).path("taskKey").asText().equals(keep)) taskArray.remove(i);
+        for (int index = 0; index < taskArray.size(); index++) {
+            if (taskArray.get(index).path("taskKey").asText().equals(keep)) taskArray.set(index, merged);
+        }
+        for (int index = taskArray.size() - 1; index >= 0; index--) {
+            String taskKey = taskArray.get(index).path("taskKey").asText();
+            if (selected.contains(taskKey) && !taskKey.equals(keep)) taskArray.remove(index);
+        }
         for (JsonNode task : taskArray) {
-            ArrayNode rewritten = json.createArrayNode();
+            LinkedHashSet<String> rewrittenDependencies = new LinkedHashSet<>();
             for (JsonNode dependency : task.path("dependencies")) {
                 String value = selected.contains(dependency.asText()) ? keep : dependency.asText();
-                if (!value.equals(task.path("taskKey").asText()) && !rewritten.toString().contains(value)) rewritten.add(value);
+                if (!value.equals(task.path("taskKey").asText())) rewrittenDependencies.add(value);
             }
+            ArrayNode rewritten = json.createArrayNode();
+            rewrittenDependencies.forEach(rewritten::add);
             ((ObjectNode) task).set("dependencies", rewritten);
         }
-        ArrayNode assigns=(ArrayNode) mutable.withArray("assignments"); for(int i=assigns.size()-1;i>=0;i--) if(selected.contains(assigns.get(i).path("taskKey").asText())&&!assigns.get(i).path("taskKey").asText().equals(keep)) assigns.remove(i); for(JsonNode a:assigns) if(a.path("taskKey").asText().equals(keep)) { }
-        String content = mutable.toString(); validate(content, workflow.getIntentLevel());
+        ArrayNode assigns = (ArrayNode) mutable.withArray("assignments");
+        for (int index = assigns.size() - 1; index >= 0; index--) {
+            String taskKey = assigns.get(index).path("taskKey").asText();
+            if (selected.contains(taskKey) && !taskKey.equals(keep)) assigns.remove(index);
+        }
+        updateStaffingRecommendation(mutable, assigns);
+        String content = mutable.toString();
+        JsonNode validated = validate(content, workflow.getIntentLevel());
+        validateAssignees(workflow, validated, true);
         DocumentVersion result = documents.save(DocumentVersion.byUser(workflowId, DocumentType.BUILD_PLAN, latest.getVersionNo()+1, content, DocumentFormat.JSON, actorId, latest.getCodeContextVersionId()));
-        AuditSupport.record(audit, actorId, workflow.getProjectId(), "TASKS_MERGED", "DOCUMENT_VERSION", result.getId(), Map.of("taskKeys", keys, "retainedTaskKey", keep));
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("taskKeys", keys);
+        details.put("retainedTaskKey", keep);
+        if (request.reason() != null && !request.reason().isBlank()) details.put("reason", request.reason().trim());
+        AuditSupport.record(audit, actorId, workflow.getProjectId(), "TASKS_MERGED", "DOCUMENT_VERSION", result.getId(), details);
         return result;
     }
 
     private void mergeArrayValues(ObjectNode target, List<JsonNode> removed, String field) {
-        LinkedHashSet<String> values = new LinkedHashSet<>(); target.path(field).forEach(n -> values.add(n.asText())); for(JsonNode node:removed) node.path(field).forEach(n -> values.add(n.asText())); ArrayNode out=json.createArrayNode(); values.forEach(out::add); target.set(field,out);
+        LinkedHashSet<String> values = new LinkedHashSet<>();
+        target.path(field).forEach(value -> values.add(value.asText()));
+        for (JsonNode node : removed) node.path(field).forEach(value -> values.add(value.asText()));
+        ArrayNode out = json.createArrayNode();
+        values.forEach(out::add);
+        target.set(field, out);
+    }
+
+    private void updateStaffingRecommendation(ObjectNode plan, ArrayNode assignments) {
+        Set<Long> assigneeIds = new LinkedHashSet<>();
+        assignments.forEach(assignment -> assigneeIds.add(assignment.path("userId").asLong()));
+        ObjectNode recommendation = (ObjectNode) plan.path("staffingRecommendation");
+        int teamSize = assigneeIds.size();
+        recommendation.put("recommendedTeamSize", teamSize);
+        if (teamSize == 1) recommendation.put("mode", "SINGLE_OWNER");
+        else if (teamSize == 2) recommendation.put("mode", "PAIR");
+        else if (teamSize > 2) recommendation.put("mode", "TEAM");
     }
 
 

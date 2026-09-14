@@ -90,9 +90,19 @@ public class MockAgentProviderClient implements AgentProviderClient {
                 + "## 非功能要求\n\n保持现有性能、可靠性和可部署性约束。\n\n"
                 + "## 验收矩阵\n\n每个外部行为至少对应一个验收场景。\n\n"
                 + "## 与设计的追踪关系\n\n本规格逐项映射已确认 Design 的边界和决策。\n\n"
+                + "## 已确认决策\n\n" + confirmedDecisionMarkdown(request) + "\n\n"
                 + "## 待确认决策\n\n无待确认决策。\n\n"
                 + "## 证据引用\n\n证据：`Code Context` 中提供的仓库事实。";
         return new AgentProviderResult(content, DocumentFormat.MARKDOWN, "Generated Spec document");
+    }
+
+    private String confirmedDecisionMarkdown(AgentGenerationRequest request) {
+        if (request.resolvedDecisions().isEmpty()) return "无。";
+        return request.resolvedDecisions().stream()
+                .map(decision -> "- `" + decision.decisionKey() + "`：" + decision.question()
+                        + "；最终选择：" + decision.selectedOptionLabel() + " (`"
+                        + decision.selectedOption() + "`)")
+                .collect(java.util.stream.Collectors.joining("\n"));
     }
 
     private AgentProviderResult buildPlan(AgentGenerationRequest request) {

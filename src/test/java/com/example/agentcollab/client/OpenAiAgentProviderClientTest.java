@@ -169,6 +169,25 @@ class OpenAiAgentProviderClientTest {
     }
 
     @Test
+    void promptCarriesResolvedHumanDecisionsAsBindingDownstreamInputs() {
+        RestClient.Builder builder = RestClient.builder();
+        var provider = provider(builder.build(), "test-key", "test-model");
+        var decision = new AgentGenerationRequest.DecisionContext(
+                41L, "DESIGN", "DEC-001", "是否允许嵌套？", "OPT-B", "允许无限嵌套");
+        var request = new AgentGenerationRequest(1L, AgentRunType.GENERATE_SPEC, IntentLevel.FEATURE,
+                "title", "description", "# Design", null, List.of(), null,
+                new AgentGenerationRequest.CodeContextInput(3L, 2L, 1L,
+                        "1111111111111111111111111111111111111111", json.createObjectNode(),
+                        json.createObjectNode(), List.of()), List.of(decision));
+
+        String prompt = provider.buildPayload(request).path("input").asText();
+
+        assertThat(prompt).contains("CONFIRMED HUMAN DECISIONS", "DEC-001", "OPT-B", "允许无限嵌套")
+                .contains("binding inputs from prior human confirmation")
+                .contains("do not reopen them");
+    }
+
+    @Test
     void sendsConfiguredOutputTokenLimitToResponsesApi() {
         RestClient.Builder builder = RestClient.builder();
         var provider = new OpenAiAgentProviderClient(builder.build(), json, "test-key", "test-model",

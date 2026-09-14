@@ -12,5 +12,5 @@ public final class PlanDtos {
     public record GranularityWarningResponse(String code, String message, List<String> taskKeys, String suggestedAction) {}
     public record GranularityResponse(int versionNo, List<GranularityWarningResponse> warnings) {}
     public record TaskMergeRequest(@NotBlank String operation, @Size(min = 1, max = 100) List<@NotBlank String> taskKeys,
-                                   String reason) {}
+                                   @Size(max = 2000) String reason) {}
 }

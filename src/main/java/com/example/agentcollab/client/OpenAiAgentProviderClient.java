@@ -235,7 +235,13 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
                     + "Write all human-readable prose in Simplified Chinese. Keep JSON field names, enum values, "
                     + "code identifiers, file paths, shell commands, URLs, and protocol literals unchanged. "
                     + "Do not translate or rename those technical values. "
-                    + outputRule + "\n\n" + documentRole + outputContract(request) + "\n\nREQUEST:\n" + requestJson;
+                    + outputRule + "\n\n" + documentRole + outputContract(request)
+                    + "\n\nCONFIRMED HUMAN DECISIONS:\n"
+                    + (request.resolvedDecisions().isEmpty()
+                    ? "None. Do not invent a decision."
+                    : "The following decisions are binding inputs from prior human confirmation. Preserve them in downstream behavior, do not reopen them, and do not contradict them: "
+                    + json.writeValueAsString(request.resolvedDecisions()))
+                    + "\n\nREQUEST:\n" + requestJson;
         } catch (JsonProcessingException ex) {
             throw new AgentProviderException("AGENT_REQUEST_SERIALIZATION_FAILED",
                     "Agent request could not be serialized", false);

@@ -13,6 +13,8 @@ import com.example.agentcollab.repository.RepoInventoryFileRepository;
 import com.example.agentcollab.repository.RepoInventoryVersionRepository;
 import com.example.agentcollab.repository.CodeContextFileRepository;
 import com.example.agentcollab.repository.CodeContextVersionRepository;
+import com.example.agentcollab.repository.DocumentDecisionRepository;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +25,7 @@ public class AgentRequestFactory {
     private final WorkflowRepository workflows;
     private final AgentRunRepository runs;
     private final DocumentVersionRepository documents;
+    private final DocumentDecisionRepository decisions;
     private final ProjectMemberRepository members;
     private final UserRepository users;
     private final TaskRepository tasks;
@@ -34,6 +37,7 @@ public class AgentRequestFactory {
 
     public AgentRequestFactory(WorkflowRepository workflows, AgentRunRepository runs,
                                DocumentVersionRepository documents,
+                               DocumentDecisionRepository decisions,
                                ProjectMemberRepository members, UserRepository users,
                                TaskRepository tasks, RepoInventoryVersionRepository inventories,
                                RepoInventoryFileRepository inventoryFiles, CodeContextVersionRepository contexts,
@@ -42,6 +46,7 @@ public class AgentRequestFactory {
         this.workflows = workflows;
         this.runs = runs;
         this.documents = documents;
+        this.decisions = decisions;
         this.members = members;
         this.users = users;
         this.tasks = tasks;
@@ -72,9 +77,11 @@ public class AgentRequestFactory {
                 ? null : latestConfirmed(workflow.getId(), DocumentType.DESIGN);
         String spec = run.getRunType() == AgentRunType.GENERATE_BUILD_PLAN
                 ? latestConfirmed(workflow.getId(), DocumentType.SPEC) : null;
+        List<AgentGenerationRequest.DecisionContext> resolvedDecisions = resolvedDecisions(
+                workflow.getId(), run.getRunType());
         return new AgentGenerationRequest(workflow.getId(), run.getRunType(), workflow.getIntentLevel(),
                 workflow.getTitle(), workflow.getDescription(), design, spec, assignableMembers,
-                repoInventory(run), codeContext(run));
+                repoInventory(run), codeContext(run), resolvedDecisions);
     }
 
     private AgentGenerationRequest.RepoInventoryInput repoInventory(AgentRun run) {
@@ -138,8 +145,38 @@ public class AgentRequestFactory {
     }
 
     private String latestConfirmed(Long workflowId, DocumentType type) {
-        return documents.findTopByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(workflowId, type)
-                .filter(DocumentVersion::isConfirmed)
+        return latestConfirmedDocument(workflowId, type)
                 .map(DocumentVersion::getContent).orElse(null);
+    }
+
+    private List<AgentGenerationRequest.DecisionContext> resolvedDecisions(Long workflowId, AgentRunType runType) {
+        List<DocumentType> upstream = switch (runType) {
+            case GENERATE_SPEC -> List.of(DocumentType.DESIGN);
+            case GENERATE_BUILD_PLAN -> List.of(DocumentType.DESIGN, DocumentType.SPEC);
+            default -> List.of();
+        };
+        return upstream.stream()
+                .map(type -> latestConfirmedDocument(workflowId, type).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .flatMap(document -> decisions.findByDocumentVersionIdAndStatusOrderByDecisionKey(
+                                document.getId(), DocumentDecisionStatus.RESOLVED).stream()
+                        .map(decision -> new AgentGenerationRequest.DecisionContext(
+                                document.getId(), document.getDocumentType().name(), decision.getDecisionKey(),
+                                decision.getQuestion(), decision.getSelectedOption(), selectedOptionLabel(decision))))
+                .toList();
+    }
+
+    private java.util.Optional<DocumentVersion> latestConfirmedDocument(Long workflowId, DocumentType type) {
+        return documents.findTopByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(workflowId, type)
+                .filter(DocumentVersion::isConfirmed);
+    }
+
+    private String selectedOptionLabel(DocumentDecision decision) {
+        for (JsonNode option : decision.getOptionsJson()) {
+            if (decision.getSelectedOption().equals(option.path("key").asText())) {
+                return option.path("label").asText();
+            }
+        }
+        return decision.getSelectedOption();
     }
 }

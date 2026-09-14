@@ -366,9 +366,9 @@ POST /api/workflows/{id}/cancel
 
 `approve-plan` 必须校验输出 Schema 与 Intent 层级一致。`create-tasks` 对 Architecture 只能创建子 Intent，不得创建开发 Task。
 
-Build Plan 审批页展示 `TaskGranularityValidator` 的结构化警告。Leader 可以选择多个 Task 合并，或保留当前拆分；保留拆分和在仍有警告时直接批准都必须填写理由，理由写入审计日志。合并操作生成新的用户 Build Plan 版本并重新校验任务、依赖和分配；批准后创建任务时按合并后的计划生成新的 Task Package。若合并作用于已有 Task，旧包先标记 `STALE`，再由 TaskPackageService 生成递增版本并记录 `supersededBy`。
+Build Plan 审批页展示 `TaskGranularityValidator` 的结构化警告。Leader 可以选择多个 Task 合并，或保留当前拆分；保留拆分和在仍有警告时直接批准都必须填写理由，理由写入审计日志。合并操作生成新的用户 Build Plan 版本并重新校验任务、依赖和分配；批准后创建任务时按合并后的计划生成初始 Task Package。当前 MVP 只允许在 `BUILD_PLAN_PROPOSED`、尚未创建 Task 时合并，创建任务后不得通过计划合并修改已有、开发中或已交付 Task。未来若增加任务创建后的边界调整，必须拒绝合并已开始开发或已有交付的 Task；对仍允许调整的 Task，旧包须先标记 `STALE`，再由 TaskPackageService 生成递增版本并记录 `supersededBy`。
 
-Design/Spec 使用结构化“待确认决策”章节表达 Agent 无法自行确定且会影响实现的选择。系统在保存每个文档版本时解析并绑定决策；项目 Leader 或 Workflow 创建者可从约束选项中解决当前版本的决策。旧文档版本的决策只保留审计意义，不允许继续操作；当前版本仍有 `OPEN` 决策时，`confirm-design` 或 `confirm-spec` 返回冲突错误。
+Design/Spec 使用结构化“待确认决策”章节表达 Agent 无法自行确定且会影响实现的选择。系统在保存每个文档版本时解析并绑定决策；项目 Leader 或 Workflow 创建者可从约束选项中解决当前版本的决策。旧文档版本的决策只保留审计意义，不允许继续操作；当前版本仍有 `OPEN` 决策时，`confirm-design` 或 `confirm-spec` 返回冲突错误。生成下一个环节的 Agent 请求时，服务端必须加载上游已确认文档版本的 `RESOLVED` 决策，传递决策键、问题、最终选项键和选项文案，并在 prompt 中声明这些选择是不可重开的约束；Spec 必须接收 Design 决策，Build Plan 必须接收 Design 与 Spec 决策。文档下载应在原文末尾附加当前版本已确认决策，保留问题和最终选择，便于离线交接与审计。
 
 `generate-design`、`generate-spec` 和 `generate-build-plan` 必须解析当前可用 Code Context。Workflow Code Context 刷新会先基于 Repo Inventory 生成 Context Plan，再由 Orchestrator 调 Git Provider 定向读取证据并建立 `CURRENT` 版本；若 Code Context 缺失或明显过期，生成接口拒绝请求并提示刷新。当前 MVP 不提供无上下文降级生成路径。
 

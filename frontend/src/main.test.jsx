@@ -2,7 +2,7 @@ import React from 'react'
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest'
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {App,BuildPlanSection,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,stateLabel} from './main.jsx'
+import {App,BuildPlanSection,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,appendResolvedDecisions,stateLabel} from './main.jsx'
 
 const okResponse=body=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(body)})
 
@@ -14,6 +14,14 @@ describe('status labels',()=>{
 })
 
 describe('document decisions',()=>{
+  it('appends resolved decisions to downloaded document content',()=>{
+    const document={id:31,content:'# Design'}
+    const decisions=[{documentVersionId:31,status:'RESOLVED',decisionKey:'DEC-001',question:'是否允许嵌套？',selectedOption:'OPT-B',options:[{key:'OPT-A',label:'一层'},{key:'OPT-B',label:'无限'}]}]
+    const output=appendResolvedDecisions(document.content,document,decisions)
+    expect(output).toContain('## 已确认决策')
+    expect(output).toContain('最终选择：无限 (`OPT-B`)')
+  })
+
   it('shows the recommendation and submits the member selection',async()=>{
     const onResolve=vi.fn()
     const item={id:41,decisionKey:'DEC-001',question:'回复是否允许嵌套？',recommendedOption:'OPT-A',unresolvedImpact:'无法确定数据关系',status:'OPEN',options:[{key:'OPT-A',label:'只允许一层回复'},{key:'OPT-B',label:'允许无限嵌套'}]}
@@ -32,16 +40,38 @@ describe('document decisions',()=>{
 })
 
 describe('build plan granularity actions',()=>{
-  it('requires a selection for merge and sends keep-split reason',async()=>{
+  afterEach(()=>cleanup())
+  const plan={intentLevel:'FEATURE',tasks:[{taskKey:'TASK-A',title:'A'},{taskKey:'TASK-B',title:'B'}],assignments:[]}
+  const warnings=[{message:'拆分过细',taskKeys:['TASK-A','TASK-B']}]
+
+  it('sends merge selections and the audited keep-split reason',async()=>{
     const onGranularity=vi.fn()
     const user=userEvent.setup()
-    const plan={intentLevel:'FEATURE',tasks:[{taskKey:'TASK-A',title:'A'},{taskKey:'TASK-B',title:'B'}],assignments:[]}
-    render(<BuildPlanSection workflow={{status:'BUILD_PLAN_PROPOSED'}} document={{versionNo:1,confirmed:false}} plan={plan} warnings={[{message:'拆分过细',taskKeys:['TASK-A','TASK-B']}] } editing={false} draft='' busy={false} canApprovePlan={false} onEdit={vi.fn()} onDraft={vi.fn()} onCancel={vi.fn()} onSave={vi.fn()} onApprove={vi.fn()} onGranularity={onGranularity} onCreateTasks={vi.fn()}/> )
+    render(<BuildPlanSection workflow={{status:'BUILD_PLAN_PROPOSED'}} document={{versionNo:1,confirmed:false}} plan={plan} warnings={warnings} editing={false} draft='' busy={false} canApprovePlan={false} onEdit={vi.fn()} onDraft={vi.fn()} onCancel={vi.fn()} onSave={vi.fn()} onApprove={vi.fn()} onGranularity={onGranularity} onCreateTasks={vi.fn()}/> )
     expect(screen.getByText(/拆分过细/)).toBeTruthy()
     const checkboxes=screen.getAllByRole('checkbox'); await user.click(checkboxes[0]); await user.click(checkboxes[1])
     await user.type(screen.getByRole('textbox',{name:'拆分覆盖理由'}),'两个任务必须独立验收')
+    await user.click(screen.getByRole('button',{name:'合并选中 Task'}))
+    expect(onGranularity).toHaveBeenCalledWith({operation:'MERGE',taskKeys:['TASK-A','TASK-B'],reason:'两个任务必须独立验收'})
     await user.click(screen.getByRole('button',{name:'保留当前拆分'}))
     expect(onGranularity).toHaveBeenCalledWith({operation:'KEEP_SPLIT',taskKeys:['TASK-A','TASK-B'],reason:'两个任务必须独立验收'})
+  })
+
+  it('requires a reason to approve warnings and clears stale input for a new plan version',async()=>{
+    const onApprove=vi.fn()
+    const user=userEvent.setup()
+    const props={workflow:{status:'BUILD_PLAN_PROPOSED'},plan,warnings,editing:false,draft:'',busy:false,canApprovePlan:true,onEdit:vi.fn(),onDraft:vi.fn(),onCancel:vi.fn(),onSave:vi.fn(),onApprove,onGranularity:vi.fn(),onCreateTasks:vi.fn()}
+    const view=render(<BuildPlanSection {...props} document={{versionNo:1,confirmed:false}}/> )
+    const approve=screen.getByRole('button',{name:'批准 v1'})
+    expect(approve.disabled).toBe(true)
+    await user.type(screen.getByRole('textbox',{name:'拆分覆盖理由'}),'独立发布窗口')
+    expect(approve.disabled).toBe(false)
+    await user.click(approve)
+    expect(onApprove).toHaveBeenCalledWith('独立发布窗口')
+
+    view.rerender(<BuildPlanSection {...props} document={{versionNo:2,confirmed:false}}/> )
+    await waitFor(()=>expect(screen.getByRole('textbox',{name:'拆分覆盖理由'}).value).toBe(''))
+    expect(screen.getByRole('button',{name:'批准 v2'}).disabled).toBe(true)
   })
 })
 

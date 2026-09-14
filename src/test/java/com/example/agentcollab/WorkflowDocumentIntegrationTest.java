@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -73,6 +74,7 @@ class WorkflowDocumentIntegrationTest {
     @Autowired com.example.agentcollab.repository.NotificationRepository notifications;
     @Autowired com.example.agentcollab.repository.GitOperationRepository gitOperations;
     @Autowired com.example.agentcollab.repository.CiRunRepository ciRuns;
+    @Autowired com.example.agentcollab.repository.AuditLogRepository auditLogs;
     @Autowired com.example.agentcollab.service.GitSyncService gitSync;
     @Autowired com.example.agentcollab.service.CiSyncService ciSync;
     @Autowired com.example.agentcollab.service.GitSyncWorker gitSyncWorker;
@@ -854,6 +856,135 @@ class WorkflowDocumentIntegrationTest {
         assertThat(tasks.findById(task.getId()).orElseThrow().getStatus().name()).isEqualTo("CANCELLED");
         assertThat(taskPackages.findById(replacementPackage.getId()).orElseThrow().getStatus().name())
                 .isEqualTo("RETIRED");
+    }
+
+    @Test
+    void granularityDecisionRequiresReasonAndMergePreservesDependenciesAssignmentsAndPackageBoundary() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "granularity");
+        Project project = projects.findById(projectId).orElseThrow();
+        project.enableCi();
+        projects.save(project);
+        updateProfile(leaderToken, projectId, 13);
+        long workflowId = createWorkflow(leaderToken, projectId, "mergeable change", "CHANGE", null);
+
+        requestRun(leaderToken, workflowId, "generate-build-plan");
+        assertThat(worker.processNext()).isTrue();
+        var generated = documents.findByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                workflowId, DocumentType.BUILD_PLAN).get(0);
+        var edited = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(generated.getContent());
+        var sourceTask = (com.fasterxml.jackson.databind.node.ObjectNode) edited.path("tasks").get(0);
+        var sourceAssignment = (com.fasterxml.jackson.databind.node.ObjectNode) edited.path("assignments").get(0);
+        var planTasks = edited.putArray("tasks");
+        planTasks.add(taskForMerge(sourceTask, "A", 2, json.createArrayNode()));
+        planTasks.add(taskForMerge(sourceTask, "B", 3, json.createArrayNode().add("A")));
+        planTasks.add(taskForMerge(sourceTask, "C", 2, json.createArrayNode().add("B")));
+        planTasks.add(taskForMerge(sourceTask, "D", 1, json.createArrayNode().add("C")));
+        var assignments = edited.putArray("assignments");
+        assignments.add(assignmentForMerge(sourceAssignment, "A"));
+        assignments.add(assignmentForMerge(sourceAssignment, "B"));
+        assignments.add(assignmentForMerge(sourceAssignment, "C"));
+        assignments.add(assignmentForMerge(sourceAssignment, "D"));
+
+        mvc.perform(put("/api/workflows/{id}/plan-drafts", workflowId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("content", edited.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versionNo").value(2));
+
+        mvc.perform(post("/api/workflows/{id}/approve-plan", workflowId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"versionNo\":2}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TASK_GRANULARITY_REASON_REQUIRED"));
+
+        mvc.perform(post("/api/workflows/{id}/plan-granularity", workflowId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "operation", "KEEP_SPLIT", "taskKeys", List.of("A", "B", "C"),
+                                "reason", "每个 Task 有独立验收边界"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versionNo").value(2));
+        assertThat(auditLogs.findByProjectId(projectId, org.springframework.data.domain.PageRequest.of(0, 50))
+                .getContent().stream().filter(log -> log.getAction().equals("TASK_SPLIT_RETAINED"))
+                .findFirst().orElseThrow().getDetailsJson().path("reason").asText())
+                .isEqualTo("每个 Task 有独立验收边界");
+
+        mvc.perform(post("/api/workflows/{id}/plan-granularity", workflowId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "operation", "MERGE", "taskKeys", List.of("A", "B"),
+                                "reason", "合并为一个端到端交付闭环"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versionNo").value(3))
+                .andExpect(jsonPath("$.content").value(org.hamcrest.Matchers.containsString("\"taskKey\":\"A\"")));
+
+        var mergedPlan = documents.findByWorkflowIdAndDocumentTypeAndVersionNo(
+                workflowId, DocumentType.BUILD_PLAN, 3).orElseThrow();
+        var mergedJson = json.readTree(mergedPlan.getContent());
+        assertThat(mergedJson.path("tasks")).hasSize(3);
+        assertThat(mergedJson.path("tasks").get(0).path("effortPoints").asInt()).isEqualTo(5);
+        assertThat(mergedJson.path("tasks").get(0).path("dependencies")).isEmpty();
+        assertThat(mergedJson.path("tasks").get(1).path("dependencies").get(0).asText()).isEqualTo("A");
+        assertThat(mergedJson.path("tasks").get(2).path("dependencies").get(0).asText()).isEqualTo("C");
+        assertThat(mergedJson.path("assignments")).hasSize(3);
+        assertThat(mergedJson.path("assignments").get(0).path("taskKey").asText()).isEqualTo("A");
+        assertThat(mergedJson.path("assignments").get(1).path("taskKey").asText()).isEqualTo("C");
+        assertThat(mergedJson.path("assignments").get(2).path("taskKey").asText()).isEqualTo("D");
+        assertThat(mergedJson.path("staffingRecommendation").path("recommendedTeamSize").asInt()).isEqualTo(1);
+        assertThat(auditLogs.findByProjectId(projectId, org.springframework.data.domain.PageRequest.of(0, 50))
+                .getContent().stream().filter(log -> log.getAction().equals("TASKS_MERGED"))
+                .findFirst().orElseThrow().getDetailsJson().path("reason").asText())
+                .isEqualTo("合并为一个端到端交付闭环");
+
+        mvc.perform(post("/api/workflows/{id}/approve-plan", workflowId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "versionNo", 3, "reason", "合并后剩余任务仍有独立验收边界"))))
+                .andExpect(status().isOk());
+        assertThat(auditLogs.findByProjectId(projectId, org.springframework.data.domain.PageRequest.of(0, 50))
+                .getContent().stream().filter(log -> log.getAction().equals("BUILD_PLAN_APPROVED"))
+                .findFirst().orElseThrow().getDetailsJson().path("overrideReason").asText())
+                .isEqualTo("合并后剩余任务仍有独立验收边界");
+        mvc.perform(post("/api/workflows/{id}/create-tasks", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.taskCount").value(3));
+        var createdTasks = tasks.findByWorkflowIdOrderById(workflowId);
+        assertThat(createdTasks).hasSize(3).allSatisfy(task -> {
+            assertThat(task.getSourcePlanVersion()).isEqualTo(3);
+            var taskPackage = taskPackages.findByTaskIdAndStatus(task.getId(), TaskPackageStatus.CURRENT)
+                    .orElseThrow();
+            assertThat(taskPackage.getPackageVersion()).isEqualTo(1);
+            assertThat(taskPackage.getSourcePlanVersion()).isEqualTo(3);
+        });
+        mvc.perform(post("/api/workflows/{id}/plan-granularity", workflowId)
+                        .header("Authorization", bearer(leaderToken)).contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "operation", "MERGE", "taskKeys", List.of("A", "C"), "reason", "不可在任务创建后调整"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("WORKFLOW_STATE_CONFLICT"));
+        assertThat(taskPackages.findAll()).hasSize(3)
+                .allSatisfy(taskPackage -> assertThat(taskPackage.getStatus()).isEqualTo(TaskPackageStatus.CURRENT));
+    }
+
+    private com.fasterxml.jackson.databind.node.ObjectNode taskForMerge(
+            com.fasterxml.jackson.databind.node.ObjectNode source, String key, int effort,
+            com.fasterxml.jackson.databind.node.ArrayNode dependencies) {
+        var task = source.deepCopy();
+        task.put("taskKey", key);
+        task.put("title", "Merge " + key);
+        task.put("effortPoints", effort);
+        task.set("dependencies", dependencies);
+        task.put("branchName", "agent/granularity/" + key.toLowerCase());
+        return task;
+    }
+
+    private com.fasterxml.jackson.databind.node.ObjectNode assignmentForMerge(
+            com.fasterxml.jackson.databind.node.ObjectNode source, String key) {
+        var assignment = source.deepCopy();
+        assignment.put("taskKey", key);
+        return assignment;
     }
 
     @Test
