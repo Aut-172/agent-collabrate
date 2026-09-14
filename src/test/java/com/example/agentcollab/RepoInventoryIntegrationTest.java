@@ -209,7 +209,7 @@ class RepoInventoryIntegrationTest {
         requestSync(token, projectId);
         assertThat(worker.processNext()).isTrue();
         long workflowId = createWorkflow(token, projectId);
-        assertThat(worker.processNext()).isTrue();
+        // Workflow creation no longer triggers a project-wide inventory refresh.
 
         String response = mvc.perform(post("/api/workflows/{id}/code-context/refresh", workflowId)
                         .header("Authorization", bearer(token)))
@@ -256,7 +256,6 @@ class RepoInventoryIntegrationTest {
         requestSync(token, projectId);
         assertThat(worker.processNext()).isTrue();
         long workflowId = createWorkflow(token, projectId);
-        assertThat(worker.processNext()).isTrue();
         mvc.perform(post("/api/workflows/{id}/code-context/refresh", workflowId)
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isAccepted());
@@ -282,7 +281,6 @@ class RepoInventoryIntegrationTest {
         requestSync(token, projectId);
         assertThat(worker.processNext()).isTrue();
         long workflowId = createWorkflow(token, projectId);
-        assertThat(worker.processNext()).isTrue();
         mvc.perform(post("/api/workflows/{id}/code-context/refresh", workflowId)
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isAccepted());

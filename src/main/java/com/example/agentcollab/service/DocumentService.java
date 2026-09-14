@@ -21,18 +21,20 @@ public class DocumentService {
     private final WorkflowStateMachine stateMachine;
     private final AgentRunRepository agentRuns;
     private final CodeContextVersionRepository contexts;
+    private final DocumentDecisionService decisions;
     private final AuditLogService audit;
 
     public DocumentService(DocumentVersionRepository documents, WorkflowRepository workflows,
                            WorkflowService workflowService, WorkflowStateMachine stateMachine,
                            AgentRunRepository agentRuns, CodeContextVersionRepository contexts,
-                           AuditLogService audit) {
+                           DocumentDecisionService decisions, AuditLogService audit) {
         this.documents = documents;
         this.workflows = workflows;
         this.workflowService = workflowService;
         this.stateMachine = stateMachine;
         this.agentRuns = agentRuns;
         this.contexts = contexts;
+        this.decisions = decisions;
         this.audit = audit;
     }
 
@@ -147,8 +149,10 @@ public class DocumentService {
         }
         Long contextId = documents.findTopByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(workflow.getId(), type)
                 .map(DocumentVersion::getCodeContextVersionId).orElse(null);
-        return documents.save(DocumentVersion.byUser(workflow.getId(), type, nextVersion(workflow.getId(), type),
-                content, format, actorId, contextId));
+        DocumentVersion document = documents.save(DocumentVersion.byUser(
+                workflow.getId(), type, nextVersion(workflow.getId(), type), content, format, actorId, contextId));
+        decisions.sync(document);
+        return document;
     }
 
     private DocumentVersion saveAgentVersion(Workflow workflow, DocumentType type, DocumentFormat format,
@@ -156,8 +160,11 @@ public class DocumentService {
         if (content == null || content.isBlank()) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "EMPTY_AGENT_DOCUMENT", "Agent 文档内容为空");
         }
-        return documents.save(DocumentVersion.byAgent(workflow.getId(), type, nextVersion(workflow.getId(), type),
-                content, format, agentRunId, codeContextVersionId));
+        DocumentVersion document = documents.save(DocumentVersion.byAgent(
+                workflow.getId(), type, nextVersion(workflow.getId(), type), content, format,
+                agentRunId, codeContextVersionId));
+        decisions.sync(document);
+        return document;
     }
 
     private Long requireCurrentContext(Workflow workflow, Long agentRunId) {
@@ -184,6 +191,7 @@ public class DocumentService {
         if (latest.getVersionNo() != versionNo) {
             throw new ApiException(HttpStatus.CONFLICT, "DOCUMENT_VERSION_STALE", "只能确认当前最新文档版本");
         }
+        decisions.requireResolved(latest);
         latest.confirm(actorId);
         return documents.save(latest);
     }

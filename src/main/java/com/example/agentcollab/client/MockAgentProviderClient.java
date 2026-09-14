@@ -73,7 +73,7 @@ public class MockAgentProviderClient implements AgentProviderClient {
                 + "## 数据流与控制流\n\n请求经过现有入口、领域服务和持久化边界。\n\n"
                 + "## 备选方案与权衡\n\n备选方案会增加运行时依赖，暂不采用。\n\n"
                 + "## 风险与假设\n\n假设现有部署约束保持不变。\n\n"
-                + "## 待确认决策\n\n无必须由成员确认的架构决策。\n\n"
+                + "## 待确认决策\n\n无待确认决策。\n\n"
                 + "## 证据引用\n\n证据：`Code Context` 中提供的仓库事实。";
         return new AgentProviderResult(content, DocumentFormat.MARKDOWN, "Generated Design document");
     }
@@ -90,7 +90,7 @@ public class MockAgentProviderClient implements AgentProviderClient {
                 + "## 非功能要求\n\n保持现有性能、可靠性和可部署性约束。\n\n"
                 + "## 验收矩阵\n\n每个外部行为至少对应一个验收场景。\n\n"
                 + "## 与设计的追踪关系\n\n本规格逐项映射已确认 Design 的边界和决策。\n\n"
-                + "## 待确认决策\n\n无未解决的行为契约决策。\n\n"
+                + "## 待确认决策\n\n无待确认决策。\n\n"
                 + "## 证据引用\n\n证据：`Code Context` 中提供的仓库事实。";
         return new AgentProviderResult(content, DocumentFormat.MARKDOWN, "Generated Spec document");
     }

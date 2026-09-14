@@ -26,6 +26,7 @@ public class DocumentStructureValidator {
             List.of("observability", "可观测"), List.of("non-functional", "非功能"), List.of("acceptance", "验收"),
             List.of("traceability", "追踪", "可追溯"), List.of("open decisions", "待确认", "开放决策"),
             List.of("evidence", "证据"));
+    private final DocumentDecisionParser decisionParser = new DocumentDecisionParser();
 
     public List<String> validate(AgentRunType type, String content) {
         List<String> headings = new ArrayList<>();
@@ -47,6 +48,11 @@ public class DocumentStructureValidator {
         if (content != null && (content.contains("【") || content.contains("】"))) {
             formatErrors.add((type == AgentRunType.GENERATE_DESIGN ? "Design" : "Spec")
                     + " 的证据引用不得使用【】格式，请改用行内代码路径或 Markdown 链接");
+        }
+        try {
+            decisionParser.parse(content);
+        } catch (IllegalArgumentException ex) {
+            formatErrors.add("待确认决策格式无效：" + ex.getMessage());
         }
         if (!formatErrors.isEmpty()) return formatErrors;
         if (headings.size() < 5) {

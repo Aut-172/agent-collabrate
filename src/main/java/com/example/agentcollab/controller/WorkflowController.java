@@ -6,6 +6,7 @@ import com.example.agentcollab.dto.AgentRunDtos;
 import com.example.agentcollab.dto.PlanDtos;
 import com.example.agentcollab.dto.TaskDtos;
 import com.example.agentcollab.dto.WorkflowDtos;
+import com.example.agentcollab.dto.DocumentDecisionDtos;
 import com.example.agentcollab.security.CurrentUser;
 import com.example.agentcollab.service.DocumentService;
 import com.example.agentcollab.service.AgentRunService;
@@ -15,6 +16,7 @@ import com.example.agentcollab.service.UserService;
 import com.example.agentcollab.service.WorkflowService;
 import com.example.agentcollab.service.WorkflowBoardService;
 import com.example.agentcollab.service.CiSyncService;
+import com.example.agentcollab.service.DocumentDecisionService;
 import com.example.agentcollab.dto.WorkflowBoardDtos;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -32,11 +34,13 @@ public class WorkflowController {
     private final TaskService taskService;
     private final WorkflowBoardService boardService;
     private final CiSyncService ciSyncService;
+    private final DocumentDecisionService decisionService;
 
     public WorkflowController(WorkflowService workflowService, DocumentService documentService,
                               UserService userService, AgentRunService agentRunService,
                               PlanService planService, TaskService taskService,
-                              WorkflowBoardService boardService, CiSyncService ciSyncService) {
+                              WorkflowBoardService boardService, CiSyncService ciSyncService,
+                              DocumentDecisionService decisionService) {
         this.workflowService = workflowService;
         this.documentService = documentService;
         this.userService = userService;
@@ -45,6 +49,7 @@ public class WorkflowController {
         this.taskService = taskService;
         this.boardService = boardService;
         this.ciSyncService = ciSyncService;
+        this.decisionService = decisionService;
     }
 
     @PostMapping("/workflows/{workflowId}/generate-design")
@@ -145,6 +150,19 @@ public class WorkflowController {
                                                           @RequestParam(required = false) DocumentType type) {
         return documentService.list(currentUserId(), workflowId, type).stream()
                 .map(WorkflowDtos.DocumentResponse::from).toList();
+    }
+
+    @GetMapping("/workflows/{workflowId}/decisions")
+    public List<DocumentDecisionDtos.DecisionResponse> decisions(@PathVariable Long workflowId) {
+        return decisionService.listCurrent(currentUserId(), workflowId);
+    }
+
+    @PostMapping("/workflows/{workflowId}/decisions/{decisionId}/resolve")
+    public DocumentDecisionDtos.DecisionResponse resolveDecision(
+            @PathVariable Long workflowId,
+            @PathVariable Long decisionId,
+            @Valid @RequestBody DocumentDecisionDtos.ResolveRequest request) {
+        return decisionService.resolve(currentUserId(), workflowId, decisionId, request.selectedOption());
     }
 
     @PutMapping("/workflows/{workflowId}/design")
