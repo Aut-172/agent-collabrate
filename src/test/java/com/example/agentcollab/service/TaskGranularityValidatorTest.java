@@ -25,4 +25,20 @@ class TaskGranularityValidatorTest {
     void doesNotWarnArchitecturePlans() throws Exception {
         assertThat(validator.warnings(json.readTree("{\"tasks\":[]}"), IntentLevel.ARCHITECTURE)).isEmpty();
     }
+
+    @Test
+    void exposesActionableWarningDetailsForApprovalUi() throws Exception {
+        var root = json.readTree("""
+                {"tasks":[
+                  {"taskKey":"A","title":"API","acceptanceCriteria":["done"],"dependencies":[]},
+                  {"taskKey":"B","title":"UI","acceptanceCriteria":["done"],"dependencies":[]}],
+                 "assignments":[{"taskKey":"A","userId":1},{"taskKey":"B","userId":1}]}
+                """);
+        assertThat(validator.analyze(root, IntentLevel.FEATURE))
+                .anySatisfy(warning -> {
+                    assertThat(warning.code()).isEqualTo("TASK_GRANULARITY_WARNING");
+                    assertThat(warning.taskKeys()).containsExactly("A", "B");
+                    assertThat(warning.suggestedAction()).isNotBlank();
+                });
+    }
 }

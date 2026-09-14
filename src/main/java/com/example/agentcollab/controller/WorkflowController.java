@@ -93,7 +93,19 @@ public class WorkflowController {
             @PathVariable Long workflowId,
             @Valid @RequestBody WorkflowDtos.ConfirmDocumentRequest request) {
         return WorkflowDtos.DocumentResponse.from(
-                planService.approve(currentUserId(), workflowId, request.versionNo()));
+                planService.approve(currentUserId(), workflowId, request.versionNo(), request.reason()));
+    }
+
+    @GetMapping("/workflows/{workflowId}/plan-granularity")
+    public PlanDtos.GranularityResponse planGranularity(@PathVariable Long workflowId) {
+        return planService.granularity(currentUserId(), workflowId);
+    }
+
+    @PostMapping("/workflows/{workflowId}/plan-granularity")
+    public WorkflowDtos.DocumentResponse mergePlanTasks(@PathVariable Long workflowId,
+                                                         @Valid @RequestBody PlanDtos.TaskMergeRequest request) {
+        return WorkflowDtos.DocumentResponse.from(planService.applyGranularityDecision(
+                currentUserId(), workflowId, request));
     }
 
     @PostMapping("/workflows/{workflowId}/create-tasks")

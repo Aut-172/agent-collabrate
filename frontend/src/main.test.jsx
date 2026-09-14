@@ -2,7 +2,7 @@ import React from 'react'
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest'
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {App,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,stateLabel} from './main.jsx'
+import {App,BuildPlanSection,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,stateLabel} from './main.jsx'
 
 const okResponse=body=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(body)})
 
@@ -28,6 +28,20 @@ describe('document decisions',()=>{
     await user.click(screen.getByRole('radio',{name:/允许无限嵌套/}))
     await user.click(screen.getByRole('button',{name:'确认选择 DEC-001'}))
     expect(onResolve).toHaveBeenCalledWith(41,'OPT-B')
+  })
+})
+
+describe('build plan granularity actions',()=>{
+  it('requires a selection for merge and sends keep-split reason',async()=>{
+    const onGranularity=vi.fn()
+    const user=userEvent.setup()
+    const plan={intentLevel:'FEATURE',tasks:[{taskKey:'TASK-A',title:'A'},{taskKey:'TASK-B',title:'B'}],assignments:[]}
+    render(<BuildPlanSection workflow={{status:'BUILD_PLAN_PROPOSED'}} document={{versionNo:1,confirmed:false}} plan={plan} warnings={[{message:'拆分过细',taskKeys:['TASK-A','TASK-B']}] } editing={false} draft='' busy={false} canApprovePlan={false} onEdit={vi.fn()} onDraft={vi.fn()} onCancel={vi.fn()} onSave={vi.fn()} onApprove={vi.fn()} onGranularity={onGranularity} onCreateTasks={vi.fn()}/> )
+    expect(screen.getByText(/拆分过细/)).toBeTruthy()
+    const checkboxes=screen.getAllByRole('checkbox'); await user.click(checkboxes[0]); await user.click(checkboxes[1])
+    await user.type(screen.getByRole('textbox',{name:'拆分覆盖理由'}),'两个任务必须独立验收')
+    await user.click(screen.getByRole('button',{name:'保留当前拆分'}))
+    expect(onGranularity).toHaveBeenCalledWith({operation:'KEEP_SPLIT',taskKeys:['TASK-A','TASK-B'],reason:'两个任务必须独立验收'})
   })
 })
 

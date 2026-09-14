@@ -27,7 +27,8 @@ public final class WorkflowDtos {
 
     public record SaveDocumentRequest(@NotBlank @Size(max = 1000000) String content) {}
 
-    public record ConfirmDocumentRequest(@Min(1) int versionNo) {}
+    public record ConfirmDocumentRequest(@Min(1) int versionNo,
+                                         @Size(max = 2000) String reason) {}
 
     public record WorkflowResponse(
             Long id,

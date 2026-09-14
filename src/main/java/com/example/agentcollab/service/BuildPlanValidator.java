@@ -73,6 +73,11 @@ public class BuildPlanValidator {
         return root;
     }
 
+    public List<TaskGranularityValidator.Warning> granularityWarnings(String content, IntentLevel expectedLevel) {
+        JsonNode root = validate(content, expectedLevel);
+        return granularity.analyze(root, expectedLevel);
+    }
+
     private void validateArchitectureChildren(JsonNode root) {
         for (JsonNode child : root.path("childIntents")) {
             if (child.path("intentLevel").asText().equals(IntentLevel.ARCHITECTURE.name())) {
