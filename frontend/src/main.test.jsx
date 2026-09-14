@@ -2,7 +2,7 @@ import React from 'react'
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest'
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {App,BuildPlanSection,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,appendResolvedDecisions,stateLabel} from './main.jsx'
+import {App,BuildPlanSection,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,appendResolvedDecisions,sortWorkflows,stateLabel} from './main.jsx'
 
 const okResponse=body=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(body)})
 
@@ -72,6 +72,18 @@ describe('build plan granularity actions',()=>{
     view.rerender(<BuildPlanSection {...props} document={{versionNo:2,confirmed:false}}/> )
     await waitFor(()=>expect(screen.getByRole('textbox',{name:'拆分覆盖理由'}).value).toBe(''))
     expect(screen.getByRole('button',{name:'批准 v2'}).disabled).toBe(true)
+  })
+
+  it('sorts workflows by creation time and state-machine completion',()=>{
+    const workflows=[
+      {id:1,title:'早期',status:'INTENT',createdAt:'2026-09-10T00:00:00Z'},
+      {id:2,title:'后期',status:'DONE',createdAt:'2026-09-12T00:00:00Z'},
+      {id:3,title:'中期',status:'BUILD_PLAN_PROPOSED',createdAt:'2026-09-11T00:00:00Z'}
+    ]
+    expect(sortWorkflows(workflows,'created-desc').map(item=>item.id)).toEqual([2,3,1])
+    expect(sortWorkflows(workflows,'created-asc').map(item=>item.id)).toEqual([1,3,2])
+    expect(sortWorkflows(workflows,'status-desc').map(item=>item.id)).toEqual([2,3,1])
+    expect(sortWorkflows(workflows,'status-asc').map(item=>item.id)).toEqual([1,3,2])
   })
 })
 
@@ -354,6 +366,7 @@ describe('project-scoped navigation',()=>{
     const generateButton=await screen.findByRole('button',{name:'生成 Design'})
     expect(generateButton.disabled).toBe(true)
     expect(screen.getByText('Running')).toBeTruthy()
+    expect(screen.getByText('预计耗时：2-4min')).toBeTruthy()
     expect(fetchMock).toHaveBeenCalledWith('/api/agent-runs/99',expect.any(Object))
   })
 
