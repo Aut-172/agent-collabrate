@@ -161,7 +161,7 @@ jobs:
       - name: Upload deployment files
         run: |
           scp -i .deploy/deploy_key -o BatchMode=yes -P "$ECS_SSH_PORT" \
-            compose.prod.yaml Caddyfile .deploy/image.env \
+            compose.prod.yaml Caddyfile Caddyfile.http .deploy/image.env \
             "$ECS_USER@$ECS_HOST:$DEPLOY_PATH/"
       - name: Log in to ACR and restart services
         shell: bash
@@ -175,10 +175,22 @@ jobs:
           deploy_path="$1"
           cd "$deploy_path"
           test -f .env || { echo 'Missing /opt/agent-collab/.env; create it on ECS with DB/JWT/domain settings.' >&2; exit 1; }
+          sed -i 's/\r$//' .env
           grep -Eq '^DB_PASSWORD=.+$' .env || { echo 'Missing DB_PASSWORD in ECS .env.' >&2; exit 1; }
           grep -Eq '^JWT_SECRET=.+$' .env || { echo 'Missing JWT_SECRET in ECS .env.' >&2; exit 1; }
-          grep -Eq '^DEPLOY_DOMAIN=.+$' .env || { echo 'Missing DEPLOY_DOMAIN in ECS .env.' >&2; exit 1; }
-          grep -Eq '^ACME_EMAIL=.+$' .env || { echo 'Missing ACME_EMAIL in ECS .env.' >&2; exit 1; }
+          deploy_domain="$(sed -n 's/^DEPLOY_DOMAIN=//p' .env | head -n 1)"
+          test -n "$deploy_domain" || { echo 'Missing DEPLOY_DOMAIN in ECS .env.' >&2; exit 1; }
+          if [[ "$deploy_domain" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            test -f Caddyfile.http || { echo 'Missing Caddyfile.http for temporary IP deployment.' >&2; exit 1; }
+            cp Caddyfile.http Caddyfile.runtime
+            echo 'Using temporary HTTP mode for IPv4 DEPLOY_DOMAIN.'
+          else
+            grep -Eq '^ACME_EMAIL=.+$' .env || { echo 'Missing ACME_EMAIL in ECS .env for domain HTTPS deployment.' >&2; exit 1; }
+            test -f Caddyfile || { echo 'Missing Caddyfile for domain HTTPS deployment.' >&2; exit 1; }
+            cp Caddyfile Caddyfile.runtime
+            echo 'Using HTTPS mode for domain DEPLOY_DOMAIN.'
+          fi
+          chmod 600 Caddyfile.runtime
           tmp_env="$(mktemp)"
           awk '!/^IMAGE_NAMESPACE=|^IMAGE_TAG=/' .env > "$tmp_env"
           cat image.env >> "$tmp_env"
@@ -189,14 +201,22 @@ jobs:
           docker compose --env-file .env -f compose.prod.yaml ps
           curl --fail --show-error --silent --retry 12 --retry-delay 5 http://127.0.0.1/healthz
           REMOTE_SCRIPT
-      - name: Verify public HTTPS endpoint
+      - name: Verify public endpoint
         shell: bash
         run: |
           set -euo pipefail
           deploy_domain="$(ssh -i .deploy/deploy_key -o BatchMode=yes -p "$ECS_SSH_PORT" \
             "$ECS_USER@$ECS_HOST" "sed -n 's/^DEPLOY_DOMAIN=//p' '$DEPLOY_PATH/.env' | head -n 1")"
           test -n "$deploy_domain"
-          curl --fail --show-error --silent --location \
-            --retry 24 --retry-delay 5 \
-            --resolve "${deploy_domain}:443:${ECS_HOST}" \
-            "https://${deploy_domain}/healthz"
+          if [[ "$deploy_domain" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            echo 'Verifying temporary HTTP endpoint.'
+            curl --fail --show-error --silent --location \
+              --retry 24 --retry-delay 5 \
+              "http://${deploy_domain}/healthz"
+          else
+            echo 'Verifying public HTTPS endpoint.'
+            curl --fail --show-error --silent --location \
+              --retry 24 --retry-delay 5 \
+              --resolve "${deploy_domain}:443:${ECS_HOST}" \
+              "https://${deploy_domain}/healthz"
+          fi

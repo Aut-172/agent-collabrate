@@ -1,6 +1,6 @@
 # GitHub Actions + ACR + ECS 公网部署
 
-当前仓库的 CI/CD 部署目标是一台可以通过 SSH 访问、安装了 Docker Engine 和 Docker Compose v2 的阿里云 ECS：
+当前仓库的 CI/CD 部署目标是一台可以通过 SSH 访问、安装了 Docker Engine 和 Docker Compose v2 的阿里云 ECS。域名审核完成前支持使用 ECS 公网 IPv4 临时 HTTP 部署；配置域名后，Workflow 会自动切换回 Caddy HTTPS：
 
 ```text
 Pull Request / push
@@ -11,8 +11,8 @@ main push
   -> 推送阿里云 ACR
   -> SSH 同步生产 Compose、Caddyfile 和镜像环境文件到 ECS
   -> ECS 拉取指定 Commit 镜像并重启
-  -> Caddy 自动申请/续期 HTTPS
-  -> ECS 本机和公网 HTTPS /healthz 检查
+  -> 域名模式由 Caddy 自动申请/续期 HTTPS，IP 模式提供临时 HTTP
+  -> ECS 本机和公网 HTTP/HTTPS /healthz 检查
 ```
 
 ## 1. ECS 前置条件
@@ -23,7 +23,7 @@ ECS 需要准备：
 - Docker Engine 和 Docker Compose v2；
 - 一个专用部署用户，加入 `docker` 用户组；
 - 安全组/防火墙放行 TCP `22`、`80`、`443`；
-- DNS 的 A/AAAA 记录指向 ECS；
+- 域名模式下，DNS 的 A/AAAA 记录指向 ECS；IP 临时模式不需要 DNS；
 - `/opt/agent-collab/.env` 由管理员首次创建，权限设为 `600`。
 
 Caddy 负责公网入口和 HTTPS，PostgreSQL、Spring Boot 和前端容器只在 Compose 内网通信，不直接暴露数据库或后端端口。PostgreSQL 使用命名卷 `agent-collab-postgres`，仍应在 ECS 上配置备份。
@@ -46,7 +46,16 @@ AGENT_API_KEY=
 AGENT_MODEL=
 ```
 
-`DEPLOY_DOMAIN` 必须解析到 ECS，Caddy 才能申请公网证书。Workflow 每次只更新 `.env` 中的 `IMAGE_NAMESPACE` 和 `IMAGE_TAG`，不会覆盖上述运行时凭证。
+域名模式下，`DEPLOY_DOMAIN` 必须解析到 ECS，Caddy 才能申请公网证书。域名模式需要配置 `ACME_EMAIL`；IP 临时模式可以省略 `ACME_EMAIL`，访问地址为 `http://<ECS公网IP>`，不提供 HTTPS。Workflow 每次只更新 `.env` 中的 `IMAGE_NAMESPACE` 和 `IMAGE_TAG`，不会覆盖上述运行时凭证。
+
+IP 临时模式示例：
+
+```dotenv
+DEPLOY_DOMAIN=8.155.160.141
+# IP 模式可不填写 ACME_EMAIL
+```
+
+切换域名时，只需将 `DEPLOY_DOMAIN` 改为已解析到 ECS 的域名并补充 `ACME_EMAIL`，下一次 `main` 部署会自动使用 HTTPS 配置和公网 HTTPS 健康检查。HTTP 模式仅建议用于审核期间的临时测试，不要在未加密连接上传输生产凭证或敏感数据。
 
 ## 2. GitHub Environment Secrets
 
