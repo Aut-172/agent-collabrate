@@ -2,7 +2,7 @@ import React from 'react'
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest'
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {App,ChildIntentTable,EvidencePanel,stateLabel} from './main.jsx'
+import {App,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,stateLabel} from './main.jsx'
 
 const okResponse=body=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(body)})
 
@@ -10,6 +10,24 @@ describe('status labels',()=>{
   it('uses the Intent and Task labels consistently',()=>{
     expect(stateLabel('INTENT')).toBe('Intent Proposed')
     expect(stateLabel('TASKS_READY')).toBe('Tasks Ready')
+  })
+})
+
+describe('document decisions',()=>{
+  it('shows the recommendation and submits the member selection',async()=>{
+    const onResolve=vi.fn()
+    const item={id:41,decisionKey:'DEC-001',question:'回复是否允许嵌套？',recommendedOption:'OPT-A',unresolvedImpact:'无法确定数据关系',status:'OPEN',options:[{key:'OPT-A',label:'只允许一层回复'},{key:'OPT-B',label:'允许无限嵌套'}]}
+    const user=userEvent.setup()
+
+    render(<DocumentDecisionPanel items={[item]} busy={false} canResolve onResolve={onResolve}/>)
+
+    expect(screen.getByText('Open')).toBeTruthy()
+    const recommendedOption=screen.getByRole('radio',{name:/只允许一层回复/}).closest('label')
+    expect(within(recommendedOption).getByText('OPT-A')).toBeTruthy()
+    expect(within(recommendedOption).getByText(/推荐/)).toBeTruthy()
+    await user.click(screen.getByRole('radio',{name:/允许无限嵌套/}))
+    await user.click(screen.getByRole('button',{name:'确认选择 DEC-001'}))
+    expect(onResolve).toHaveBeenCalledWith(41,'OPT-B')
   })
 })
 

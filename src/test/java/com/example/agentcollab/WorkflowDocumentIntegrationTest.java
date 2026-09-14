@@ -83,6 +83,7 @@ class WorkflowDocumentIntegrationTest {
     @Autowired CodeContextPlanRepository contextPlans;
     @Autowired CodeContextVersionRepository codeContexts;
     @Autowired CodeContextFileRepository codeContextFiles;
+    @Autowired DocumentDecisionRepository documentDecisions;
 
     @BeforeEach
     void clearDatabase() {
@@ -347,6 +348,79 @@ class WorkflowDocumentIntegrationTest {
         assertThat(designVersions).extracting(value -> value.getVersionNo()).containsExactly(3, 2, 1);
         assertThat(designVersions).extracting(value -> value.getContent())
                 .containsExactly("# Design v3", "# Design v2", "# Design v1");
+    }
+
+    @Test
+    void resolvesCurrentDocumentDecisionsBeforeConfirmationAndRejectsStaleVersions() throws Exception {
+        String leaderToken = initialize("leader");
+        long projectId = createProject(leaderToken, "document-decisions");
+        long workflowId = createWorkflow(leaderToken, projectId, "decision flow");
+        long designRunId = createAgentRun(workflowId, AgentRunType.GENERATE_DESIGN);
+        documentService.recordGeneratedDesign(workflowId, "# 设计\n", designRunId);
+
+        String decisionDocument = """
+                # 设计：评论功能
+
+                ## 待确认决策
+
+                **DEC-001**
+                - 问题：回复是否允许嵌套？
+                - 选项：
+                  - `OPT-A`：只允许一层回复
+                  - `OPT-B`：允许无限嵌套
+                - 建议：`OPT-A`
+                - 未确认影响：无法确定数据关系和展示结构
+
+                ## 证据引用
+                - `pom.xml`
+                """;
+        mvc.perform(put("/api/workflows/{id}/design", workflowId)
+                        .header("Authorization", bearer(leaderToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("content", decisionDocument))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.versionNo").value(2));
+
+        String listed = mvc.perform(get("/api/workflows/{id}/decisions", workflowId)
+                        .header("Authorization", bearer(leaderToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].decisionKey").value("DEC-001"))
+                .andExpect(jsonPath("$[0].status").value("OPEN"))
+                .andExpect(jsonPath("$[0].options.length()").value(2))
+                .andReturn().getResponse().getContentAsString();
+        long staleDecisionId = json.readTree(listed).get(0).path("id").asLong();
+
+        confirm(leaderToken, workflowId, "confirm-design", 2)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DOCUMENT_DECISIONS_OPEN"))
+                .andExpect(jsonPath("$.decisionKeys[0]").value("DEC-001"));
+
+        mvc.perform(put("/api/workflows/{id}/design", workflowId)
+                        .header("Authorization", bearer(leaderToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("content", decisionDocument))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.versionNo").value(3));
+        mvc.perform(post("/api/workflows/{id}/decisions/{decisionId}/resolve", workflowId, staleDecisionId)
+                        .header("Authorization", bearer(leaderToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"selectedOption\":\"OPT-A\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DOCUMENT_DECISION_STALE"));
+
+        long currentVersionId = documents.findTopByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(
+                workflowId, DocumentType.DESIGN).orElseThrow().getId();
+        long currentDecisionId = documentDecisions
+                .findByDocumentVersionIdInOrderByDocumentVersionIdAscDecisionKeyAsc(java.util.List.of(currentVersionId))
+                .get(0).getId();
+        mvc.perform(post("/api/workflows/{id}/decisions/{decisionId}/resolve", workflowId, currentDecisionId)
+                        .header("Authorization", bearer(leaderToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"selectedOption\":\"OPT-B\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RESOLVED"))
+                .andExpect(jsonPath("$.selectedOption").value("OPT-B"));
+        confirm(leaderToken, workflowId, "confirm-design", 3)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.confirmed").value(true));
     }
 
     @Test

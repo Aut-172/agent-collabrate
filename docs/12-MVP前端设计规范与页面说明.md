@@ -100,7 +100,7 @@
 
 创建 Workflow 时先选择“普通工作流”或“初始化工程与 CI”。普通工作流继续选择 Architecture、Feature 或 Change；选择“初始化工程与 CI”后不再向用户展示 Intent 层级，请求体提交标题、描述和可选的 `pullRequestRequired`，服务端固定按 Feature 创建。该选项向 Member 展示但禁用，并提示只有 Leader 可以创建。项目已启用 CI 或已有进行中的 Bootstrap 时也必须禁用并说明原因。
 
-Workflow 创建后系统自动刷新一次 Repo Inventory。Workflow 详情页的 Code Context 区域允许 Leader 和所有项目成员手动重新同步；刷新运行中或尚未完成时，应显示“等待仓库索引刷新”，不允许基于旧 Inventory 生成 Context Plan。
+Workflow 创建不自动刷新项目级 Repo Inventory，避免使其他未完成 Workflow 的上下文失效。Workflow 详情页的 Code Context 区域允许 Leader 和所有项目成员基于当前 Repo Inventory 刷新本 Workflow 的 Code Context；用户显式发起项目级同步后，刷新运行中或尚未完成时应显示“等待仓库索引刷新”，不允许基于旧 Inventory 生成 Context Plan。
 
 Bootstrap 页面显示：
 
@@ -142,7 +142,9 @@ Bootstrap 覆盖最小工程骨架、构建/测试入口和第一条 CI，任务
   -> 审批、分配、阻塞、交付、CI 和审计
 ```
 
-Design、Spec 和其他未确认的 AI 文档在工作流详情中提供编辑入口。编辑保存会生成新的用户版本，保留原版本记录；确认按钮使用主按钮样式。Build Plan 的批准按钮仅对项目 Leader 显示，普通成员显示“等待 Leader 批准 Build Plan”。
+Design、Spec 和其他未确认的 AI 文档在工作流详情中提供编辑入口。编辑保存会生成新的用户版本，保留原版本记录；确认按钮使用主按钮样式。每份 Markdown 文档提供低强调度的下载按钮，使用下载图标和工具提示，不与生成、编辑、确认等主操作竞争。Build Plan 的批准按钮仅对项目 Leader 显示，普通成员显示“等待 Leader 批准 Build Plan”。
+
+Design/Spec 当前版本包含待确认决策时，在正文后显示决策面板：展示问题、约束选项、Agent 推荐项和未确认影响。状态徽标使用英文 `Open`/`Resolved`；项目 Leader 或 Workflow 创建者可用单选项完成选择，普通成员只读。存在 `Open` 决策时禁用文档确认按钮并提示先完成决策；保存新文档版本后只展示新版本决策，旧版本选择不可复用或修改。
 
 Architecture Build Plan 的子 Intent 使用表格展示标题、Intent 级别、目标说明和后续 Workflow 流程；批准并创建后，每一行对应一个自动开启的子 Workflow。
 

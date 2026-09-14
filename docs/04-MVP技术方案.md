@@ -262,6 +262,7 @@ project_members
 workflows
 workflow_members
 document_versions
+document_decisions
 tasks
 task_assignments
 member_profile_versions
@@ -295,6 +296,8 @@ webhook_events
 - `tasks.effort_points` 必须在 1-8 范围内；
 - `document_versions(workflow_id, document_type, version_no)` 唯一；
 - Agent 生成的 `document_versions` 必须能追溯到 AgentRun、Context Plan 和 Code Context 版本；
+- `document_decisions(document_version_id, decision_key)` 唯一，只允许绑定 Design 或 Spec 文档版本；
+- Design/Spec 当前版本存在 `OPEN` 决策时禁止确认；新文档版本不会继承旧版本的决策状态；
 - TaskPackage 必须绑定 `contextPlanId`、`codeContextVersionId` 和 `baseCommitSha`；
 - `task_packages(task_id, version)` 唯一；
 - `task_package_confirmations(task_id, user_id, package_version)` 唯一；
@@ -343,6 +346,8 @@ POST /api/workflows/{id}/confirm-design
 POST /api/workflows/{id}/generate-spec
 PUT  /api/workflows/{id}/spec
 POST /api/workflows/{id}/confirm-spec
+GET  /api/workflows/{id}/decisions
+POST /api/workflows/{id}/decisions/{decisionId}/resolve
 POST /api/workflows/{id}/generate-build-plan
 PUT  /api/workflows/{id}/plan-drafts
 POST /api/workflows/{id}/approve-plan
@@ -351,7 +356,7 @@ POST /api/workflows/{id}/close
 POST /api/workflows/{id}/cancel
 ```
 
-`POST /api/projects/{projectId}/code-context/sync` 只要求调用者是项目成员，不再限定 Leader。Workflow 创建事务会自动调用同一同步入口；已有 `CURRENT` 的 Repo Inventory 和 Code Context 会先标记为 `STALE`，后台 Provider 返回新的默认分支 Commit 后再建立新的 `CURRENT` Inventory。
+`POST /api/projects/{projectId}/code-context/sync` 只要求调用者是项目成员，不再限定 Leader。只有用户显式调用该项目级同步入口时，已有 `CURRENT` 的 Repo Inventory 和 Code Context 才会先标记为 `STALE`，后台 Provider 返回新的默认分支 Commit 后再建立新的 `CURRENT` Inventory。创建 Workflow 不触发项目级同步。
 
 `generate-build-plan` 根据 `intent_level` 选择输出：
 
@@ -360,6 +365,8 @@ POST /api/workflows/{id}/cancel
 - Change：局部变更计划和 AI 分工建议。
 
 `approve-plan` 必须校验输出 Schema 与 Intent 层级一致。`create-tasks` 对 Architecture 只能创建子 Intent，不得创建开发 Task。
+
+Design/Spec 使用结构化“待确认决策”章节表达 Agent 无法自行确定且会影响实现的选择。系统在保存每个文档版本时解析并绑定决策；项目 Leader 或 Workflow 创建者可从约束选项中解决当前版本的决策。旧文档版本的决策只保留审计意义，不允许继续操作；当前版本仍有 `OPEN` 决策时，`confirm-design` 或 `confirm-spec` 返回冲突错误。
 
 `generate-design`、`generate-spec` 和 `generate-build-plan` 必须解析当前可用 Code Context。Workflow Code Context 刷新会先基于 Repo Inventory 生成 Context Plan，再由 Orchestrator 调 Git Provider 定向读取证据并建立 `CURRENT` 版本；若 Code Context 缺失或明显过期，生成接口拒绝请求并提示刷新。当前 MVP 不提供无上下文降级生成路径。
 
