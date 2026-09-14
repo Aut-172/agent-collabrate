@@ -384,7 +384,7 @@ frontend/
 
 启动命令：`cd frontend; npm install; npm run dev`。生产构建命令：`npm run build`。
 
-当前已实现登录/注册、项目切换、项目概览、Workflow 列表、Workflow 文档和 Build Plan 编辑确认、Code Context 刷新、8 列只读看板、成员邀请与能力画像、通知列表/标记已读、审计日志、任务包确认/复制/下载/差异、Blocker 报告与处理、Final Report JSON/表单交付、Git/CI 证据和 CI 重试页面。Workflow 列表支持按创建时间或状态机完成度倒序/顺序排序；AI 生成区域显示预计耗时 `2-4min`，运行中显示已等待时长。任务卡展示负责人、任务包版本、分支、CI 和更新时间；状态变更仍通过后端具名业务 API。
+当前已实现登录/注册、项目切换、项目概览、Workflow 列表、Workflow 文档和 Build Plan 编辑确认、Code Context 刷新、8 列只读看板、成员邀请与能力画像、通知列表/标记已读、审计日志、任务包确认/复制/下载/差异、Blocker 报告与处理、Final Report JSON/表单交付、Git/CI 证据和 CI 重试页面。Workflow 列表支持按创建时间或状态机完成度倒序/顺序排序；AI 生成区域显示预计耗时 `2-4min`，运行中显示已等待时长，结束后显示本次用时。任务卡展示负责人、任务包版本、分支、CI 和更新时间；状态变更仍通过后端具名业务 API。
 
 ## 8.1 后续页面补齐项
 

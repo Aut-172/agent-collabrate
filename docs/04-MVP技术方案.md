@@ -205,9 +205,9 @@ Agent 生成的分配建议至少包含：
 
 保存阻塞原因、证据、问题、处理人和解决记录。
 
-### 5.9 AgentRun
+### 5.9 AgentRun / AgentCallRecord
 
-保存一次平台侧 Agent 调用的类型、模型、状态、摘要、错误和重试信息。
+`AgentRun` 保存一次业务生成任务的类型、模型、状态、摘要、错误和重试信息。每次实际调用 Provider（包括重试）另保存一条 `AgentCallRecord`，封装结构化请求、Provider 反馈、状态、错误、尝试序号、开始/结束时间和耗时，用于后续监控与统计；请求中不包含 Authorization 等凭据。
 
 ### 5.10 CodeContext
 
@@ -271,6 +271,7 @@ task_package_confirmations
 task_deliveries
 task_blockers
 agent_runs
+agent_call_records
 code_context_runs
 repo_inventory_versions
 repo_inventory_files
@@ -383,6 +384,8 @@ GET  /api/agent-runs/{id}
 POST /api/agent-runs/{id}/retry
 POST /api/agent-runs/{id}/cancel
 ```
+
+每次 Provider 调用的请求和反馈由服务端写入 `agent_call_records`，并以 `agent_run_id + attempt_no` 保留重试历史；该记录不对外暴露密钥，供后续监控和统计查询使用。
 
 ### 7.4 Task、任务包和阻塞
 

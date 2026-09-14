@@ -96,6 +96,10 @@ export function sortWorkflows(workflows,sort='created-desc'){
     return -rankDifference||createdDifference||Number(right.id||0)-Number(left.id||0)
   })
 }
+export function formatElapsed(seconds){
+  const value=Math.max(0,Math.floor(Number(seconds)||0))
+  return `${Math.floor(value/60)}min${String(value%60).padStart(2,'0')}s`
+}
 function CreateWorkflowDialog({project,user,workflows,onClose,onCreated}){
   const [form,setForm]=useState({workflowKind:'STANDARD',title:'',description:'',intentLevel:'FEATURE',pullRequestRequired:true})
   const [role,setRole]=useState(project.createdBy===user.userId?'LEADER':'')
@@ -330,15 +334,17 @@ function WorkflowDetail({workflowId,project,user,onBack,onTask,onUpdated}){
   const generationActive=['QUEUED','RUNNING'].includes(run?.status)
   const generationStart=workflowTimestamp(run?.startedAt||run?.createdAt)
   const waitedSeconds=generationActive&&generationStart?Math.max(0,Math.floor((clock-generationStart)/1000)):null
-  const waitedLabel=waitedSeconds==null?null:`已等待 ${Math.floor(waitedSeconds/60)}min ${String(waitedSeconds%60).padStart(2,'0')}s`
+  const finishedAt=workflowTimestamp(run?.finishedAt)
+  const completedSeconds=!generationActive&&generationStart&&finishedAt?Math.max(0,Math.floor((finishedAt-generationStart)/1000)):null
+  const waitedLabel=waitedSeconds!=null?`已等待 ${formatElapsed(waitedSeconds)}`:completedSeconds!=null?`本次用时 ${formatElapsed(completedSeconds)}`:null
   return <>
     <div className="page-head"><div><button className="button" onClick={onBack}>← 返回工作流</button><h1>{workflow?.title}</h1><p>{workflow?.description}</p></div><Status value={workflow?.status}/></div>
     {error&&<div className="alert"><CircleAlert size={16}/>{error}</div>}
     <section className="detail-grid">
       <div className="panel"><h2>基本信息</h2><div className="detail-meta"><span>Intent：{workflow?.intentLevel}</span><span>健康：<Status value={workflow?.health}/></span><span>下一步：{workflow?.nextAction}</span><span>更新时间：{formatTime(workflow?.updatedAt)}</span></div>{workflow?.status==='READY_TO_CLOSE'&&<button className="primary document-action" onClick={()=>window.confirm('确认关闭当前 Workflow？关闭后不能继续提交交付。')&&action(`/api/workflows/${workflowId}/close`)}>关闭 Workflow</button>}</div>
-      <div className="panel"><h2>Code Context</h2><p>Repo Inventory：<Status value={inventory?.status||'缺失'}/> {inventory?.commitSha&&<small>Commit：<code>{inventory.commitSha.slice(0,12)}…</code></small>}</p><p>Code Context：<Status value={context?.status||'缺失'}/></p><p className="context-steps">步骤 1：同步仓库索引；步骤 2：刷新当前 Workflow Code Context。两步都完成后才能生成 Design、Spec 或 Build Plan。</p>{contextRun?.status==='SUCCEEDED'&&!contextReady&&<p className="context-hint" role="status">仓库索引已同步成功，请继续刷新当前 Workflow Code Context。</p>}{!contextReady&&<p className="error">当前 Workflow 的 Code Context 尚未完成，请先完成上面的两步。</p>}<div className="action-row"><button className="primary" onClick={syncContext} disabled={busy||['QUEUED','RUNNING'].includes(contextRun?.status)}>{contextRun?.status==='RUNNING'?'同步仓库索引中…':'同步仓库索引'}</button><button className="button" onClick={refreshWorkflowContext} disabled={busy||!inventory||['QUEUED','RUNNING'].includes(contextPlanRun?.status)}>{contextPlanRun?.status==='RUNNING'?'刷新 Code Context 中…':'刷新当前 Workflow Code Context'}</button></div>{contextRun&&<p>仓库索引同步 Run：<Status value={contextRun.status}/> {contextRun.errorMessage}</p>}{contextPlanRun&&<p>Workflow Code Context Run：<Status value={contextPlanRun.status}/> {contextPlanRun.errorCode&&<span>{contextPlanRun.errorCode}</span>} {contextPlanRun.errorMessage}</p>}</div>
+      <div className="panel"><h2>Code Context</h2><p>Repo Inventory：<Status value={inventory?.status||'缺失'}/> {inventory?.commitSha&&<small>Commit：<code>{inventory.commitSha.slice(0,12)}…</code></small>}</p><p>Code Context：<Status value={context?.status||'缺失'}/></p><p className="context-steps">步骤 1：同步仓库索引；步骤 2：刷新当前 Workflow Code Context。两步都完成后才能生成 Design、Spec 或 Build Plan。</p>{!contextReady&&<p className="error">当前 Workflow 的 Code Context 尚未完成，请先完成上面的两步。</p>}<div className="action-row"><button className="primary" onClick={syncContext} disabled={busy||['QUEUED','RUNNING'].includes(contextRun?.status)}>{contextRun?.status==='RUNNING'?'同步仓库索引中…':'同步仓库索引'}</button><button className="button" onClick={refreshWorkflowContext} disabled={busy||!inventory||['QUEUED','RUNNING'].includes(contextPlanRun?.status)}>{contextPlanRun?.status==='RUNNING'?'刷新 Code Context 中…':'刷新当前 Workflow Code Context'}</button></div>{contextRun&&<p>仓库索引同步 Run：<Status value={contextRun.status}/> {contextRun.errorMessage}</p>}{contextPlanRun&&<p>Workflow Code Context Run：<Status value={contextPlanRun.status}/> {contextPlanRun.errorCode&&<span>{contextPlanRun.errorCode}</span>} {contextPlanRun.errorMessage}</p>}</div>
     </section>
-    <section className="panel"><h2>AI 生成</h2>{generate?<button className="primary" onClick={()=>action(generate[1])} disabled={busy||!contextReady||generationActive}>{!contextReady?'请先刷新 Code Context':busy?'提交中…':generationLabel}</button>:<span>当前状态无需生成操作</span>}<p className="generation-estimate" role="status">预计耗时：2-4min{waitedLabel&&<small>{waitedLabel}</small>}</p>{run&&<div className="run-status"><Status value={run.status}/>{run.errorCode&&<span>{run.errorCode}</span>} {run.errorMessage&&<span>{run.errorMessage}</span>}</div>}</section>
+    <section className="panel"><h2>AI 生成</h2>{generate?<button className="primary" onClick={()=>action(generate[1])} disabled={busy||!contextReady||generationActive}>{!contextReady?'请先刷新 Code Context':busy?'提交中…':generationLabel}</button>:<span>当前状态无需生成操作</span>}<p className="generation-estimate" role="status"><span>预计耗时：2-4min</span>{waitedLabel&&<small>{waitedLabel}</small>}</p>{run&&<div className="run-status"><Status value={run.status}/>{run.errorCode&&<span>{run.errorCode}</span>} {run.errorMessage&&<span>{run.errorMessage}</span>}</div>}</section>
     <section className="panel workflow-documents"><h2>文档</h2>{['DESIGN','SPEC'].map(type=>{
       const doc=latest(type)
       const editing=documentEditing===type

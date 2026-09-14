@@ -2,7 +2,7 @@ import React from 'react'
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest'
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {App,BuildPlanSection,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,appendResolvedDecisions,sortWorkflows,stateLabel} from './main.jsx'
+import {App,BuildPlanSection,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,appendResolvedDecisions,formatElapsed,sortWorkflows,stateLabel} from './main.jsx'
 
 const okResponse=body=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(body)})
 
@@ -20,6 +20,11 @@ describe('document decisions',()=>{
     const output=appendResolvedDecisions(document.content,document,decisions)
     expect(output).toContain('## 已确认决策')
     expect(output).toContain('最终选择：无限 (`OPT-B`)')
+  })
+
+  it('formats generation durations for the AI status line',()=>{
+    expect(formatElapsed(0)).toBe('0min00s')
+    expect(formatElapsed(125)).toBe('2min05s')
   })
 
   it('shows the recommendation and submits the member selection',async()=>{

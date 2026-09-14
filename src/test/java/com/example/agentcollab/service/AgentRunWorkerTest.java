@@ -1,7 +1,12 @@
 package com.example.agentcollab.service;
 
 import com.example.agentcollab.client.AgentProviderClient;
+import com.example.agentcollab.client.AgentGenerationRequest;
+import com.example.agentcollab.client.AgentProviderResult;
 import com.example.agentcollab.exception.ApiException;
+import com.example.agentcollab.domain.AgentRunType;
+import com.example.agentcollab.domain.DocumentFormat;
+import com.example.agentcollab.domain.IntentLevel;
 import org.springframework.http.HttpStatus;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.junit.jupiter.api.Test;
@@ -14,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyLong;
 
 class AgentRunWorkerTest {
 
@@ -73,5 +79,34 @@ class AgentRunWorkerTest {
                 org.mockito.Mockito.eq("AGENT_EXECUTION_FAILED"), message.capture(), org.mockito.Mockito.eq(false));
         assertThat(message.getValue()).contains("duplicate key value violates unique constraint")
                 .contains("RuntimeException");
+    }
+
+    @Test
+    void persistsProviderRequestAndFeedbackForEachCall() {
+        AgentRunExecutionService executions = mock(AgentRunExecutionService.class);
+        AgentRequestFactory requests = mock(AgentRequestFactory.class);
+        AgentOutputValidator outputValidator = mock(AgentOutputValidator.class);
+        AgentProviderClient provider = mock(AgentProviderClient.class);
+        AgentCallRecordService callRecords = mock(AgentCallRecordService.class);
+        var claimed = new AgentRunExecutionService.ClaimedAgentJob(11L, 12L);
+        var request = new AgentGenerationRequest(1L, AgentRunType.GENERATE_DESIGN, IntentLevel.FEATURE,
+                "title", "description", null, null, List.of(), null, null);
+        var result = new AgentProviderResult("# Design", DocumentFormat.MARKDOWN, "ok");
+        var callRecord = mock(com.example.agentcollab.domain.AgentCallRecord.class);
+        when(executions.claimNext()).thenReturn(java.util.Optional.of(claimed));
+        when(requests.create(12L)).thenReturn(request);
+        when(provider.generate(request)).thenReturn(result);
+        when(callRecords.start(12L, "mock", "test-model", request, null)).thenReturn(callRecord);
+        when(callRecord.getId()).thenReturn(91L);
+        when(provider.providerName()).thenReturn("mock");
+        when(provider.modelName()).thenReturn("test-model");
+        AgentRunWorker worker = new AgentRunWorker(
+                executions, requests, outputValidator, provider, callRecords, Runnable::run, 1);
+
+        worker.processNext();
+
+        verify(callRecords).start(12L, "mock", "test-model", request, null);
+        verify(callRecords).succeed(org.mockito.Mockito.eq(91L), org.mockito.Mockito.same(result), anyLong());
+        verify(executions).complete(claimed, result);
     }
 }

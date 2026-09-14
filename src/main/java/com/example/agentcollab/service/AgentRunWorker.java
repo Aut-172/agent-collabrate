@@ -5,6 +5,7 @@ import com.example.agentcollab.client.AgentProviderException;
 import com.example.agentcollab.exception.ApiException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -22,19 +23,30 @@ public class AgentRunWorker {
     private final AgentRequestFactory requests;
     private final AgentOutputValidator outputValidator;
     private final AgentProviderClient provider;
+    private final AgentCallRecordService callRecords;
     private final Executor executor;
     private final int concurrency;
 
+    @Autowired
     public AgentRunWorker(AgentRunExecutionService executions, AgentRequestFactory requests,
                           AgentOutputValidator outputValidator, AgentProviderClient provider,
+                          AgentCallRecordService callRecords,
                           @Qualifier("agentRunExecutor") Executor executor,
                           @Value("${app.agent.worker.concurrency:4}") int concurrency) {
         this.executions = executions;
         this.requests = requests;
         this.outputValidator = outputValidator;
         this.provider = provider;
+        this.callRecords = callRecords;
         this.executor = executor;
         this.concurrency = Math.max(1, concurrency);
+    }
+
+    /** Keeps focused unit tests and embedders compatible when call persistence is not configured. */
+    public AgentRunWorker(AgentRunExecutionService executions, AgentRequestFactory requests,
+                          AgentOutputValidator outputValidator, AgentProviderClient provider,
+                          Executor executor, int concurrency) {
+        this(executions, requests, outputValidator, provider, null, executor, concurrency);
     }
 
     @Scheduled(fixedDelayString = "${app.agent.worker.poll-delay-ms:1000}")
@@ -55,12 +67,23 @@ public class AgentRunWorker {
         if (claimed.isEmpty()) return false;
         long startedAt = System.nanoTime();
         String runType = null;
+        Long callRecordId = null;
+        boolean callSucceeded = false;
+        com.example.agentcollab.client.AgentProviderResult providerResult = null;
         try {
             var request = requests.create(claimed.get().runId());
             runType = request.runType().name();
-            var result = provider.generate(request);
-            outputValidator.validate(request, result);
-            executions.complete(claimed.get(), result);
+            if (callRecords != null) {
+                callRecordId = callRecords.start(claimed.get().runId(), provider.providerName(),
+                        provider.modelName(), request, provider.requestPayload(request)).getId();
+            }
+            providerResult = provider.generate(request);
+            outputValidator.validate(request, providerResult);
+            if (callRecordId != null) {
+                callRecords.succeed(callRecordId, providerResult, elapsedMillis(startedAt));
+                callSucceeded = true;
+            }
+            executions.complete(claimed.get(), providerResult);
             log.atInfo()
                     .setMessage("Agent run completed")
                     .addKeyValue("runId", claimed.get().runId())
@@ -68,6 +91,9 @@ public class AgentRunWorker {
                     .addKeyValue("durationMs", elapsedMillis(startedAt))
                     .log();
         } catch (AgentProviderException ex) {
+            if (callRecordId != null && !callSucceeded) {
+                callRecords.fail(callRecordId, providerResult, ex.getCode(), ex.getMessage(), ex.isRetryable(), elapsedMillis(startedAt));
+            }
             executions.handleFailure(claimed.get(), ex.getCode(), ex.getMessage(), ex.isRetryable());
             log.atWarn()
                     .setMessage("Agent run failed")
@@ -78,6 +104,9 @@ public class AgentRunWorker {
                     .addKeyValue("durationMs", elapsedMillis(startedAt))
                     .log();
         } catch (ApiException ex) {
+            if (callRecordId != null && !callSucceeded) {
+                callRecords.fail(callRecordId, providerResult, ex.getCode(), ex.getMessage(), false, elapsedMillis(startedAt));
+            }
             executions.handleFailure(claimed.get(), ex.getCode(), ex.getMessage(), false);
             log.atError()
                     .setMessage("Agent run failed with business error")
@@ -89,6 +118,9 @@ public class AgentRunWorker {
                     .addKeyValue("durationMs", elapsedMillis(startedAt))
                     .log();
         } catch (RuntimeException ex) {
+            if (callRecordId != null && !callSucceeded) {
+                callRecords.fail(callRecordId, providerResult, "AGENT_EXECUTION_FAILED", describe(ex), false, elapsedMillis(startedAt));
+            }
             String message = describe(ex);
             String errorCode = ex instanceof DataIntegrityViolationException
                     && "GENERATE_CODE_CONTEXT_PLAN".equals(runType)

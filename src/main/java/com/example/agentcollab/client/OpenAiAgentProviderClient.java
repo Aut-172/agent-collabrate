@@ -173,7 +173,8 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
         DocumentFormat format = request.runType() == AgentRunType.GENERATE_CODE_CONTEXT_PLAN
                 || request.runType() == AgentRunType.GENERATE_BUILD_PLAN
                 ? DocumentFormat.JSON : DocumentFormat.MARKDOWN;
-        return new AgentProviderResult(content, format, "OpenAI Responses API response");
+        return new AgentProviderResult(content, format, "OpenAI Responses API response",
+                parseRawResponse(response.getBody()));
     }
 
     /** Returns the exact JSON envelope sent to the Responses API, without the Authorization header. */
@@ -190,10 +191,24 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
         return payload;
     }
 
+    @Override
+    public JsonNode requestPayload(AgentGenerationRequest request) {
+        return buildPayload(request);
+    }
+
     private String rootCauseType(Throwable error) {
         Throwable current = error;
         while (current.getCause() != null && current.getCause() != current) current = current.getCause();
         return current.getClass().getSimpleName();
+    }
+
+    private JsonNode parseRawResponse(String body) {
+        if (body == null || body.isBlank()) return null;
+        try {
+            return json.readTree(body);
+        } catch (JsonProcessingException ignored) {
+            return null;
+        }
     }
 
     /** Classifies transport failures without exposing request data or provider response bodies. */
