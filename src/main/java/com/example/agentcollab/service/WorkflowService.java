@@ -8,7 +8,6 @@ import com.example.agentcollab.repository.ProjectRepository;
 import com.example.agentcollab.repository.TaskBlockerRepository;
 import com.example.agentcollab.repository.WorkflowMemberRepository;
 import com.example.agentcollab.repository.WorkflowRepository;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,15 +29,13 @@ public class WorkflowService {
     private final TaskCancellationService taskCancellation;
     private final TaskBlockerRepository blockers;
     private final AuditLogService audit;
-    private final ObjectProvider<CodeContextService> codeContextService;
 
     public WorkflowService(WorkflowRepository workflows, WorkflowMemberRepository workflowMembers,
                            ProjectRepository projects, ProjectMemberRepository projectMembers,
                            ProjectAccessService access, WorkflowStateMachine stateMachine,
                            AgentRunCancellationService runCancellation,
                            TaskCancellationService taskCancellation,
-                           TaskBlockerRepository blockers, AuditLogService audit,
-                           ObjectProvider<CodeContextService> codeContextService) {
+                           TaskBlockerRepository blockers, AuditLogService audit) {
         this.workflows = workflows;
         this.workflowMembers = workflowMembers;
         this.projects = projects;
@@ -49,7 +46,6 @@ public class WorkflowService {
         this.taskCancellation = taskCancellation;
         this.blockers = blockers;
         this.audit = audit;
-        this.codeContextService = codeContextService;
     }
 
     @Transactional
@@ -76,9 +72,10 @@ public class WorkflowService {
         Workflow workflow = workflows.save(new Workflow(projectId, request.title(), request.description(),
                 request.intentLevel(), completionMode, parentWorkflowId, actorId, pullRequestRequired));
         workflowMembers.save(new WorkflowMember(workflow.getId(), actorId, WorkflowMember.Role.OWNER));
-        // Every Workflow starts from a fresh remote-repository fact snapshot. The
-        // request is queued here, while the provider call remains asynchronous.
-        codeContextService.getObject().requestSync(actorId, projectId);
+        // Workflow creation is intentionally independent from project-wide repository
+        // synchronization. A project refresh invalidates every current inventory and
+        // context, so it must only happen after an explicit user action; otherwise
+        // creating a new Workflow would interrupt unfinished sibling Workflows.
         AuditSupport.record(audit, actorId, projectId, "WORKFLOW_CREATED", "WORKFLOW", workflow.getId(), Map.of("intentLevel", request.intentLevel().name()));
         return workflow;
     }

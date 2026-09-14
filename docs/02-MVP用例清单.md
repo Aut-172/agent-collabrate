@@ -97,7 +97,7 @@
 
 ### UC-005A 同步代码上下文
 
-项目 Leader 和所有有效项目成员都可以发起仓库代码上下文同步。每次创建 Workflow 后，系统会自动排队一次 Repo Inventory 刷新；在该刷新完成前，不能使用旧的仓库索引生成新的 Context Plan。
+项目 Leader 和所有有效项目成员都可以发起仓库代码上下文同步。创建 Workflow 不会自动排队 Repo Inventory 刷新；新 Workflow 可以先使用项目当前的 `CURRENT` Repo Inventory 生成自己的 Context Plan。只有用户显式发起刷新时，系统才会使项目级旧 Repo Inventory/Code Context 失效；在该刷新完成前，不能使用旧的仓库索引生成新的 Context Plan。
 
 前置条件：
 

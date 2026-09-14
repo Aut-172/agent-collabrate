@@ -156,11 +156,13 @@ class OpenAiAgentProviderClientTest {
                 .contains("证据引用使用行内代码路径", "禁止使用中文方括号【】")
                 .contains("正文目标 3000-4500 个中文字符", "1-2 段，每段最多 3 句")
                 .contains("目标 3-5 条、非目标 2-4 条", "章节预算是上限而不是填充目标")
+                .contains("唯一编号 DEC-001、DEC-002", "未确认影响")
                 .contains("API 另以 6000 output tokens 为硬上限");
         assertThat(spec).contains("文档类型：Spec", "行为场景", "验收矩阵", "所有一级和二级标题必须使用中文")
                 .contains("Do not redesign the architecture")
                 .contains("正文目标 3200-4800 个中文字符", "前置条件、触发动作、预期结果各 1 句")
                 .contains("最多 12 项", "同一规则只定义一次")
+                .contains("唯一编号 DEC-001、DEC-002", "无待确认决策")
                 .contains("API 另以 6000 output tokens 为硬上限");
         assertThat(design).doesNotContain("文档类型：Spec");
         assertThat(spec).doesNotContain("文档类型：Design");

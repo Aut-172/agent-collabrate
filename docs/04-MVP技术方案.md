@@ -424,7 +424,7 @@ POST /api/notifications/{id}/read
   -> 返回 runId
 ```
 
-Workflow 创建会自动排队 Repo Inventory 刷新。刷新期间旧 Inventory/Code Context 标记为 `STALE`。Workflow Code Context 刷新先排队 Context Plan AgentRun，再由 Evidence Worker 按计划读取文件并创建 `CURRENT` CodeContextVersion，成功后 Design/Spec/Build Plan AgentRun 才能继续。
+Workflow 创建不会自动排队 Repo Inventory 刷新，避免创建一个新 Workflow 时使同一项目其他未完成 Workflow 的上下文失效。新 Workflow Code Context 刷新使用项目当前的 `CURRENT` Repo Inventory；用户显式发起项目级同步时，刷新期间旧 Inventory/Code Context 才会标记为 `STALE`。Workflow Code Context 刷新先排队 Context Plan AgentRun，再由 Evidence Worker 按计划读取文件并创建 `CURRENT` CodeContextVersion，成功后 Design/Spec/Build Plan AgentRun 才能继续。
 
 ### 8.2 Worker
 

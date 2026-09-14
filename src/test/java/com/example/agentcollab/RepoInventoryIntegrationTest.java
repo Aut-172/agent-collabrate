@@ -144,7 +144,7 @@ class RepoInventoryIntegrationTest {
     }
 
     @Test
-    void workflowCreationQueuesFreshRepositoryInventoryRefresh() throws Exception {
+    void workflowCreationDoesNotInvalidateExistingRepositoryInventory() throws Exception {
         String token = initialize("leader");
         long projectId = createProject(token, "workflow-refresh");
         long initialRun = requestSync(token, projectId);
@@ -155,11 +155,14 @@ class RepoInventoryIntegrationTest {
         createWorkflow(token, projectId);
 
         assertThat(inventories.findById(initialInventory).orElseThrow().getStatus())
-                .isEqualTo(RepoInventoryStatus.STALE);
-        assertThat(worker.processNext()).isTrue();
+                .isEqualTo(RepoInventoryStatus.CURRENT);
+        assertThat(contextRuns.findTopByProjectIdAndRunTypeOrderByCreatedAtDesc(
+                projectId, CodeContextRun.Type.REPO_INGESTION).orElseThrow().getId())
+                .isEqualTo(initialRun);
+        assertThat(worker.processNext()).isFalse();
         assertThat(inventories.findTopByProjectIdAndStatusOrderByCreatedAtDesc(
                 projectId, RepoInventoryStatus.CURRENT).orElseThrow().getCommitSha())
-                .isEqualTo("2222222222222222222222222222222222222222");
+                .isEqualTo("1111111111111111111111111111111111111111");
     }
 
     @Test

@@ -29,14 +29,18 @@ public class DocumentStructureValidator {
 
     public List<String> validate(AgentRunType type, String content) {
         List<String> headings = new ArrayList<>();
+        List<String> rawHeadings = new ArrayList<>();
         var matcher = HEADING.matcher(content == null ? "" : content);
-        while (matcher.find()) headings.add(normalize(matcher.group(1)));
+        while (matcher.find()) {
+            rawHeadings.add(matcher.group(1).trim());
+            headings.add(normalize(matcher.group(1)));
+        }
         List<String> formatErrors = new ArrayList<>();
         if (headings.stream().anyMatch(heading -> !heading.matches(".*[\\u4e00-\\u9fff].*"))) {
             formatErrors.add((type == AgentRunType.GENERATE_DESIGN ? "Design" : "Spec")
                     + " 的一级和二级标题必须使用中文");
         }
-        if (headings.stream().anyMatch(heading -> heading.matches(".*[A-Za-z].*"))) {
+        if (rawHeadings.stream().anyMatch(this::startsWithEnglishHeadingText)) {
             formatErrors.add((type == AgentRunType.GENERATE_DESIGN ? "Design" : "Spec")
                     + " 的标题不得包含英文标题文本");
         }
@@ -73,5 +77,15 @@ public class DocumentStructureValidator {
 
     private String normalize(String value) {
         return value.toLowerCase(Locale.ROOT).replaceAll("[：:（）()/_-]", " ").trim();
+    }
+
+    /**
+     * A document title may include the Intent title after a Chinese label, for
+     * example "设计：async design". Only the heading label itself must be Chinese.
+     */
+    private boolean startsWithEnglishHeadingText(String heading) {
+        String value = heading == null ? "" : heading.trim()
+                .replaceFirst("^\\d+[.、)]\\s*", "");
+        return value.matches("^[A-Za-z][A-Za-z0-9 _-]*(?::|：|$).*");
     }
 }

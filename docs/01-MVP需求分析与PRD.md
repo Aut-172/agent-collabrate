@@ -95,7 +95,7 @@ Architecture 可以提出架构评审参与者建议，但不得生成面向代�
 
 平台 Agent 在生成 Design、Spec 和 Build Plan 前，必须获得与当前仓库相关的代码上下文证据。该证据由 Code Context Provider 提供，而不是由用户手工描述替代。
 
-MVP 当前扩展默认使用 Git Provider 读取远程仓库的默认分支、Commit、目录树、文件元数据和白名单文件，形成 Repo Inventory。每次创建 Workflow 时系统都会排队一次新的仓库事实同步；Leader 或任一项目成员也可以手动刷新。刷新期间旧 Repo Inventory/Code Context 标记为过期，不能继续作为新的文档生成依据。随后由平台 Agent 基于最新 Intent 和 Repo Inventory 生成 Context Plan，再由 Code Context Orchestrator 按计划读取相关文件和 Diff，形成版本化 Code Context。未来可以增加 Local Agent Provider，由本地 Connector 调用 Codex CLI 读取本地仓库并返回结构化证据。
+MVP 当前扩展默认使用 Git Provider 读取远程仓库的默认分支、Commit、目录树、文件元数据和白名单文件，形成 Repo Inventory。创建 Workflow 不会自动触发项目级仓库事实同步，避免新 Workflow 使其他未完成 Workflow 的上下文同时失效；新 Workflow 在生成 Context Plan 时可使用项目当前的 `CURRENT` Repo Inventory。Leader 或任一项目成员可以显式手动刷新仓库索引。刷新期间旧 Repo Inventory/Code Context 标记为过期，不能继续作为新的文档生成依据。随后由平台 Agent 基于最新 Intent 和 Repo Inventory 生成 Context Plan，再由 Code Context Orchestrator 按计划读取相关文件和 Diff，形成版本化 Code Context。未来可以增加 Local Agent Provider，由本地 Connector 调用 Codex CLI 读取本地仓库并返回结构化证据。
 
 职责划分：
 

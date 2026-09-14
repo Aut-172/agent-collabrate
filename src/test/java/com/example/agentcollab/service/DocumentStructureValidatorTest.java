@@ -69,4 +69,22 @@ class DocumentStructureValidatorTest {
                 .contains("Design 的标题不得包含英文标题文本")
                 .contains("Design 的证据引用不得使用【】格式，请改用行内代码路径或 Markdown 链接");
     }
+
+    @Test
+    void allowsEnglishIntentTitleAfterChineseDocumentLabel() {
+        String content = """
+                # 设计：async design
+                ## 决策摘要
+                ## 目标与非目标
+                ## 当前上下文与约束
+                ## 方案架构
+                ## 组件职责
+                ## 数据流与控制流
+                ## 备选方案与权衡
+                ## 风险与假设
+                ## 待确认决策
+                ## 证据引用
+                """;
+        assertThat(validator.validate(AgentRunType.GENERATE_DESIGN, content)).isEmpty();
+    }
 }
