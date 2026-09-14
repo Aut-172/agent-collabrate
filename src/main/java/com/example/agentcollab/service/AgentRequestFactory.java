@@ -68,10 +68,13 @@ public class AgentRequestFactory {
             throw new AgentProviderException(
                     "NO_ASSIGNABLE_MEMBERS", "项目中没有已完成画像且可投入的成员", false);
         }
+        String design = run.getRunType() == AgentRunType.GENERATE_DESIGN
+                ? null : latestConfirmed(workflow.getId(), DocumentType.DESIGN);
+        String spec = run.getRunType() == AgentRunType.GENERATE_BUILD_PLAN
+                ? latestConfirmed(workflow.getId(), DocumentType.SPEC) : null;
         return new AgentGenerationRequest(workflow.getId(), run.getRunType(), workflow.getIntentLevel(),
-                workflow.getTitle(), workflow.getDescription(), latest(workflow.getId(), DocumentType.DESIGN),
-                latest(workflow.getId(), DocumentType.SPEC), assignableMembers, repoInventory(run),
-                codeContext(run));
+                workflow.getTitle(), workflow.getDescription(), design, spec, assignableMembers,
+                repoInventory(run), codeContext(run));
     }
 
     private AgentGenerationRequest.RepoInventoryInput repoInventory(AgentRun run) {
@@ -134,8 +137,9 @@ public class AgentRequestFactory {
                 .toList();
     }
 
-    private String latest(Long workflowId, DocumentType type) {
+    private String latestConfirmed(Long workflowId, DocumentType type) {
         return documents.findTopByWorkflowIdAndDocumentTypeOrderByVersionNoDesc(workflowId, type)
+                .filter(DocumentVersion::isConfirmed)
                 .map(DocumentVersion::getContent).orElse(null);
     }
 }

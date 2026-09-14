@@ -12,10 +12,18 @@ import org.springframework.stereotype.Component;
 public class AgentOutputValidator {
     private final BuildPlanValidator buildPlans;
     private final ContextPlanValidator contextPlans;
+    private final DocumentStructureValidator documents;
 
     public AgentOutputValidator(BuildPlanValidator buildPlans, ContextPlanValidator contextPlans) {
+        this(buildPlans, contextPlans, new DocumentStructureValidator());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AgentOutputValidator(BuildPlanValidator buildPlans, ContextPlanValidator contextPlans,
+                                DocumentStructureValidator documents) {
         this.buildPlans = buildPlans;
         this.contextPlans = contextPlans;
+        this.documents = documents;
     }
 
     public void validate(AgentGenerationRequest request, AgentProviderResult result) {
@@ -30,6 +38,9 @@ public class AgentOutputValidator {
             validateBuildPlan(request.intentLevel(), result);
         } else if (result.format() != DocumentFormat.MARKDOWN) {
             throw invalid("Design 和 Spec 必须使用 Markdown 格式");
+        } else {
+            var errors = documents.validate(request.runType(), result.content());
+            if (!errors.isEmpty()) throw invalid(String.join("；", errors));
         }
     }
 

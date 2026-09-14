@@ -142,6 +142,40 @@ class OpenAiAgentProviderClientTest {
                 "create each child as a new Workflow");
     }
 
+    @Test
+    void designAndSpecPromptsHaveDistinctDocumentResponsibilities() {
+        RestClient.Builder builder = RestClient.builder();
+        var provider = provider(builder.build(), "test-key", "test-model");
+
+        String design = provider.buildPayload(request(AgentRunType.GENERATE_DESIGN, IntentLevel.FEATURE))
+                .path("input").asText();
+        String spec = provider.buildPayload(request(AgentRunType.GENERATE_SPEC, IntentLevel.FEATURE))
+                .path("input").asText();
+
+        assertThat(design).contains("文档类型：Design", "方案架构", "备选方案与权衡", "所有一级和二级标题必须使用中文")
+                .contains("证据引用使用行内代码路径", "禁止使用中文方括号【】")
+                .contains("正文目标 3000-4500 个中文字符", "1-2 段，每段最多 3 句")
+                .contains("目标 3-5 条、非目标 2-4 条", "章节预算是上限而不是填充目标")
+                .contains("API 另以 6000 output tokens 为硬上限");
+        assertThat(spec).contains("文档类型：Spec", "行为场景", "验收矩阵", "所有一级和二级标题必须使用中文")
+                .contains("Do not redesign the architecture")
+                .contains("正文目标 3200-4800 个中文字符", "前置条件、触发动作、预期结果各 1 句")
+                .contains("最多 12 项", "同一规则只定义一次")
+                .contains("API 另以 6000 output tokens 为硬上限");
+        assertThat(design).doesNotContain("文档类型：Spec");
+        assertThat(spec).doesNotContain("文档类型：Design");
+    }
+
+    @Test
+    void sendsConfiguredOutputTokenLimitToResponsesApi() {
+        RestClient.Builder builder = RestClient.builder();
+        var provider = new OpenAiAgentProviderClient(builder.build(), json, "test-key", "test-model",
+                "high", true, 6000);
+
+        assertThat(provider.buildPayload(request(AgentRunType.GENERATE_DESIGN, IntentLevel.FEATURE))
+                .path("max_output_tokens").asInt()).isEqualTo(6000);
+    }
+
     private OpenAiAgentProviderClient provider(RestClient client, String key, String model) {
         return new OpenAiAgentProviderClient(client, json, key, model, "xhigh", true, 1000);
     }

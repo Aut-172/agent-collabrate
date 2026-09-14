@@ -30,6 +30,14 @@ function MarkdownContent({content,format}){
   if(!markdown)return <pre className="document-source">{format==='JSON'?formatJson(content):content}</pre>
   return <div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{a:({children,...props})=><a {...props} target="_blank" rel="noreferrer">{children}</a>}}>{content||''}</ReactMarkdown></div>
 }
+function downloadTextFile(name,content,mime='text/markdown;charset=utf-8'){
+  const url=URL.createObjectURL(new Blob([content||''],{type:mime}))
+  const anchor=document.createElement('a')
+  anchor.href=url
+  anchor.download=name
+  anchor.click()
+  window.setTimeout(()=>URL.revokeObjectURL(url),0)
+}
 function formatJson(value){try{return JSON.stringify(JSON.parse(value),null,2)}catch{return value}}
 function Login({onLogin}){const [mode,setMode]=useState('login');const [form,setForm]=useState({username:'',password:''});const [error,setError]=useState('');const register=mode==='register';const submit=async e=>{e.preventDefault();setError('');try{const path=register?'/api/auth/register':'/api/auth/login';const r=await api(path,{method:'POST',body:JSON.stringify(form)});localStorage.setItem('ac_token',r.accessToken);onLogin(r)}catch(x){setError(x.message)}};return <main className="login"><form onSubmit={submit} className="login-card"><div className="logo">AC</div><p className="kicker">工程协作平台</p><h1>{register?'创建账号':'登录工作台'}</h1><label>用户名<input required minLength={register?3:1} maxLength={50} autoComplete="username" value={form.username} onChange={e=>setForm({...form,username:e.target.value})}/></label><label>密码<input required minLength={register?8:1} maxLength={128} type="password" autoComplete={register?'new-password':'current-password'} value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></label><button className="primary wide">{register?'注册并进入':'登录'}</button>{error&&<p className="error">{error}</p>}<button type="button" className="auth-switch" onClick={()=>{setMode(register?'login':'register');setError('')}}>{register?'已有账号？返回登录':'没有账号？注册'}</button></form></main>}
 function CreateProjectDialog({onClose,onCreated}){
@@ -249,6 +257,27 @@ function WorkflowDetail({workflowId,project,user,onBack,onTask,onUpdated}){
   const saveDocument=async type=>{setBusy(true);setError('');try{await api(`/api/workflows/${workflowId}/${type.toLowerCase()}`,{method:'PUT',body:JSON.stringify({content:documentDraft})});cancelDocumentEdit();await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
   const savePlan=async()=>{setBusy(true);setError('');try{JSON.parse(planDraft);await api(`/api/workflows/${workflowId}/plan-drafts`,{method:'PUT',body:JSON.stringify({content:planDraft})});setPlanEditing(false);await load()}catch(e){setError(e instanceof SyntaxError?'Build Plan 不是有效 JSON':e.message)}finally{setBusy(false)}}
   const retryGeneration=()=>{if(run?.runId)action(`/api/agent-runs/${run.runId}/retry`)}
+  useEffect(()=>{
+    const added=[]
+    document.querySelectorAll('article.document').forEach(article=>{
+      const markdown=article.querySelector('.markdown-body')
+      const actions=article.querySelector('.document-actions')
+      if(!markdown||!actions||actions.querySelector('.document-download'))return
+      const type=article.querySelector('.document-title-mark')?.textContent?.trim()||'document'
+      const doc=documents.find(item=>item.documentType===type&&item.content===markdown.textContent)||documents.find(item=>item.documentType===type)
+      if(!doc)return
+      const button=document.createElement('button')
+      button.type='button'
+      button.className='button document-download'
+      button.title='下载 Markdown 文档'
+      button.setAttribute('aria-label',`下载 ${type} 文档`)
+      button.textContent='下载文档'
+      button.addEventListener('click',()=>downloadTextFile(`${type.toLowerCase()}-v${doc.versionNo}.md`,doc.content))
+      actions.insertBefore(button,actions.firstChild)
+      added.push(button)
+    })
+    return()=>added.forEach(button=>button.remove())
+  },[documents,documentEditing])
   if(workflowId==null)return <Empty text="请先从工作流列表选择一个 Workflow"/>;if(loading&&!workflow)return <Empty text="正在加载 Workflow 详情"/>;
   const latest=type=>documents.filter(d=>d.documentType===type).sort((a,b)=>b.versionNo-a.versionNo)[0];const build=latest('BUILD_PLAN');let plan=null;try{plan=build?.content?JSON.parse(build.content):null}catch{}
   const generate=['GENERATE_SPEC','CONFIRM_DESIGN_OR_GENERATE_SPEC'].includes(workflow?.nextAction)?['生成 Spec','/api/workflows/'+workflowId+'/generate-spec']:workflow?.nextAction==='GENERATE_BUILD_PLAN'?['生成 Build Plan','/api/workflows/'+workflowId+'/generate-build-plan']:workflow?.nextAction==='GENERATE_DESIGN'?['生成 Design','/api/workflows/'+workflowId+'/generate-design']:null

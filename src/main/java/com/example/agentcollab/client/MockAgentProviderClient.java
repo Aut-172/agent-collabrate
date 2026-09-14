@@ -32,8 +32,8 @@ public class MockAgentProviderClient implements AgentProviderClient {
         }
         return switch (request.runType()) {
             case GENERATE_CODE_CONTEXT_PLAN -> contextPlan(request);
-            case GENERATE_DESIGN -> markdown("设计文档", request);
-            case GENERATE_SPEC -> markdown("规格文档", request);
+            case GENERATE_DESIGN -> design(request);
+            case GENERATE_SPEC -> spec(request);
             case GENERATE_BUILD_PLAN -> buildPlan(request);
         };
     }
@@ -63,13 +63,36 @@ public class MockAgentProviderClient implements AgentProviderClient {
         }
     }
 
-    private AgentProviderResult markdown(String documentName, AgentGenerationRequest request) {
-        String content = "# " + documentName + "：" + request.title() + "\n\n"
-                + "Intent 层级：" + request.intentLevel() + "\n\n"
-                + request.description();
-        String summary = request.runType() == AgentRunType.GENERATE_DESIGN
-                ? "Generated Design document" : "Generated Spec document";
-        return new AgentProviderResult(content, DocumentFormat.MARKDOWN, summary);
+    private AgentProviderResult design(AgentGenerationRequest request) {
+        String content = "# 设计：" + request.title() + "\n\n"
+                + "## 决策摘要\n\n围绕 Intent 目标建立清晰的交付边界。\n\n"
+                + "## 目标与非目标\n\n- 目标：" + request.description() + "\n- 非目标：不改变无关模块。\n\n"
+                + "## 当前上下文与约束\n\n基于当前 Code Context 和仓库约束设计。\n\n"
+                + "## 方案架构\n\n采用最小增量方案，复用现有边界。\n\n"
+                + "## 组件职责\n\n现有组件保持职责稳定，仅增加本 Intent 所需能力。\n\n"
+                + "## 数据流与控制流\n\n请求经过现有入口、领域服务和持久化边界。\n\n"
+                + "## 备选方案与权衡\n\n备选方案会增加运行时依赖，暂不采用。\n\n"
+                + "## 风险与假设\n\n假设现有部署约束保持不变。\n\n"
+                + "## 待确认决策\n\n无必须由成员确认的架构决策。\n\n"
+                + "## 证据引用\n\n证据：`Code Context` 中提供的仓库事实。";
+        return new AgentProviderResult(content, DocumentFormat.MARKDOWN, "Generated Design document");
+    }
+
+    private AgentProviderResult spec(AgentGenerationRequest request) {
+        String content = "# 规格：" + request.title() + "\n\n"
+                + "## 范围\n\n本规格覆盖已确认 Design 的可观察行为。\n\n"
+                + "## 参与者与用例\n\n成员触发流程并获得可验证结果。\n\n"
+                + "## 行为场景\n\n成功、输入无效和依赖失败场景均需有明确结果。\n\n"
+                + "## 接口、事件与命令契约\n\n沿用现有协议格式，新增字段必须显式说明。\n\n"
+                + "## 数据模型与状态转换\n\n状态只能按既有状态机规则推进。\n\n"
+                + "## 校验与错误语义\n\n无效输入返回稳定错误码，不泄漏敏感信息。\n\n"
+                + "## 安全与可观测性\n\n遵循现有认证、审计和结构化日志约定。\n\n"
+                + "## 非功能要求\n\n保持现有性能、可靠性和可部署性约束。\n\n"
+                + "## 验收矩阵\n\n每个外部行为至少对应一个验收场景。\n\n"
+                + "## 与设计的追踪关系\n\n本规格逐项映射已确认 Design 的边界和决策。\n\n"
+                + "## 待确认决策\n\n无未解决的行为契约决策。\n\n"
+                + "## 证据引用\n\n证据：`Code Context` 中提供的仓库事实。";
+        return new AgentProviderResult(content, DocumentFormat.MARKDOWN, "Generated Spec document");
     }
 
     private AgentProviderResult buildPlan(AgentGenerationRequest request) {

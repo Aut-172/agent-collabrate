@@ -50,7 +50,7 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
                                      @Value("${app.agent.reasoning-effort:}") String reasoningEffort,
                                      @Value("${app.agent.disable-response-storage:true}") boolean disableResponseStorage,
                                      @Value("${app.agent.timeout-seconds:120}") long timeoutSeconds,
-                                     @Value("${app.agent.max-output-tokens:12000}") int maxOutputTokens) {
+                                     @Value("${app.agent.max-output-tokens:6000}") int maxOutputTokens) {
         long boundedTimeoutSeconds = Math.max(1, timeoutSeconds);
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(boundedTimeoutSeconds));
@@ -61,7 +61,7 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
         this.model = model;
         this.reasoningEffort = reasoningEffort;
         this.disableResponseStorage = disableResponseStorage;
-        this.maxOutputTokens = maxOutputTokens;
+        this.maxOutputTokens = Math.max(256, maxOutputTokens);
     }
 
     OpenAiAgentProviderClient(RestClient client, ObjectMapper json, String apiKey,
@@ -73,7 +73,7 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
         this.model = model;
         this.reasoningEffort = reasoningEffort;
         this.disableResponseStorage = disableResponseStorage;
-        this.maxOutputTokens = maxOutputTokens;
+        this.maxOutputTokens = Math.max(256, maxOutputTokens);
     }
 
     @Override
@@ -164,6 +164,7 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
                 .addKeyValue("durationMs", elapsedMillis(startedAt))
                 .log();
 
+        logUsage(response.getBody(), request);
         String content = extractText(response.getBody());
         if (content.isBlank()) {
             throw new AgentProviderException("OPENAI_EMPTY_RESPONSE",
@@ -223,13 +224,18 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
                     || request.runType() == AgentRunType.GENERATE_BUILD_PLAN
                     ? "Return exactly one valid JSON object using double quotes. Do not use single quotes, comments, trailing commas, Markdown fences, prose before or after the object."
                     : "Return the document as Markdown only.";
+            String documentRole = request.runType() == AgentRunType.GENERATE_DESIGN
+                    || request.runType() == AgentRunType.GENERATE_SPEC
+                    ? DocumentPromptPolicy.forRun(request.runType(), request.intentLevel()) + "\n\n" : "";
             return "You are the platform planning agent for an AI collaboration system. "
                     + "Use only the supplied repository evidence and member data. "
                     + "Do not invent repository facts, credentials, or provider results. "
+                    + "Treat the Intent and confirmed upstream documents as authoritative inputs. "
+                    + "If information is insufficient, state an assumption or open decision explicitly. "
                     + "Write all human-readable prose in Simplified Chinese. Keep JSON field names, enum values, "
                     + "code identifiers, file paths, shell commands, URLs, and protocol literals unchanged. "
                     + "Do not translate or rename those technical values. "
-                    + outputRule + "\n\n" + outputContract(request) + "\n\nREQUEST:\n" + requestJson;
+                    + outputRule + "\n\n" + documentRole + outputContract(request) + "\n\nREQUEST:\n" + requestJson;
         } catch (JsonProcessingException ex) {
             throw new AgentProviderException("AGENT_REQUEST_SERIALIZATION_FAILED",
                     "Agent request could not be serialized", false);
@@ -250,7 +256,8 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
                     + "(objects with path and reason), and searchQueries (strings).";
             case GENERATE_BUILD_PLAN -> buildPlanContract(request.intentLevel());
             case GENERATE_DESIGN, GENERATE_SPEC -> "OUTPUT CONTRACT: Return only a Markdown document. "
-                    + "Do not return JSON, a JSON envelope, or Markdown code fences.";
+                    + "Do not return JSON, a JSON envelope, or Markdown code fences. "
+                    + "Use meaningful section headings and do not copy the upstream document verbatim.";
         };
     }
 
@@ -281,6 +288,12 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
                 + "profileVersion (integer), workloadSnapshot={openEffortPoints,weeklyCapacityPoints,availability}, "
                 + "fitReason, assignmentScore (number 0..1). "
                 + "tasks and assignments must both be non-empty. Every task must have exactly one matching assignment; "
+                + "One task is the default for a focused Change or small Feature. Create multiple tasks only when each "
+                + "has an independently verifiable deliverable, a clear module/rollback boundary, or genuine parallel value. "
+                + "Never split by Controller/Service/Repository/Test, by frontend/backend/test layers, by file count, or to "
+                + "fill a staffing recommendation. Keep related implementation and tests in one end-to-end task. "
+                + "For Change, strongly prefer one task; for a small Feature, prefer one task; use vertical slices for larger Features. "
+                + "If multiple tasks are necessary, explain the independent deliverable and parallel/dependency rationale in warnings. "
                 + "taskKey values and dependencies must be unique/valid, and dependencies may be an empty array. "
                 + "scope, acceptanceCriteria and verificationCommands must each contain at least one string. "
                 + "openEffortPoints, weeklyCapacityPoints and availability are advisory planning signals, not hard limits: "
@@ -309,6 +322,27 @@ public class OpenAiAgentProviderClient implements AgentProviderClient {
         } catch (JsonProcessingException ex) {
             throw new AgentProviderException("OPENAI_INVALID_RESPONSE",
                     "OpenAI Responses API returned invalid JSON", false);
+        }
+    }
+
+    private void logUsage(String body, AgentGenerationRequest request) {
+        if (body == null || body.isBlank()) return;
+        try {
+            JsonNode usage = json.readTree(body).path("usage");
+            if (!usage.isObject()) return;
+            JsonNode outputDetails = usage.path("output_tokens_details");
+            log.atInfo()
+                    .setMessage("OpenAI provider token usage")
+                    .addKeyValue("workflowId", request.workflowId())
+                    .addKeyValue("runType", request.runType().name())
+                    .addKeyValue("configuredMaxOutputTokens", maxOutputTokens)
+                    .addKeyValue("inputTokens", usage.path("input_tokens").asLong(0))
+                    .addKeyValue("outputTokens", usage.path("output_tokens").asLong(0))
+                    .addKeyValue("reasoningTokens", outputDetails.path("reasoning_tokens").asLong(0))
+                    .addKeyValue("totalTokens", usage.path("total_tokens").asLong(0))
+                    .log();
+        } catch (JsonProcessingException ignored) {
+            // extractText reports malformed provider JSON; token diagnostics must not mask it.
         }
     }
 }

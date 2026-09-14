@@ -479,7 +479,7 @@ app:
     api-key: ${AGENT_API_KEY:}
     model: ${AGENT_MODEL:}
     timeout-seconds: ${AGENT_TIMEOUT_SECONDS:120}
-    max-output-tokens: ${AGENT_MAX_OUTPUT_TOKENS:12000}
+    max-output-tokens: ${AGENT_MAX_OUTPUT_TOKENS:6000}
     diagnostics-enabled: ${AGENT_DIAGNOSTICS_ENABLED:false}
   jwt:
     secret: ${JWT_SECRET}

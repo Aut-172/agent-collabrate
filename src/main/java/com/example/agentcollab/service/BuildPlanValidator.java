@@ -14,14 +14,24 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Component
 public class BuildPlanValidator {
+    private static final Logger log = LoggerFactory.getLogger(BuildPlanValidator.class);
     private final ObjectMapper json;
     private final JsonSchema schema;
+    private final TaskGranularityValidator granularity;
 
     public BuildPlanValidator(ObjectMapper json) {
+        this(json, new TaskGranularityValidator());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public BuildPlanValidator(ObjectMapper json, TaskGranularityValidator granularity) {
         this.json = json;
+        this.granularity = granularity;
         this.schema = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012)
                 .getSchema(getClass().getResourceAsStream("/schema/build-plan-v1.schema.json"));
     }
@@ -54,6 +64,11 @@ public class BuildPlanValidator {
             validateArchitectureChildren(root);
         } else {
             validateTaskReferences(root);
+            granularity.warnings(root, expectedLevel).forEach(warning -> log.atWarn()
+                    .setMessage("Build Plan task granularity warning")
+                    .addKeyValue("intentLevel", expectedLevel.name())
+                    .addKeyValue("warning", warning)
+                    .log());
         }
         return root;
     }
