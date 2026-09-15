@@ -5,6 +5,7 @@ import com.example.agentcollab.dto.AuditLogDtos;
 import com.example.agentcollab.exception.ApiException;
 import com.example.agentcollab.repository.AuditLogRepository;
 import com.example.agentcollab.repository.ProjectMemberRepository;
+import com.example.agentcollab.repository.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -12,15 +13,21 @@ import org.springframework.data.domain.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
 import java.util.*;
 
 @Service
 public class AuditLogService {
     private final AuditLogRepository logs;
     private final ProjectMemberRepository members;
+    private final UserRepository users;
     private final ObjectMapper mapper;
     public AuditLogService(AuditLogRepository logs, ProjectMemberRepository members, ObjectMapper mapper) {
-        this.logs = logs; this.members = members; this.mapper = mapper;
+        this(logs, members, null, mapper);
+    }
+    @Autowired
+    public AuditLogService(AuditLogRepository logs, ProjectMemberRepository members, UserRepository users, ObjectMapper mapper) {
+        this.logs = logs; this.members = members; this.users = users; this.mapper = mapper;
     }
 
     @Transactional
@@ -38,18 +45,22 @@ public class AuditLogService {
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id")));
         Page<AuditLog> result;
         if (projectId != null) {
-            members.findByProjectIdAndUserId(projectId, actorId)
+            var member = members.findByProjectIdAndUserId(projectId, actorId)
                     .filter(m -> m.getStatus() == com.example.agentcollab.domain.ProjectMember.Status.ACTIVE)
                     .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", "项目不存在或无权访问"));
+            if (member.getProjectRole() != com.example.agentcollab.domain.ProjectMember.Role.LEADER)
+                throw new ApiException(HttpStatus.FORBIDDEN, "LEADER_REQUIRED", "需要项目 Leader 权限");
             result = entityType != null && entityId != null
                     ? logs.findByProjectIdAndEntityTypeAndEntityId(projectId, entityType, entityId, pageable)
                     : logs.findByProjectId(projectId, pageable);
         } else {
             List<Long> projectIds = members.findByUserIdAndStatus(actorId, com.example.agentcollab.domain.ProjectMember.Status.ACTIVE)
-                    .stream().map(com.example.agentcollab.domain.ProjectMember::getProjectId).toList();
+                    .stream().filter(m -> m.getProjectRole() == com.example.agentcollab.domain.ProjectMember.Role.LEADER)
+                    .map(com.example.agentcollab.domain.ProjectMember::getProjectId).toList();
             result = projectIds.isEmpty() ? Page.empty(pageable) : logs.findByProjectIdIn(projectIds, pageable);
         }
-        return result.map(AuditLogDtos.AuditLogResponse::from);
+        return result.map(log -> AuditLogDtos.AuditLogResponse.from(log,
+                users == null || log.getActorUserId() == null ? null : users.findById(log.getActorUserId()).map(u -> u.getUsername()).orElse(null)));
     }
 
     private JsonNode sanitize(JsonNode node) {

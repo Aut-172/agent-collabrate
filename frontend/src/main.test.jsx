@@ -79,6 +79,14 @@ describe('build plan granularity actions',()=>{
     expect(screen.getByRole('button',{name:'批准 v2'}).disabled).toBe(true)
   })
 
+  it('offers plan regeneration when an assignee snapshot is stale',async()=>{
+    const onRegeneratePlan=vi.fn()
+    const user=userEvent.setup()
+    render(<BuildPlanSection workflow={{status:'BUILD_PLAN_PROPOSED'}} document={{versionNo:1,confirmed:false}} plan={{intentLevel:'FEATURE',tasks:[{taskKey:'TASK-A',title:'A'}],assignments:[]} } warnings={[]} editing={false} draft='' busy={false} canApprovePlan planNeedsRegeneration onRegeneratePlan={onRegeneratePlan} onEdit={vi.fn()} onDraft={vi.fn()} onCancel={vi.fn()} onSave={vi.fn()} onApprove={vi.fn()} onGranularity={vi.fn()} onCreateTasks={vi.fn()}/>)
+    await user.click(screen.getByRole('button',{name:'重新生成计划'}))
+    expect(onRegeneratePlan).toHaveBeenCalledOnce()
+  })
+
   it('sorts workflows by creation time and state-machine completion',()=>{
     const workflows=[
       {id:1,title:'早期',status:'INTENT',createdAt:'2026-09-10T00:00:00Z'},
