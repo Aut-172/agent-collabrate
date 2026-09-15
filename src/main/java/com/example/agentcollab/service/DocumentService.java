@@ -3,6 +3,7 @@ package com.example.agentcollab.service;
 import com.example.agentcollab.domain.*;
 import com.example.agentcollab.exception.ApiException;
 import com.example.agentcollab.repository.DocumentVersionRepository;
+import com.example.agentcollab.repository.ProjectMemberRepository;
 import com.example.agentcollab.repository.WorkflowRepository;
 import com.example.agentcollab.repository.AgentRunRepository;
 import com.example.agentcollab.repository.CodeContextVersionRepository;
@@ -23,11 +24,14 @@ public class DocumentService {
     private final CodeContextVersionRepository contexts;
     private final DocumentDecisionService decisions;
     private final AuditLogService audit;
+    private final ProjectMemberRepository projectMembers;
+    private final NotificationService notifications;
 
     public DocumentService(DocumentVersionRepository documents, WorkflowRepository workflows,
                            WorkflowService workflowService, WorkflowStateMachine stateMachine,
                            AgentRunRepository agentRuns, CodeContextVersionRepository contexts,
-                           DocumentDecisionService decisions, AuditLogService audit) {
+                           DocumentDecisionService decisions, AuditLogService audit,
+                           ProjectMemberRepository projectMembers, NotificationService notifications) {
         this.documents = documents;
         this.workflows = workflows;
         this.workflowService = workflowService;
@@ -36,6 +40,8 @@ public class DocumentService {
         this.contexts = contexts;
         this.decisions = decisions;
         this.audit = audit;
+        this.projectMembers = projectMembers;
+        this.notifications = notifications;
     }
 
     @Transactional(readOnly = true)
@@ -140,6 +146,14 @@ public class DocumentService {
         if (workflow.getStatus() == target) return;
         stateMachine.transition(workflow, target);
         workflows.save(workflow);
+        if (target == WorkflowStatus.BUILD_PLAN_PROPOSED) {
+            var leaders = projectMembers.findByProjectIdAndStatus(workflow.getProjectId(), ProjectMember.Status.ACTIVE)
+                    .stream().filter(member -> member.getProjectRole() == ProjectMember.Role.LEADER)
+                    .map(ProjectMember::getUserId).toList();
+            notifications.notifyUsers(leaders, "WORKFLOW_BUILD_PLAN_APPROVAL_REQUIRED", "WORKFLOW", workflow.getId(),
+                    "Build Plan 待 Leader 批准",
+                    "Workflow「" + workflow.getTitle() + "」的 Build Plan 已生成，请 Leader 审批后继续。");
+        }
     }
 
     private DocumentVersion saveUserVersion(Workflow workflow, DocumentType type, DocumentFormat format,

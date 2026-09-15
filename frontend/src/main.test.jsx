@@ -87,6 +87,19 @@ describe('build plan granularity actions',()=>{
     expect(onRegeneratePlan).toHaveBeenCalledOnce()
   })
 
+  it('edits task assignments with member selectors and saves a new plan',async()=>{
+    const onSave=vi.fn(async()=>true)
+    const user=userEvent.setup()
+    const plan={intentLevel:'FEATURE',staffingRecommendation:{mode:'SINGLE_OWNER',recommendedTeamSize:1,reason:'',confidence:1},tasks:[{taskKey:'TASK-A',title:'A'}],assignments:[{taskKey:'TASK-A',userId:1,projectRole:'LEADER',profileVersion:1,workloadSnapshot:{openEffortPoints:0,weeklyCapacityPoints:36},fitReason:'原分配',assignmentScore:1}],alternatives:[],warnings:[]}
+    const members=[{userId:1,username:'leader',projectRole:'LEADER',profileVersion:1,profileCompleted:true,weeklyCapacityPoints:36},{userId:2,username:'member',projectRole:'MEMBER',profileVersion:2,profileCompleted:true,weeklyCapacityPoints:24}]
+    render(<BuildPlanSection workflow={{status:'BUILD_PLAN_PROPOSED'}} document={{versionNo:1,confirmed:false}} plan={plan} members={members} warnings={[]} editing={false} draft='' busy={false} canApprovePlan onEdit={vi.fn()} onDraft={vi.fn()} onCancel={vi.fn()} onSave={onSave} onApprove={vi.fn()} onGranularity={vi.fn()} onCreateTasks={vi.fn()}/>)
+    await user.click(screen.getByRole('button',{name:'编辑任务分配'}))
+    await user.selectOptions(screen.getByRole('combobox',{name:'任务 TASK-A 负责人'}),'2')
+    await user.click(screen.getByRole('button',{name:'保存任务分配'}))
+    expect(onSave).toHaveBeenCalledOnce()
+    expect(JSON.parse(onSave.mock.calls[0][0]).assignments[0].userId).toBe(2)
+  })
+
   it('sorts workflows by creation time and state-machine completion',()=>{
     const workflows=[
       {id:1,title:'早期',status:'INTENT',createdAt:'2026-09-10T00:00:00Z'},
