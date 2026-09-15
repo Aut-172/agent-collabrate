@@ -32,7 +32,7 @@
 | UC-010 | 修改和批准 Build Plan | Leader | P0 |
 | UC-011 | 创建 Task | Leader/System | P0 |
 | UC-012 | 分配和重新分配 Task | Leader | P0 |
-| UC-013 | 查看任务看板 | Leader/Member | P0 |
+| UC-013 | 查看项目任务看板及任务负责人 | Leader/Member | P0 |
 | UC-014 | 下载和确认任务包 | Assignee | P0 |
 | UC-015 | 开始本地开发 | Assignee | P0 |
 | UC-016 | 报告阻塞 | Assignee | P0 |

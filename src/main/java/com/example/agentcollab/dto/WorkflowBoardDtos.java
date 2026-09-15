@@ -7,6 +7,7 @@ import java.util.List;
 public final class WorkflowBoardDtos {
     private WorkflowBoardDtos() {}
     public record BoardResponse(Long workflowId, String workflowTitle, List<BoardColumn> columns) {}
+    public record ProjectBoardResponse(Long projectId, List<BoardColumn> columns) {}
     public record BoardColumn(String key, String label, List<TaskCard> cards) {}
     public record TaskCard(Long id, String taskKey, String externalKey, String title, TaskStatus status,
                            Assignee assignee, Long workflowId, String workflowTitle,

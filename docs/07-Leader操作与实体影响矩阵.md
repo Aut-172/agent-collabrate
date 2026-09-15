@@ -16,7 +16,7 @@ Leader 权限以 `project_members.project_role = LEADER` 为准。每项操作�
 | 查看成员画像 | ProjectMember、MemberProfileVersion | 查看项目内能力、职责和限制 | 不改变画像 |
 | 管理自己的画像 | ProjectMember、MemberProfileVersion、AuditLog | Leader 也可以更新自己的开发画像 | 只能修改自己的画像 |
 | 归档项目 | Project、Workflow、AuditLog | 禁止新建业务数据，保留历史 | 不物理删除数据 |
-| 查看项目看板 | 聚合查询 | 读取 Task、PR、CI 状态 | 不改变业务实体 |
+| 查看项目看板（展示所有成员任务） | 聚合查询 | 读取项目内 Task、负责人、PR、CI 状态 | 不改变业务实体 |
 
 ## 3. Workflow 和文档操作
 

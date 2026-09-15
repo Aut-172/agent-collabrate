@@ -87,6 +87,14 @@ describe('build plan granularity actions',()=>{
     expect(onRegeneratePlan).toHaveBeenCalledOnce()
   })
 
+  it('changes plan regeneration to a disabled generating state after click',async()=>{
+    const user=userEvent.setup()
+    render(<BuildPlanSection workflow={{status:'BUILD_PLAN_PROPOSED'}} document={{versionNo:1,confirmed:false}} plan={{intentLevel:'FEATURE',tasks:[{taskKey:'TASK-A',title:'A'}],assignments:[]} } warnings={[]} editing={false} draft='' busy={false} canApprovePlan planNeedsRegeneration onRegeneratePlan={vi.fn()} onEdit={vi.fn()} onDraft={vi.fn()} onCancel={vi.fn()} onSave={vi.fn()} onApprove={vi.fn()} onGranularity={vi.fn()} onCreateTasks={vi.fn()}/> )
+    await user.click(screen.getByRole('button',{name:'重新生成计划'}))
+    const button=screen.getByRole('button',{name:'生成中'})
+    expect(button.disabled).toBe(true)
+  })
+
   it('edits task assignments with member selectors and saves a new plan',async()=>{
     const onSave=vi.fn(async()=>true)
     const user=userEvent.setup()
@@ -681,14 +689,14 @@ describe('project-scoped navigation',()=>{
     expect(screen.queryByLabelText('更多任务包操作')).toBeNull()
   })
 
-  it('opens a project board with a default workflow and allows switching workflows',async()=>{
+  it('opens a project board containing tasks from all members',async()=>{
     const project={id:7,name:'测试项目',ciStatus:'CI_REQUIRED'}
     const workflows=[{id:21,projectId:7,title:'工作流一',status:'TASKS_READY'},{id:22,projectId:7,title:'工作流二',status:'IN_PROGRESS'}]
     const fetchMock=vi.fn(path=>{
       if(path==='/api/projects')return okResponse([project])
       if(path==='/api/workflows')return okResponse(workflows)
       if(path==='/api/me')return okResponse({userId:1,username:'leader'})
-      if(path==='/api/workflows/21/board'||path==='/api/workflows/22/board')return okResponse({columns:[]})
+      if(path==='/api/projects/7/board')return okResponse({projectId:7,columns:[]})
       throw new Error(`Unexpected request: ${path}`)
     })
     vi.stubGlobal('fetch',fetchMock)
@@ -697,11 +705,33 @@ describe('project-scoped navigation',()=>{
     render(<App/>)
     await screen.findByRole('heading',{name:'测试项目'})
     await user.click(screen.getByRole('button',{name:'任务看板'}))
-    const selector=await screen.findByRole('combobox',{name:'看板 Workflow'})
-    await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/workflows/21/board',expect.any(Object)))
+    await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/projects/7/board',expect.any(Object)))
     expect(screen.queryByText('请先从工作流列表选择一个 Workflow')).toBeNull()
-    await user.selectOptions(selector,'22')
-    await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/workflows/22/board',expect.any(Object)))
+    expect(screen.queryByRole('combobox',{name:'看板成员'})).toBeNull()
+  })
+
+  it('opens task details when a project board card is clicked',async()=>{
+    const project={id:7,name:'测试项目',ciStatus:'CI_REQUIRED'}
+    const task={id:31,workflowId:21,externalKey:'TASK-001',title:'实现订单接口',status:'ASSIGNED',assignee:{userId:1,username:'leader'},currentPackageVersion:1,branchName:'agent/task-001'}
+    const workflow={id:21,projectId:7,title:'订单工作流',status:'TASKS_READY'}
+    const fetchMock=vi.fn(path=>{
+      if(path==='/api/projects')return okResponse([project])
+      if(path==='/api/workflows')return okResponse([workflow])
+      if(path==='/api/me')return okResponse({userId:1,username:'leader'})
+      if(path==='/api/projects/7/members')return okResponse([{userId:1,username:'leader',projectRole:'LEADER',status:'ACTIVE'}])
+      if(path==='/api/projects/7/board')return okResponse({projectId:7,columns:[{key:'ASSIGNED',label:'已分配',cards:[task]}]})
+      if(path==='/api/tasks/31')return okResponse({...task,description:'实现订单查询',sourcePlanVersion:1,planDetails:{},currentAssignment:{assigneeUserId:1,assignmentVersion:1,assignmentReason:'匹配',profileVersion:1}})
+      if(path==='/api/tasks/31/packages/current')return okResponse(null)
+      if(path==='/api/tasks/31/deliveries'||path==='/api/tasks/31/blockers'||path==='/api/tasks/31/git-operations'||path==='/api/tasks/31/ci-runs')return okResponse([])
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch',fetchMock)
+    const user=userEvent.setup()
+    render(<App/>)
+    await screen.findByRole('heading',{name:'测试项目'})
+    await user.click(screen.getByRole('button',{name:'任务看板'}))
+    await user.click(await screen.findByRole('button',{name:/TASK-001 · 实现订单接口/}))
+    expect(await screen.findByRole('heading',{name:'任务信息'})).toBeTruthy()
   })
 
   it('aggregates the current users project tasks and shows assignment notifications',async()=>{

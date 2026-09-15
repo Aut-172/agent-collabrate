@@ -4,7 +4,7 @@
 
 ## 当前实现基线
 
-当前 `main` 已完成后端核心 MVP 与管理前端：User/JWT、Project/ProjectMember/能力画像、Workflow/DocumentVersion/状态机、Code Context、AgentRun/Outbox、Build Plan/Task/TaskPackage/TaskDelivery、GitHub Git/Actions Adapter、8 列任务看板、站内通知、Task Blocker、签名 Webhook、V19 不可变 AuditLog，以及 V20 Workflow PR 策略、V21 Design 确认状态、V22 按 Context Plan 并行取证和 `frontend/` 下的 Vite + React 管理界面。
+当前 `main` 已完成后端核心 MVP 与管理前端：User/JWT、Project/ProjectMember/能力画像、Workflow/DocumentVersion/状态机、Code Context、AgentRun/Outbox、Build Plan/Task/TaskPackage/TaskDelivery、GitHub Git/Actions Adapter、按项目聚合所有成员任务的 8 列任务看板、站内通知、Task Blocker、签名 Webhook、V19 不可变 AuditLog，以及 V20 Workflow PR 策略、V21 Design 确认状态、V22 按 Context Plan 并行取证和 `frontend/` 下的 Vite + React 管理界面。
 
 数据库已执行到 Flyway V22。V1-V22 不得修改，后续 migration 从 V23 开始。
 
@@ -55,7 +55,7 @@
 | 任务分配 | Agent 生成任务和人员分配建议，Leader 修改并批准 |
 | 任务交接 | 版本化 Markdown + JSON 任务包，支持复制和下载 |
 | 交付确认 | 不重新上传任务包；通过任务包 ID、版本、哈希和确认记录关联交付 |
-| 看板 | 纳入 MVP，作为 Task 状态的可视化 |
+| 看板 | 纳入 MVP，按项目聚合所有成员的 Task 状态并显示负责人 |
 | 成员画像 | 每个项目成员自填项目职责、能力、经验和限制；Leader 也必须填写并可被分配任务 |
 | Git 平台 | MVP 优先支持 GitHub |
 | Git 操作 | 本地 Agent 可按任务包执行分支、Commit、Push；禁止 Merge 和 Force Push |

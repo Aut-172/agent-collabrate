@@ -26,12 +26,24 @@ public class WorkflowBoardService {
     private final GitOperationRepository gitOperations;
     private final CiRunRepository ciRuns;
     private final UserRepository users;
+    private final WorkflowRepository workflowRepository;
+    private final ProjectAccessService access;
 
     public WorkflowBoardService(WorkflowService workflows, TaskRepository tasks,
                                 TaskAssignmentRepository assignments, TaskDeliveryRepository deliveries,
                                 GitOperationRepository gitOperations, CiRunRepository ciRuns, UserRepository users) {
+        this(workflows, tasks, assignments, deliveries, gitOperations, ciRuns, users, null, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public WorkflowBoardService(WorkflowService workflows, TaskRepository tasks,
+                                TaskAssignmentRepository assignments, TaskDeliveryRepository deliveries,
+                                GitOperationRepository gitOperations, CiRunRepository ciRuns, UserRepository users,
+                                WorkflowRepository workflowRepository,
+                                ProjectAccessService access) {
         this.workflows = workflows; this.tasks = tasks; this.assignments = assignments;
         this.deliveries = deliveries; this.gitOperations = gitOperations; this.ciRuns = ciRuns; this.users = users;
+        this.workflowRepository = workflowRepository; this.access = access;
     }
 
     @Transactional(readOnly = true)
@@ -45,6 +57,24 @@ public class WorkflowBoardService {
                         spec.statuses.stream().flatMap(status -> cards.getOrDefault(status, List.of()).stream()).toList()))
                 .toList();
         return new WorkflowBoardDtos.BoardResponse(workflow.getId(), workflow.getTitle(), columns);
+    }
+
+    @Transactional(readOnly = true)
+    public WorkflowBoardDtos.ProjectBoardResponse getForProject(Long actorId, Long projectId) {
+        access.requireMember(projectId, actorId);
+        List<Workflow> projectWorkflows = workflowRepository.findByProjectIdOrderByCreatedAtAsc(projectId);
+        Map<Long, Workflow> workflowById = projectWorkflows.stream()
+                .collect(Collectors.toMap(Workflow::getId, value -> value));
+        List<WorkflowBoardDtos.TaskCard> cards = tasks.findByWorkflowIdInOrderById(workflowById.keySet()).stream()
+                .map(task -> card(task, workflowById.get(task.getWorkflowId())))
+                .toList();
+        Map<TaskStatus, List<WorkflowBoardDtos.TaskCard>> grouped = cards.stream().collect(Collectors.groupingBy(
+                WorkflowBoardDtos.TaskCard::status, LinkedHashMap::new, Collectors.toList()));
+        List<WorkflowBoardDtos.BoardColumn> columns = COLUMNS.stream()
+                .map(spec -> new WorkflowBoardDtos.BoardColumn(spec.key, spec.label,
+                        spec.statuses.stream().flatMap(status -> grouped.getOrDefault(status, List.of()).stream()).toList()))
+                .toList();
+        return new WorkflowBoardDtos.ProjectBoardResponse(projectId, columns);
     }
 
     private WorkflowBoardDtos.TaskCard card(Task task, Workflow workflow) {

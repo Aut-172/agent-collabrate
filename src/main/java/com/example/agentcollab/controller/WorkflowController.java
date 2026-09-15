@@ -123,6 +123,11 @@ public class WorkflowController {
         return boardService.get(currentUserId(), workflowId);
     }
 
+    @GetMapping("/projects/{projectId}/board")
+    public WorkflowBoardDtos.ProjectBoardResponse projectBoard(@PathVariable Long projectId) {
+        return boardService.getForProject(currentUserId(), projectId);
+    }
+
     @PostMapping("/projects/{projectId}/workflows")
     @ResponseStatus(HttpStatus.CREATED)
     public WorkflowDtos.WorkflowResponse create(@PathVariable Long projectId,

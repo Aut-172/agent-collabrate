@@ -193,6 +193,8 @@ Intent -> Design -> Spec -> Plan -> Tasks -> Development -> Delivery -> CI -> Do
 - CI 状态；
 - 最近更新时间。
 
+看板绑定当前项目，不再绑定单个 Workflow，展示项目内所有成员的任务；任务卡必须显示当前负责人。点击或键盘确认任务卡会进入复用的任务详情页面，非负责人可查看的内容和操作沿用任务详情页既有权限约束。
+
 MVP 不支持拖拽改变状态。状态通过“开始开发”“报告阻塞”“提交交付”等具名操作改变。
 
 ### 5.4 任务详情
@@ -394,7 +396,7 @@ frontend/
 
 启动命令：`cd frontend; npm install; npm run dev`。生产构建命令：`npm run build`。
 
-当前已实现登录/注册、项目切换、项目概览、Workflow 列表、Workflow 文档和 Build Plan 编辑确认、Code Context 刷新、8 列只读看板、成员邀请与能力画像、通知列表/标记已读、审计日志、Leader 专属调用日志、任务包确认/复制/下载/差异、Blocker 报告与处理、Final Report JSON/表单交付、Git/CI 证据和 CI 重试页面。项目概览显示 Workflow/Task/成员统计和 Provider Token 汇总；Workflow 列表支持按创建时间或状态机完成度倒序/顺序排序；AI 生成区域显示预计耗时 `2-4min`，运行中显示已等待时长，结束后显示本次用时。任务卡展示负责人、任务包版本、分支、CI 和更新时间；状态变更仍通过后端具名业务 API。
+当前已实现登录/注册、项目切换、项目概览、Workflow 列表、Workflow 文档和 Build Plan 编辑确认、Code Context 刷新、按项目聚合所有成员任务的 8 列只读看板、成员邀请与能力画像、通知列表/标记已读、审计日志、Leader 专属调用日志、任务包确认/复制/下载/差异、Blocker 报告与处理、Final Report JSON/表单交付、Git/CI 证据和 CI 重试页面。项目概览显示 Workflow/Task/成员统计和 Provider Token 汇总；Workflow 列表支持按创建时间或状态机完成度倒序/顺序排序；AI 生成区域显示预计耗时 `2-4min`，运行中显示已等待时长，Build Plan 重新生成按钮在请求期间显示“生成中”并禁用，结束后显示本次用时。任务卡展示负责人、任务包版本、分支、CI 和更新时间，点击任务卡进入任务详情；状态变更仍通过后端具名业务 API。
 
 ## 8.1 后续页面补齐项
 

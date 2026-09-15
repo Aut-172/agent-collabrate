@@ -395,7 +395,7 @@ POST /api/agent-runs/{id}/cancel
 
 ```text
 GET  /api/workflows/{workflowId}/tasks
-GET  /api/workflows/{workflowId}/board
+GET  /api/projects/{projectId}/board
 GET  /api/tasks/{id}
 PUT  /api/tasks/{id}/assignee
 GET  /api/tasks/{id}/packages/current
@@ -412,6 +412,8 @@ GET  /api/tasks/{id}/git-operations
 GET  /api/tasks/{id}/ci-runs
 POST /api/tasks/{id}/ci-runs/{runId}/retry
 ```
+
+任务看板以项目为边界聚合项目内所有 Workflow 的 Task，展示所有成员的任务并在卡片上标出当前负责人。原 `GET /api/workflows/{workflowId}/board` 保留用于兼容已有调用，但前端入口统一使用项目级看板。看板任务卡点击后复用任务详情页面，非负责人可查看的内容和可执行操作沿用既有任务详情权限约束。
 
 ### 7.5 Git、CI 和审计
 
