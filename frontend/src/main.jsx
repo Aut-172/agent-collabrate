@@ -20,7 +20,7 @@ export const stateLabel=s=>({
 const ciConclusionLabel=value=>({NO_CHECK_RUNS:'当前 Commit 尚无 CI 检查',IN_PROGRESS:'CI 正在运行',SUCCESS:'CI 已通过',FAILURE:'CI 未通过'}[value]||value||'等待结果')
 const ciConclusionHint=value=>value==='NO_CHECK_RUNS'?'请确认该 Commit 已包含 .github/workflows 下的工作流、GitHub Actions 已启用，并在目标仓库中产生检查结果。':value==='Bootstrap 前置任务：CI 尚未建立，无需检查'?'这是初始化工程与 CI 的前置任务；它不要求 CI 检查，加入 .github/workflows 的任务才需要真实 CI。':''
 const roleLabel=role=>({LEADER:'Leader',MEMBER:'Member'}[role]||role||'未知身份')
-const effortLevels={HIGH:{label:'高',availability:'FULL_TIME',capacity:32},MEDIUM:{label:'中',availability:'PART_TIME',capacity:20},LOW:{label:'低',availability:'LIMITED',capacity:8}}
+const effortLevels={HIGH:{label:'高',availability:'FULL_TIME',capacity:36},MEDIUM:{label:'中',availability:'PART_TIME',capacity:24},LOW:{label:'低',availability:'LIMITED',capacity:12}}
 const effortFromProfile=(availability,capacity)=>availability==='FULL_TIME'?'HIGH':availability==='PART_TIME'?'MEDIUM':availability==='LIMITED'?'LOW':capacity==null?'MEDIUM':capacity>=28?'HIGH':capacity>=14?'MEDIUM':'LOW'
 const effortLabel=(availability,capacity)=>effortLevels[effortFromProfile(availability,capacity)].label
 const tone=s=>/DONE|PASSED|CURRENT|SUCCEEDED/.test(s)?'good':/BLOCKED|FAILED|CANCELLED|STALE/.test(s)?'bad':/RUNNING|ASSIGNED|SUBMITTED|PROPOSED/.test(s)?'info':'neutral'
@@ -232,8 +232,58 @@ export function App(){
   const unreadCount=notificationItems.filter(item=>!item.readAt).length
   return <div className="shell"><header className="top"><button className="icon mobile" onClick={()=>setMobile(!mobile)} aria-label="打开导航"><Menu size={20}/></button><strong className="brand">Agent Collaborate</strong><span className="heading">{page==='workflow-detail'?'工作流详情':page==='task-detail'?'任务详情':nav.find(n=>n[0]===page)?.[1]}</span><select value={project?.id||''} disabled={!projects.length} aria-label="当前项目" onChange={e=>{setProject(projects.find(p=>String(p.id)===e.target.value)||null);setCreateWorkflowOpen(false);setSelectedWorkflowId(null);setSelectedTaskId(null);setPage('overview')}}>{!projects.length&&<option value="">暂无项目</option>}{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><button className="primary top-create" onClick={()=>setCreateProjectOpen(true)} aria-label="创建项目" title="创建项目"><Plus size={16}/><span>创建项目</span></button><button className="icon refresh" onClick={load} aria-label="刷新"><RefreshCw size={17}/></button><button className="user" onClick={logout}><LogOut size={15}/>{user.username}</button></header><aside className={`side ${mobile?'open':''}`}><nav>{nav.map(([key,label,Icon])=><button key={key} className={page===key?'active':''} onClick={()=>{if(key==='board'&&!projectWorkflows.some(item=>String(item.id)===String(selectedWorkflowId)))setSelectedWorkflowId(projectWorkflows[0]?.id??null);setPage(key);setMobile(false)}}><Icon size={17}/><span className="nav-label">{label}{key==='notifications'&&unreadCount>0&&<b className="nav-badge" aria-label={`${unreadCount} 条未读通知`}>{unreadCount>99?'99+':unreadCount}</b>}</span></button>)}</nav><footer>状态以服务端事实为准<br/><small>MVP 管理工作台</small></footer></aside><main className="content">{error&&<div className="alert"><CircleAlert size={16}/>{error}<button className="icon" onClick={()=>setError('')}><XCircle size={15}/></button></div>}<PageErrorBoundary resetKey={page}>{pages[page]||pages.overview}</PageErrorBoundary></main>{createProjectOpen&&<CreateProjectDialog onClose={()=>setCreateProjectOpen(false)} onCreated={projectCreated}/>} {createWorkflowOpen&&project&&<CreateWorkflowDialog project={project} user={user} workflows={projectWorkflows} onClose={()=>setCreateWorkflowOpen(false)} onCreated={workflowCreated}/>}</div>
 }
-function Overview({project,workflows}){const active=workflows.filter(w=>!['DONE','CANCELLED','FAILED'].includes(w.status));return <><div className="page-head"><div><h1>{project?.name||'项目概览'}</h1><p>{project?.repositoryUrl||'请选择项目'}{project&&<span className="project-branch">默认分支：{project.defaultBranch||'未设置'}</span>}</p></div><Status value={project?.ciStatus}/></div><div className="metrics"><Metric label="进行中 Workflow" value={active.length}/><Metric label="项目 CI" value={stateLabel(project?.ciStatus)}/><Metric label="阻塞任务" value="--"/><Metric label="最近同步" value="--"/></div><section className="panel"><h2>当前工作流</h2>{active.length?active.map(w=><div className="list-row" key={w.id}><div><strong>{w.title}</strong><small>{w.intentLevel} · {w.completionMode}</small></div><Status value={w.status}/></div>):<Empty text="暂无进行中的 Workflow"/>}</section></>}
+export function Overview({project,workflows}){
+  const [stats,setStats]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState('')
+  useEffect(()=>{
+    if(!project?.id){setStats(null);setError('');setLoading(false);return}
+    const controller=new AbortController()
+    setStats(null);setLoading(true);setError('')
+    api(`/api/projects/${project.id}/overview-stats`,{signal:controller.signal})
+      .then(value=>setStats(value&&typeof value==='object'?value:null))
+      .catch(e=>{if(e?.name!=='AbortError')setError(e.message||'项目统计加载失败')})
+      .finally(()=>{if(!controller.signal.aborted)setLoading(false)})
+    return()=>controller.abort()
+  },[project?.id])
+  const active=workflows.filter(w=>!['DONE','CANCELLED','FAILED'].includes(w.status))
+  const projectStats=stats?.project||{}
+  const taskStats=stats?.tasks||{}
+  return <>
+    <div className="page-head"><div><h1>{project?.name||'项目概览'}</h1><p>{project?.repositoryUrl||'请选择项目'}{project&&<span className="project-branch">默认分支：{project.defaultBranch||'未设置'}</span>}</p></div><Status value={project?.ciStatus}/></div>
+    {error&&<div className="alert"><CircleAlert size={16}/>{error}</div>}
+    <div className="metrics">
+      <Metric label="进行中 Workflow" value={stats?projectStats.activeWorkflowCount:active.length}/>
+      <Metric label="Workflow 总数" value={stats?stats.workflows?.total??0:'--'}/>
+      <Metric label="开放任务" value={stats?projectStats.openTaskCount:'--'}/>
+      <Metric label="阻塞任务" value={stats?(taskStats.byStatus?.BLOCKED??0):'--'}/>
+      <Metric label="项目 CI" value={stateLabel(project?.ciStatus)}/>
+      <Metric label="最近同步" value="--"/>
+    </div>
+    {!project?<section className="panel"><Empty text="暂无项目，请先创建项目"/></section>:loading&&!stats?<section className="panel"><Empty text="正在加载项目统计"/></section>:stats&&<>
+      <div className="overview-grid">
+        <DistributionPanel title="Workflow 状态" values={stats.workflows?.byStatus}/>
+        <DistributionPanel title="Task 状态" values={stats.tasks?.byStatus}/>
+      </div>
+      <div className="overview-grid">
+        <TrendPanel title="Workflow 创建趋势" points={stats.workflows?.dailyCreated}/>
+        <TrendPanel title="Task 完成趋势" points={stats.tasks?.dailyCompleted}/>
+      </div>
+      <MemberWorkloadPanel members={stats.members||[]}/>
+    </>}
+    <section className="panel"><h2>当前工作流</h2>{active.length?active.map(w=><div className="list-row" key={w.id}><div><strong>{w.title}</strong><small>{w.intentLevel} · {w.completionMode}</small></div><Status value={w.status}/></div>):<Empty text="暂无进行中的 Workflow"/>}</section>
+  </>
+}
 function Metric({label,value}){return <div className="metric"><small>{label}</small><strong>{value}</strong></div>}
+function DistributionPanel({title,values={}}){
+  const entries=Object.entries(values),total=entries.reduce((sum,[,value])=>sum+Number(value||0),0)
+  return <section className="panel overview-panel"><h2>{title}</h2>{total===0?<Empty text="暂无数据"/>:<div className="distribution-list">{entries.filter(([,value])=>Number(value)>0).map(([key,value])=>{const percent=Math.round(Number(value)/total*100);return <div className="distribution-row" key={key}><div><span>{stateLabel(key)}</span><strong>{value}</strong></div><div className="distribution-track"><i style={{width:`${percent}%`}}/></div><small>{percent}%</small></div>})}</div>}</section>
+}
+function TrendPanel({title,points=[]}){
+  const values=Array.isArray(points)?points:[],max=Math.max(1,...values.map(item=>Number(item.count||0)))
+  return <section className="panel overview-panel"><h2>{title}</h2>{values.every(item=>Number(item.count||0)===0)?<Empty text="所选周期暂无数据"/>:<div className="trend-chart" role="img" aria-label={title}>{values.map(item=>{const value=Number(item.count||0),height=value?Math.max(8,Math.round(value/max*100)):3;return <div className="trend-column" key={item.date} title={`${item.date}：${value}`}><i style={{height:`${height}%`}}/><small>{String(item.date||'').slice(5)}</small></div>})}</div>}</section>
+}
+function MemberWorkloadPanel({members=[]}){
+  return <section className="panel overview-panel"><div className="section-head"><div><h2>成员工作情况</h2><p>按开放工作量 / 每周容量排序</p></div></div>{members.length===0?<Empty text="暂无成员工作量数据"/>:<div className="member-workload-list">{members.map(member=>{const ratio=member.workloadRatio==null?null:Number(member.workloadRatio),percent=ratio==null?0:Math.min(100,Math.round(ratio*100));return <div className="member-workload-row" key={member.userId}><div className="member-workload-heading"><strong>{member.username}</strong><small>{member.projectRole} · {member.availability||'未设置投入程度'}</small></div><div className="member-workload-values"><span>{member.openEffortPoints} 点 / {member.weeklyCapacityPoints??'未设置'} 点</span><b>{ratio==null?'未设置容量':`${Math.round(ratio*100)}%`}</b></div><div className="distribution-track"><i className={ratio!=null&&ratio>1?'overloaded':''} style={{width:`${percent}%`}}/></div><small className="member-workload-meta">开放任务 {member.openTaskCount} · 已分配 {member.assignedTaskCount} · 周期内完成 {member.completedTaskCount}</small></div>})}</div>}</section>
+}
 function MyTasks({project,workflows,user,onTask}){
   const [tasks,setTasks]=useState([]),[loading,setLoading]=useState(false),[error,setError]=useState(''),[filter,setFilter]=useState('OPEN')
   const workflowKey=workflows.map(item=>item.id).join(',')
@@ -1172,7 +1222,7 @@ function ProfileDialog({member,editing,onClose,onSaved}){
     }
   }
   if(!editing)return <div className="modal-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="view-profile-title"><header><div><h2 id="view-profile-title">{member.username} 的能力画像</h2><p>{roleLabel(member.projectRole)} · 版本 {member.profileVersion||0}</p></div><button type="button" className="icon" onClick={onClose} aria-label="关闭能力画像"><X size={18}/></button></header><div className="profile-body">{!member.profileCompleted||!member.capabilityProfile?<Empty text="该成员尚未填写能力画像"/>:<dl className="profile-details"><ProfileList label="技能" items={profile.skills}/><ProfileList label="经验" items={profile.experience}/><ProfileList label="偏好任务" items={profile.preferredTaskTypes}/><ProfileList label="限制" items={profile.limitations}/><div><dt>投入程度</dt><dd>{effortLabel(member.availability||profile.availability,member.weeklyCapacityPoints??profile.weeklyCapacityPoints)}</dd></div></dl>}</div></section></div>
-  return <div className="modal-backdrop"><section className="dialog profile-editor" role="dialog" aria-modal="true" aria-labelledby="edit-profile-title"><header><div><h2 id="edit-profile-title">编辑能力画像</h2><p>{member.username} · 保存后生成新版本</p></div><button type="button" className="icon" onClick={onClose} disabled={submitting} aria-label="关闭能力画像编辑窗口"><X size={18}/></button></header><form onSubmit={submit}><div className="form-grid"><label>技能<textarea autoFocus maxLength={20000} name="skills" value={form.skills} onChange={update} rows={4} placeholder={'例如：Java\nPostgreSQL\nReact'}/></label><label>经验<textarea maxLength={20000} name="experience" value={form.experience} onChange={update} rows={4} placeholder={'例如：3 年后端开发\n参与过微服务重构'}/></label><label>偏好任务<textarea maxLength={20000} name="preferredTaskTypes" value={form.preferredTaskTypes} onChange={update} rows={4} placeholder={'例如：后端功能开发\n性能优化'}/></label><label>限制<textarea maxLength={20000} name="limitations" value={form.limitations} onChange={update} rows={4} placeholder={'例如：暂不承担移动端开发\n每周五不可用'}/></label></div><label>投入程度<select name="effortLevel" value={form.effortLevel} onChange={update}><option value="HIGH">高</option><option value="MEDIUM">中</option><option value="LOW">低</option></select></label><div className="profile-impact-note"><CircleAlert size={17}/><span>能力画像会影响任务分配，并作为最终贡献衡量的参考。</span></div>{error&&<p className="error dialog-error" role="alert">{error}</p>}<footer><button type="button" className="button" onClick={onClose} disabled={submitting}>取消</button><button className="primary" disabled={submitting}>{submitting?'正在保存':'保存画像'}</button></footer></form></section></div>
+  return <div className="modal-backdrop"><section className="dialog profile-editor" role="dialog" aria-modal="true" aria-labelledby="edit-profile-title"><header><div><h2 id="edit-profile-title">编辑能力画像</h2><p>{member.username} · 保存后生成新版本</p></div><button type="button" className="icon" onClick={onClose} disabled={submitting} aria-label="关闭能力画像编辑窗口"><X size={18}/></button></header><form onSubmit={submit}><div className="form-grid"><label>技能<textarea autoFocus maxLength={20000} name="skills" value={form.skills} onChange={update} rows={4} placeholder={'例如：Java\nPostgreSQL\nReact'}/></label><label>经验<textarea maxLength={20000} name="experience" value={form.experience} onChange={update} rows={4} placeholder={'例如：3 年后端开发\n参与过微服务重构'}/></label><label>偏好任务<textarea maxLength={20000} name="preferredTaskTypes" value={form.preferredTaskTypes} onChange={update} rows={4} placeholder={'例如：后端功能开发\n性能优化'}/></label><label>限制<textarea maxLength={20000} name="limitations" value={form.limitations} onChange={update} rows={4} placeholder={'例如：暂不承担移动端开发\n每周五不可用'}/></label></div><label>投入程度<select name="effortLevel" value={form.effortLevel} onChange={update}><option value="HIGH">高（每周 36 点）</option><option value="MEDIUM">中（每周 24 点）</option><option value="LOW">低（每周 12 点）</option></select></label><div className="profile-impact-note"><CircleAlert size={17}/><span>能力画像会影响任务分配，并作为最终贡献衡量的参考。</span></div>{error&&<p className="error dialog-error" role="alert">{error}</p>}<footer><button type="button" className="button" onClick={onClose} disabled={submitting}>取消</button><button className="primary" disabled={submitting}>{submitting?'正在保存':'保存画像'}</button></footer></form></section></div>
 }
 function Members({project,user}){
   const path=project?`/api/projects/${project.id}/members`:''

@@ -14,6 +14,7 @@ import com.example.agentcollab.domain.WorkflowStatus;
 
 public interface WorkflowRepository extends JpaRepository<Workflow, Long> {
     List<Workflow> findByProjectIdInOrderByUpdatedAtDesc(Collection<Long> projectIds);
+    List<Workflow> findByProjectIdOrderByCreatedAtAsc(Long projectId);
     List<Workflow> findByParentWorkflowIdOrderById(Long parentWorkflowId);
     boolean existsByProjectIdAndCompletionModeAndStatusNotIn(
             Long projectId, WorkflowCompletionMode completionMode, Collection<WorkflowStatus> statuses);

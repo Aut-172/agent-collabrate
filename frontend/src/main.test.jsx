@@ -2,7 +2,7 @@ import React from 'react'
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest'
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {App,BuildPlanSection,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,appendResolvedDecisions,formatElapsed,sortWorkflows,stateLabel} from './main.jsx'
+import {App,BuildPlanSection,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,Overview,appendResolvedDecisions,formatElapsed,sortWorkflows,stateLabel} from './main.jsx'
 
 const okResponse=body=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(body)})
 
@@ -436,7 +436,7 @@ describe('project-scoped navigation',()=>{
   it('lets members view profiles and edit only their own profile',async()=>{
     const leader={id:11,userId:1,username:'leader',projectRole:'LEADER',profileCompleted:true,profileVersion:2,weeklyCapacityPoints:30,availability:'FULL_TIME',capabilityProfile:{summary:'后端负责人',responsibilities:['API 设计'],skills:['Java'],experience:['REST'],preferredTaskTypes:['backend'],limitations:[],availability:'FULL_TIME',weeklyCapacityPoints:30,notes:'负责核心服务'}}
     const member={id:12,userId:2,username:'member',projectRole:'MEMBER',profileCompleted:false,profileVersion:0}
-    const saved={...member,profileCompleted:true,profileVersion:1,weeklyCapacityPoints:32,availability:'FULL_TIME',capabilityProfile:{summary:'技能：React',responsibilities:[],skills:['React'],experience:[],preferredTaskTypes:[],limitations:[],availability:'FULL_TIME',weeklyCapacityPoints:32,notes:''}}
+    const saved={...member,profileCompleted:true,profileVersion:1,weeklyCapacityPoints:36,availability:'FULL_TIME',capabilityProfile:{summary:'技能：React',responsibilities:[],skills:['React'],experience:[],preferredTaskTypes:[],limitations:[],availability:'FULL_TIME',weeklyCapacityPoints:36,notes:''}}
     const fetchMock=vi.fn((path,options={})=>{
       if(path==='/api/projects/7/members/me/profile'&&options.method==='PUT')return okResponse(saved)
       if(path==='/api/projects/7/members')return okResponse([leader,member])
@@ -481,7 +481,7 @@ describe('project-scoped navigation',()=>{
     await waitFor(()=>expect(screen.queryByRole('dialog',{name:'编辑能力画像'})).toBeNull())
     expect(screen.getByText(/Member · 画像 v1/)).toBeTruthy()
     const updateCall=fetchMock.mock.calls.find(([path,options])=>path==='/api/projects/7/members/me/profile'&&options.method==='PUT')
-    expect(JSON.parse(updateCall[1].body)).toMatchObject({summary:'技能：React',responsibilities:[],skills:['React'],availability:'FULL_TIME',weeklyCapacityPoints:32,notes:''})
+    expect(JSON.parse(updateCall[1].body)).toMatchObject({summary:'技能：React',responsibilities:[],skills:['React'],availability:'FULL_TIME',weeklyCapacityPoints:36,notes:''})
   })
 
   it('opens a planned task and confirms its current package to start development',async()=>{
@@ -714,5 +714,38 @@ describe('project-scoped navigation',()=>{
     expect(await screen.findByRole('heading',{name:'任务信息'})).toBeTruthy()
     await user.click(screen.getByRole('button',{name:'我的任务'}))
     expect(await screen.findByRole('heading',{name:'我的任务'})).toBeTruthy()
+  })
+})
+
+describe('project overview statistics',()=>{
+  afterEach(()=>{
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
+  it('loads and displays workflow, task, and member statistics',async()=>{
+    const stats={
+      project:{activeWorkflowCount:1,openTaskCount:2},
+      workflows:{total:3,byStatus:{IN_PROGRESS:2,DONE:1},dailyCreated:[{date:'2026-09-14',count:2}]},
+      tasks:{byStatus:{ASSIGNED:1,BLOCKED:1},dailyCompleted:[{date:'2026-09-14',count:1}]},
+      members:[{userId:1,username:'leader',projectRole:'LEADER',availability:'FULL_TIME',openEffortPoints:8,weeklyCapacityPoints:16,openTaskCount:2,assignedTaskCount:2,completedTaskCount:1,workloadRatio:0.5}]
+    }
+    vi.stubGlobal('fetch',vi.fn(()=>okResponse(stats)))
+    render(<Overview project={{id:7,name:'订单服务',repositoryUrl:'repo',ciStatus:'CI_REQUIRED'}} workflows={[{id:21,status:'IN_PROGRESS',title:'旧数据'}]}/>)
+
+    expect(await screen.findByText('Workflow 总数')).toBeTruthy()
+    expect(screen.getByText('3')).toBeTruthy()
+    expect(screen.getByText('leader')).toBeTruthy()
+    expect(screen.getAllByText('50%').length).toBeGreaterThan(0)
+    expect(screen.getByRole('img',{name:'Workflow 创建趋势'})).toBeTruthy()
+  })
+
+  it('keeps the basic overview usable when statistics fail',async()=>{
+    vi.stubGlobal('fetch',vi.fn(()=>Promise.reject(new Error('统计服务不可用'))))
+    render(<Overview project={{id:7,name:'订单服务',repositoryUrl:'repo',ciStatus:'CI_REQUIRED'}} workflows={[{id:21,status:'IN_PROGRESS',title:'进行中工作流'}]}/>)
+
+    expect(await screen.findByText('统计服务不可用')).toBeTruthy()
+    expect(screen.getByText('进行中工作流')).toBeTruthy()
+    expect(screen.getByText('进行中 Workflow')).toBeTruthy()
   })
 })

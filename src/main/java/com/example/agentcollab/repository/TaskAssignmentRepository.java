@@ -8,9 +8,11 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 public interface TaskAssignmentRepository extends JpaRepository<TaskAssignment, Long> {
     Optional<TaskAssignment> findByTaskIdAndCurrentTrue(Long taskId);
+    List<TaskAssignment> findByTaskIdInAndCurrentTrue(Collection<Long> taskIds);
     List<TaskAssignment> findByTaskIdOrderByAssignmentVersionDesc(Long taskId);
     Optional<TaskAssignment> findTopByTaskIdOrderByAssignmentVersionDesc(Long taskId);
 

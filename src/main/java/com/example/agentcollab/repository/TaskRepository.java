@@ -8,9 +8,11 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 public interface TaskRepository extends JpaRepository<Task, Long> {
     List<Task> findByWorkflowIdOrderById(Long workflowId);
+    List<Task> findByWorkflowIdInOrderById(Collection<Long> workflowIds);
     Optional<Task> findByWorkflowIdAndExternalKey(Long workflowId, String externalKey);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

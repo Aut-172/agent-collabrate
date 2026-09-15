@@ -60,6 +60,8 @@ public class Project {
     public ProjectCiStatus getCiStatus() { return ciStatus; }
     public Status getStatus() { return status; }
     public Long getCreatedBy() { return createdBy; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
     public Long getVersion() { return version; }
     public void enableCi() {
         if (ciStatus != ProjectCiStatus.CI_NOT_CONFIGURED) {
