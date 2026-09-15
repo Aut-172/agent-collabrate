@@ -2,7 +2,7 @@ import React from 'react'
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest'
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {App,BuildPlanSection,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,Overview,appendResolvedDecisions,formatElapsed,sortWorkflows,stateLabel} from './main.jsx'
+import {App,BuildPlanSection,CallLogs,ChildIntentTable,DocumentDecisionPanel,EvidencePanel,Overview,appendResolvedDecisions,formatElapsed,sortWorkflows,stateLabel} from './main.jsx'
 
 const okResponse=body=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(body)})
 
@@ -728,6 +728,7 @@ describe('project overview statistics',()=>{
       project:{activeWorkflowCount:1,openTaskCount:2},
       workflows:{total:3,byStatus:{IN_PROGRESS:2,DONE:1},dailyCreated:[{date:'2026-09-14',count:2}]},
       tasks:{byStatus:{ASSIGNED:1,BLOCKED:1},dailyCompleted:[{date:'2026-09-14',count:1}]},
+      tokens:{callCount:2,callsWithUsage:2,inputTokens:100,outputTokens:50,reasoningTokens:10,totalTokens:160},
       members:[{userId:1,username:'leader',projectRole:'LEADER',availability:'FULL_TIME',openEffortPoints:8,weeklyCapacityPoints:16,openTaskCount:2,assignedTaskCount:2,completedTaskCount:1,workloadRatio:0.5}]
     }
     vi.stubGlobal('fetch',vi.fn(()=>okResponse(stats)))
@@ -737,6 +738,8 @@ describe('project overview statistics',()=>{
     expect(screen.getByText('3')).toBeTruthy()
     expect(screen.getByText('leader')).toBeTruthy()
     expect(screen.getAllByText('50%').length).toBeGreaterThan(0)
+    expect(screen.getByText('Tokens 花费')).toBeTruthy()
+    expect(screen.getByText('160')).toBeTruthy()
     expect(screen.getByRole('img',{name:'Workflow 创建趋势'})).toBeTruthy()
   })
 
@@ -747,5 +750,25 @@ describe('project overview statistics',()=>{
     expect(await screen.findByText('统计服务不可用')).toBeTruthy()
     expect(screen.getByText('进行中工作流')).toBeTruthy()
     expect(screen.getByText('进行中 Workflow')).toBeTruthy()
+  })
+})
+
+describe('leader call logs',()=>{
+  afterEach(()=>{
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
+  it('shows the summary and expandable request and feedback details',async()=>{
+    const response={summary:{totalCalls:2,succeededCalls:1,failedCalls:1,runningCalls:0,totalTokens:160,totalDurationMs:1250},records:[{id:51,agentRunId:41,workflowId:21,attemptNo:1,provider:'openai',model:'gpt-test',runType:'GENERATE_DESIGN',status:'SUCCEEDED',durationMs:120,totalTokens:20,createdAt:'2026-09-14T01:00:00Z',request:{input:'safe'},response:{usage:{total_tokens:20}}}]}
+    const fetchMock=vi.fn(()=>okResponse(response))
+    vi.stubGlobal('fetch',fetchMock)
+    render(<CallLogs project={{id:7}}/>)
+
+    expect(await screen.findByText('调用汇总')).toBeTruthy()
+    expect(screen.getByText('总 Tokens')).toBeTruthy()
+    expect(screen.getByText('GENERATE_DESIGN')).toBeTruthy()
+    expect(screen.getByText(/safe/)).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/7/agent-call-logs',expect.any(Object))
   })
 })

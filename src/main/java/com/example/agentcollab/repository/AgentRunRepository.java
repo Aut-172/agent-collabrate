@@ -17,6 +17,7 @@ public interface AgentRunRepository extends JpaRepository<AgentRun, Long> {
             Long workflowId, AgentRunType runType, Collection<AgentRunStatus> statuses);
     List<AgentRun> findByWorkflowIdAndStatusIn(Long workflowId, Collection<AgentRunStatus> statuses);
     List<AgentRun> findByWorkflowIdOrderByCreatedAtDesc(Long workflowId);
+    List<AgentRun> findByWorkflowIdInOrderByCreatedAtDesc(Collection<Long> workflowIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from AgentRun r where r.id = :id")

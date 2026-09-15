@@ -214,7 +214,8 @@ export function App(){
 
   if(!user)return <Login onLogin={result=>{setUser({userId:result.userId,username:result.username});load()}}/>
 
-  const nav=[['overview','项目概览',LayoutDashboard],['my-tasks','我的任务',CheckCircle2],['workflows','工作流',WorkflowIcon],['board','任务看板',LayoutDashboard],['members','项目成员',Users],['notifications','通知',Bell],['audit','审计日志',FileText]]
+  const projectLeader=project&&String(project.createdBy)===String(user.userId)
+  const nav=[['overview','项目概览',LayoutDashboard],['my-tasks','我的任务',CheckCircle2],['workflows','工作流',WorkflowIcon],['board','任务看板',LayoutDashboard],['members','项目成员',Users],['notifications','通知',Bell],['audit','审计日志',FileText],...(projectLeader?[['call-logs','调用日志',Activity]]:[])]
   const projectWorkflows=project?workflows.filter(workflow=>workflow.projectId===project.id):[]
   const openTask=(task,returnPage)=>{setSelectedTaskId(task.id);setSelectedWorkflowId(task.workflowId);setTaskReturnPage(returnPage);setPage('task-detail')}
   const pages={
@@ -226,7 +227,8 @@ export function App(){
     board:<Board workflows={projectWorkflows} workflowId={selectedWorkflowId} onWorkflowSelect={setSelectedWorkflowId}/>,
     members:<Members project={project} user={user}/>,
     notifications:<Notifications items={notificationItems} onRefresh={refreshNotifications}/>,
-    audit:<Audit project={project}/>
+    audit:<Audit project={project}/>,
+    'call-logs':<CallLogs project={project}/>
   }
 
   const unreadCount=notificationItems.filter(item=>!item.readAt).length
@@ -268,6 +270,7 @@ export function Overview({project,workflows}){
         <TrendPanel title="Task 完成趋势" points={stats.tasks?.dailyCompleted}/>
       </div>
       <MemberWorkloadPanel members={stats.members||[]}/>
+      <TokenStatsPanel tokens={stats.tokens}/>
     </>}
     <section className="panel"><h2>当前工作流</h2>{active.length?active.map(w=><div className="list-row" key={w.id}><div><strong>{w.title}</strong><small>{w.intentLevel} · {w.completionMode}</small></div><Status value={w.status}/></div>):<Empty text="暂无进行中的 Workflow"/>}</section>
   </>
@@ -283,6 +286,10 @@ function TrendPanel({title,points=[]}){
 }
 function MemberWorkloadPanel({members=[]}){
   return <section className="panel overview-panel"><div className="section-head"><div><h2>成员工作情况</h2><p>按开放工作量 / 每周容量排序</p></div></div>{members.length===0?<Empty text="暂无成员工作量数据"/>:<div className="member-workload-list">{members.map(member=>{const ratio=member.workloadRatio==null?null:Number(member.workloadRatio),percent=ratio==null?0:Math.min(100,Math.round(ratio*100));return <div className="member-workload-row" key={member.userId}><div className="member-workload-heading"><strong>{member.username}</strong><small>{member.projectRole} · {member.availability||'未设置投入程度'}</small></div><div className="member-workload-values"><span>{member.openEffortPoints} 点 / {member.weeklyCapacityPoints??'未设置'} 点</span><b>{ratio==null?'未设置容量':`${Math.round(ratio*100)}%`}</b></div><div className="distribution-track"><i className={ratio!=null&&ratio>1?'overloaded':''} style={{width:`${percent}%`}}/></div><small className="member-workload-meta">开放任务 {member.openTaskCount} · 已分配 {member.assignedTaskCount} · 周期内完成 {member.completedTaskCount}</small></div>})}</div>}</section>
+}
+function TokenStatsPanel({tokens={}}){
+  const value=key=>Number(tokens?.[key]||0).toLocaleString()
+  return <section className="panel overview-panel token-stats-panel"><div className="section-head"><div><h2>Tokens 花费</h2><p>来自已持久化的 AI Provider 调用反馈</p></div></div><div className="token-stats-grid"><Metric label="调用次数" value={value('callCount')}/><Metric label="总 Tokens" value={value('totalTokens')}/><Metric label="输入 Tokens" value={value('inputTokens')}/><Metric label="输出 Tokens" value={value('outputTokens')}/><Metric label="推理 Tokens" value={value('reasoningTokens')}/><Metric label="有用量反馈" value={value('callsWithUsage')}/></div></section>
 }
 function MyTasks({project,workflows,user,onTask}){
   const [tasks,setTasks]=useState([]),[loading,setLoading]=useState(false),[error,setError]=useState(''),[filter,setFilter]=useState('OPEN')
@@ -1238,6 +1245,24 @@ function Members({project,user}){
 }
 function Notifications({items,onRefresh}){const [error,setError]=useState(''),[busyId,setBusyId]=useState(null);useEffect(()=>{onRefresh?.()},[]);const markRead=async id=>{setBusyId(id);setError('');try{await api(`/api/notifications/${id}/read`,{method:'POST'});await onRefresh?.()}catch(e){setError(e.message)}finally{setBusyId(null)}};return <><div className="page-head"><div><h1>通知</h1><p>任务分配、重新分配、阻塞和交付提醒</p></div><button className="button" onClick={onRefresh}><RefreshCw size={15}/>刷新</button></div>{error&&<div className="alert"><CircleAlert size={16}/>{error}</div>}<section className="panel">{items.length?items.map(n=><div className={`list-row ${n.readAt?'':'unread'}`} key={n.id}><div><strong>{n.title}</strong><small>{n.content} · {formatTime(n.createdAt)}</small>{['TASK_ASSIGNED','TASK_REASSIGNED'].includes(n.type)&&<span className="notification-type">任务分配</span>}</div>{n.readAt?<Status value="CURRENT"/>:<button className="button" disabled={busyId===n.id} onClick={()=>markRead(n.id)}>{busyId===n.id?'处理中…':'标记已读'}</button>}</div>):<Empty text="暂无通知"/>}</section></>}
 function Audit({project}){const path=project?`/api/audit-logs?projectId=${project.id}&page=0&size=50`:'';const [state]=useProjectCollection(project?.id,path,response=>Array.isArray(response)?response:response?.content);return <><div className="page-head"><div><h1>审计日志</h1><p>项目级时间线，按最新时间排序</p></div></div><section className="panel">{!project?<Empty text="暂无项目，创建项目后可查看审计日志"/>:state.loading?<Empty text="正在加载审计日志"/>:state.error?<Empty text={`无法加载审计日志：${state.error}`}/>:state.items.length?state.items.map(a=><div className="audit" key={a.id}><time>{formatTime(a.createdAt)}</time><div><strong>{a.action||'未知操作'} · {a.entityType||'未知实体'} #{a.entityId??'-'}</strong><small>操作人：{a.actorUserId||'系统'}</small></div></div>):<Empty text="暂无审计记录"/>}</section></>}
+export function CallLogs({project}){
+  const [data,setData]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState('')
+  useEffect(()=>{
+    if(!project?.id){setData(null);setError('');setLoading(false);return}
+    const controller=new AbortController()
+    setData(null);setLoading(true);setError('')
+    api(`/api/projects/${project.id}/agent-call-logs`,{signal:controller.signal})
+      .then(value=>setData(value&&typeof value==='object'?value:null))
+      .catch(e=>{if(e?.name!=='AbortError')setError(e.message||'调用日志加载失败')})
+      .finally(()=>{if(!controller.signal.aborted)setLoading(false)})
+    return()=>controller.abort()
+  },[project?.id])
+  const summary=data?.summary||{}
+  const records=Array.isArray(data?.records)?data.records:[]
+  const number=key=>Number(summary[key]||0).toLocaleString()
+  return <><div className="page-head"><div><h1>调用日志</h1><p>项目级 AI Provider 请求与反馈，仅 Leader 可见</p></div></div>{error&&<div className="alert"><CircleAlert size={16}/>{error}</div>}{!project?<section className="panel"><Empty text="暂无项目，请先选择项目"/></section>:loading&&!data?<section className="panel"><Empty text="正在加载调用日志"/></section>:data&&<><section className="panel call-log-summary"><h2>调用汇总</h2><div className="token-stats-grid"><Metric label="总调用" value={number('totalCalls')}/><Metric label="成功" value={number('succeededCalls')}/><Metric label="失败" value={number('failedCalls')}/><Metric label="运行中" value={number('runningCalls')}/><Metric label="总 Tokens" value={number('totalTokens')}/><Metric label="总耗时" value={`${Math.round(Number(summary.totalDurationMs||0)/1000)}s`}/></div></section><section className="panel call-log-list"><h2>调用明细</h2>{records.length?records.map(record=><details className="call-log-entry" key={record.id}><summary><span><strong>{record.runType||'未知类型'}</strong><small>{record.provider} · {record.model} · 尝试 #{record.attemptNo}</small></span><span><Status value={record.status}/><small>{Number(record.totalTokens||0).toLocaleString()} Tokens · {record.durationMs??'-'}ms</small></span></summary><div className="call-log-meta"><span>Workflow #{record.workflowId??'-'} · AgentRun #{record.agentRunId??'-'}</span><time>{formatTime(record.createdAt)}</time></div>{record.errorMessage&&<p className="error">{record.errorCode||'调用失败'}：{record.errorMessage}</p>}<div className="call-log-payloads"><div><h3>请求</h3><pre>{formatJsonValue(record.request)}</pre></div><div><h3>反馈</h3><pre>{formatJsonValue(record.response)}</pre></div></div></details>):<Empty text="暂无 AI 调用记录"/>}</section></>}</>
+}
+function formatJsonValue(value){if(value==null)return '暂无数据';if(typeof value==='string')return formatJson(value);try{return JSON.stringify(value,null,2)}catch{return String(value)}}
 function formatTime(value){if(!value)return '时间未知';const date=new Date(value);return Number.isNaN(date.getTime())?'时间未知':date.toLocaleString()}
 function Empty({text}){return <div className="empty">{text}</div>}
 class PageErrorBoundary extends React.Component{constructor(props){super(props);this.state={error:null}}static getDerivedStateFromError(error){return {error}}componentDidUpdate(previousProps){if(previousProps.resetKey!==this.props.resetKey&&this.state.error)this.setState({error:null})}componentDidCatch(error){console.error('内容页面渲染失败',error)}render(){return this.state.error?<section className="panel"><Empty text="该页面暂时无法显示，请切换栏目后重试"/></section>:this.props.children}}

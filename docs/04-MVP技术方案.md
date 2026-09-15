@@ -325,6 +325,8 @@ DELETE /api/projects/{id}/members/{userId}
 GET  /api/projects/{id}/members
 GET  /api/projects/{id}/members/me/profile
 PUT  /api/projects/{id}/members/me/profile
+GET  /api/projects/{id}/overview-stats
+GET  /api/projects/{id}/agent-call-logs        # 仅项目 Leader
 POST /api/projects/{id}/ci-bootstrap
 ```
 
@@ -386,6 +388,8 @@ POST /api/agent-runs/{id}/cancel
 ```
 
 每次 Provider 调用的请求和反馈由服务端写入 `agent_call_records`，并以 `agent_run_id + attempt_no` 保留重试历史；该记录不对外暴露密钥，供后续监控和统计查询使用。
+
+`GET /api/projects/{id}/agent-call-logs` 仅允许项目 Leader，返回调用明细和汇总（状态、耗时、按 Run Type 统计以及 Provider 反馈中的输入/输出/推理/总 Tokens）。`overview-stats` 使用相同的已持久化反馈聚合项目级 Tokens；缺少 Provider 用量字段的调用只计入调用次数，不计入 Token 总量。
 
 ### 7.4 Task、任务包和阻塞
 

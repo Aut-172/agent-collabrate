@@ -1,6 +1,8 @@
 package com.example.agentcollab.service;
 
 import com.example.agentcollab.domain.IntentLevel;
+import com.example.agentcollab.domain.AgentCallRecord;
+import com.example.agentcollab.domain.AgentRun;
 import com.example.agentcollab.domain.Project;
 import com.example.agentcollab.domain.ProjectMember;
 import com.example.agentcollab.domain.Task;
@@ -11,6 +13,8 @@ import com.example.agentcollab.domain.WorkflowStatus;
 import com.example.agentcollab.dto.ProjectOverviewDtos;
 import com.example.agentcollab.repository.ProjectMemberRepository;
 import com.example.agentcollab.repository.ProjectRepository;
+import com.example.agentcollab.repository.AgentCallRecordRepository;
+import com.example.agentcollab.repository.AgentRunRepository;
 import com.example.agentcollab.repository.TaskAssignmentRepository;
 import com.example.agentcollab.repository.TaskRepository;
 import com.example.agentcollab.repository.UserRepository;
@@ -44,11 +48,14 @@ public class ProjectOverviewService {
     private final TaskAssignmentRepository assignments;
     private final ProjectMemberRepository members;
     private final UserRepository users;
+    private final AgentRunRepository agentRuns;
+    private final AgentCallRecordRepository callRecords;
 
     public ProjectOverviewService(ProjectRepository projects, ProjectAccessService access,
                                   WorkflowRepository workflows, TaskRepository tasks,
                                   TaskAssignmentRepository assignments, ProjectMemberRepository members,
-                                  UserRepository users) {
+                                  UserRepository users, AgentRunRepository agentRuns,
+                                  AgentCallRecordRepository callRecords) {
         this.projects = projects;
         this.access = access;
         this.workflows = workflows;
@@ -56,6 +63,8 @@ public class ProjectOverviewService {
         this.assignments = assignments;
         this.members = members;
         this.users = users;
+        this.agentRuns = agentRuns;
+        this.callRecords = callRecords;
     }
 
     @Transactional(readOnly = true)
@@ -77,6 +86,11 @@ public class ProjectOverviewService {
 
         List<Workflow> projectWorkflows = workflows.findByProjectIdOrderByCreatedAtAsc(projectId);
         List<Long> workflowIds = projectWorkflows.stream().map(Workflow::getId).toList();
+        List<AgentRun> projectRuns = workflowIds.isEmpty()
+                ? List.of() : agentRuns.findByWorkflowIdInOrderByCreatedAtDesc(workflowIds);
+        List<Long> runIds = projectRuns.stream().map(AgentRun::getId).toList();
+        List<AgentCallRecord> projectCalls = runIds.isEmpty()
+                ? List.of() : callRecords.findByAgentRunIdInOrderByCreatedAtDesc(runIds);
         List<Task> projectTasks = workflowIds.isEmpty()
                 ? List.of() : tasks.findByWorkflowIdInOrderById(workflowIds);
         List<Long> taskIds = projectTasks.stream().map(Task::getId).toList();
@@ -141,13 +155,15 @@ public class ProjectOverviewService {
                 .mapToInt(Task::getEffortPoints).sum();
         long activeWorkflowCount = projectWorkflows.stream()
                 .filter(workflow -> !isTerminal(workflow.getStatus())).count();
+        TokenAccumulator tokenAccumulator = new TokenAccumulator();
+        projectCalls.forEach(call -> tokenAccumulator.add(call.getResponseJson()));
         return new ProjectOverviewDtos.OverviewResponse(effectiveFrom, to,
                 new ProjectOverviewDtos.ProjectSummary(project.getId(), project.getCreatedAt(),
                         project.getCiStatus(), activeWorkflowCount, openTaskCount, openEffort),
                 new ProjectOverviewDtos.WorkflowStats(projectWorkflows.size(), workflowStatuses, intentLevels,
                         workflowCreated),
                 new ProjectOverviewDtos.TaskStats(projectTasks.size(), taskStatuses, openTaskCount, openEffort,
-                        taskCompleted), memberStats);
+                        taskCompleted), memberStats, tokenAccumulator.toStats(projectCalls.size()));
     }
 
     private <E extends Enum<E>> Map<E, Long> enumCounts(Class<E> type) {
@@ -193,5 +209,35 @@ public class ProjectOverviewService {
         private int openTaskCount;
         private int openEffortPoints;
         private int completedTaskCount;
+    }
+
+    private static final class TokenAccumulator {
+        private long callsWithUsage;
+        private long inputTokens;
+        private long outputTokens;
+        private long reasoningTokens;
+        private long totalTokens;
+
+        private void add(com.fasterxml.jackson.databind.JsonNode response) {
+            if (response == null) return;
+            com.fasterxml.jackson.databind.JsonNode usage = response.path("usage");
+            if (!usage.isObject()) return;
+            callsWithUsage++;
+            long input = nonNegative(usage.path("input_tokens").asLong(0));
+            long output = nonNegative(usage.path("output_tokens").asLong(0));
+            inputTokens += input;
+            outputTokens += output;
+            reasoningTokens += nonNegative(usage.path("output_tokens_details")
+                    .path("reasoning_tokens").asLong(0));
+            long reportedTotal = usage.path("total_tokens").asLong(-1);
+            totalTokens += reportedTotal >= 0 ? reportedTotal : input + output;
+        }
+
+        private ProjectOverviewDtos.TokenStats toStats(long callCount) {
+            return new ProjectOverviewDtos.TokenStats(callCount, callsWithUsage, inputTokens,
+                    outputTokens, reasoningTokens, totalTokens);
+        }
+
+        private long nonNegative(long value) { return Math.max(0, value); }
     }
 }

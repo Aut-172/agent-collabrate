@@ -1,6 +1,9 @@
 package com.example.agentcollab.service;
 
 import com.example.agentcollab.domain.IntentLevel;
+import com.example.agentcollab.domain.AgentCallRecord;
+import com.example.agentcollab.domain.AgentRun;
+import com.example.agentcollab.domain.AgentRunType;
 import com.example.agentcollab.domain.Project;
 import com.example.agentcollab.domain.ProjectCiStatus;
 import com.example.agentcollab.domain.ProjectMember;
@@ -15,6 +18,8 @@ import com.example.agentcollab.dto.ProjectOverviewDtos;
 import com.example.agentcollab.exception.ApiException;
 import com.example.agentcollab.repository.ProjectMemberRepository;
 import com.example.agentcollab.repository.ProjectRepository;
+import com.example.agentcollab.repository.AgentCallRecordRepository;
+import com.example.agentcollab.repository.AgentRunRepository;
 import com.example.agentcollab.repository.TaskAssignmentRepository;
 import com.example.agentcollab.repository.TaskRepository;
 import com.example.agentcollab.repository.UserRepository;
@@ -47,17 +52,20 @@ class ProjectOverviewServiceTest {
     @Mock TaskAssignmentRepository assignments;
     @Mock ProjectMemberRepository members;
     @Mock UserRepository users;
+    @Mock AgentRunRepository agentRuns;
+    @Mock AgentCallRecordRepository callRecords;
 
     private ProjectOverviewService service;
     private final ObjectMapper json = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        service = new ProjectOverviewService(projects, access, workflows, tasks, assignments, members, users);
+        service = new ProjectOverviewService(projects, access, workflows, tasks, assignments, members, users,
+                agentRuns, callRecords);
     }
 
     @Test
-    void aggregatesStatusesEffortMembersAndDailyTrends() {
+    void aggregatesStatusesEffortMembersAndDailyTrends() throws Exception {
         Project project = project(7L);
         Workflow openWorkflow = workflow(21L, WorkflowStatus.IN_PROGRESS,
                 instant("2026-09-02T10:00:00Z"), instant("2026-09-02T10:00:00Z"));
@@ -73,6 +81,14 @@ class ProjectOverviewServiceTest {
         when(access.requireMember(7L, 99L)).thenReturn(leader);
         when(projects.findById(7L)).thenReturn(Optional.of(project));
         when(workflows.findByProjectIdOrderByCreatedAtAsc(7L)).thenReturn(List.of(openWorkflow, doneWorkflow));
+        AgentRun run = new AgentRun(21L, AgentRunType.GENERATE_DESIGN, "mock", "model", "summary");
+        ReflectionTestUtils.setField(run, "id", 41L);
+        AgentCallRecord call = new AgentCallRecord(41L, 1, "mock", "model", "GENERATE_DESIGN",
+                json.createObjectNode());
+        ReflectionTestUtils.setField(call, "id", 51L);
+        call.succeed(json.readTree("{\"usage\":{\"input_tokens\":10,\"output_tokens\":6,\"total_tokens\":20,\"output_tokens_details\":{\"reasoning_tokens\":4}}}"), 120);
+        when(agentRuns.findByWorkflowIdInOrderByCreatedAtDesc(List.of(21L, 22L))).thenReturn(List.of(run));
+        when(callRecords.findByAgentRunIdInOrderByCreatedAtDesc(List.of(41L))).thenReturn(List.of(call));
         when(tasks.findByWorkflowIdInOrderById(List.of(21L, 22L))).thenReturn(List.of(openTask, doneTask));
         TaskAssignment openAssignment = assignment(31L, 1L);
         TaskAssignment doneAssignment = assignment(32L, 2L);
@@ -102,6 +118,12 @@ class ProjectOverviewServiceTest {
         assertThat(result.members().get(0).workloadRatio()).isEqualTo(0.5);
         assertThat(result.members().get(1).completedTaskCount()).isEqualTo(1);
         assertThat(result.members().get(1).workloadRatio()).isEqualTo(0.0);
+        assertThat(result.tokens().callCount()).isEqualTo(1);
+        assertThat(result.tokens().callsWithUsage()).isEqualTo(1);
+        assertThat(result.tokens().inputTokens()).isEqualTo(10);
+        assertThat(result.tokens().outputTokens()).isEqualTo(6);
+        assertThat(result.tokens().reasoningTokens()).isEqualTo(4);
+        assertThat(result.tokens().totalTokens()).isEqualTo(20);
     }
 
     @Test

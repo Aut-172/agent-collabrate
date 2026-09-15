@@ -19,7 +19,8 @@ public final class ProjectOverviewDtos {
             ProjectSummary project,
             WorkflowStats workflows,
             TaskStats tasks,
-            List<MemberWorkload> members) {}
+            List<MemberWorkload> members,
+            TokenStats tokens) {}
 
     public record ProjectSummary(
             Long projectId,
@@ -55,4 +56,12 @@ public final class ProjectOverviewDtos {
             Double workloadRatio) {}
 
     public record DailyCount(LocalDate date, long count) {}
+
+    public record TokenStats(
+            long callCount,
+            long callsWithUsage,
+            long inputTokens,
+            long outputTokens,
+            long reasoningTokens,
+            long totalTokens) {}
 }
