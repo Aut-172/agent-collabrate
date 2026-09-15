@@ -41,6 +41,7 @@
 14. [14-Intent层级与AI分工策略.md](14-Intent层级与AI分工策略.md)
 15. [15-CodeContextProvider与代码上下文机制.md](15-CodeContextProvider与代码上下文机制.md)
 16. [16-GitHub Actions公网部署.md](16-GitHub Actions公网部署.md)
+17. [17-平台使用手册.md](17-平台使用手册.md)
 
 ## 已冻结的 MVP 决策
 
