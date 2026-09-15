@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 import org.springframework.context.annotation.Profile;
+import java.util.Comparator;
 
 @Component
 @Profile({"test", "mock-provider"})
@@ -130,13 +131,18 @@ public class MockAgentProviderClient implements AgentProviderClient {
         int availableMembers = request.assignableMembers().size();
         int suggestedSize = request.intentLevel() == IntentLevel.FEATURE
                 ? Math.min(2, availableMembers) : Math.min(1, availableMembers);
-        var selectedMembers = request.assignableMembers().stream().limit(suggestedSize).toList();
+        var selectedMembers = request.assignableMembers().stream()
+                .sorted(Comparator.comparingDouble(AgentGenerationRequest.MemberContext::workloadRatio)
+                        .thenComparingInt(AgentGenerationRequest.MemberContext::openEffortPoints)
+                        .thenComparing(AgentGenerationRequest.MemberContext::userId))
+                .limit(suggestedSize)
+                .toList();
         ObjectNode staffing = root.putObject("staffingRecommendation");
         staffing.put("mode", suggestedSize <= 1 ? "SINGLE_OWNER" : "TEAM");
         staffing.put("recommendedTeamSize", suggestedSize);
         String reason = request.intentLevel() == IntentLevel.FEATURE && suggestedSize == 1
                 ? "当前仅有一名可分配成员，因此该 Feature 暂采用单人负责"
-                : "Mock Provider 根据 Intent 范围、成员画像和当前容量生成的确定性建议";
+                : "Mock Provider 先按成员画像筛选，再比较当前工作量与可投入容量比例生成确定性建议";
         staffing.put("reason", reason);
         staffing.put("confidence", 0.5);
 

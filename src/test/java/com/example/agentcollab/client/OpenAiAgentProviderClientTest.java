@@ -127,6 +127,8 @@ class OpenAiAgentProviderClientTest {
         assertThat(prompt).contains("Keep JSON field names, enum values", "shell commands");
         assertThat(prompt).contains("Do not rename fields to buildPlan, estimatedEffortPoints, assigneeUserId");
         assertThat(prompt).contains("Every task must have exactly one matching assignment");
+        assertThat(prompt).contains("compare every remaining candidate horizontally", "workloadRatio",
+                "MUST NOT override skill", "backend task to a clearly frontend-only member");
     }
 
     @Test

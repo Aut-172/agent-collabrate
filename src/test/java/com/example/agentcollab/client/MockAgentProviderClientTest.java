@@ -64,6 +64,49 @@ class MockAgentProviderClientTest {
         assertThat(change.path("staffingRecommendation").path("recommendedTeamSize").asInt()).isEqualTo(1);
     }
 
+    @Test
+    void prefersTheLessLoadedMemberWhenCapabilityCandidatesAreOtherwiseEquivalent() throws Exception {
+        var overloaded = new AgentGenerationRequest.MemberContext(
+                7L, ProjectMember.Role.LEADER, 1, json.createObjectNode().put("summary", "backend"),
+                10, 13, "PART_TIME");
+        var lessLoaded = new AgentGenerationRequest.MemberContext(
+                8L, ProjectMember.Role.MEMBER, 1, json.createObjectNode().put("summary", "backend"),
+                2, 20, "PART_TIME");
+
+        var plan = json.readTree(provider.generate(request(IntentLevel.CHANGE,
+                List.of(overloaded, lessLoaded))).content());
+
+        assertThat(lessLoaded.workloadRatio()).isLessThan(overloaded.workloadRatio());
+        assertThat(plan.path("assignments").get(0).path("userId").asLong()).isEqualTo(lessLoaded.userId());
+    }
+
+    @Test
+    void exposesWorkloadRatioWithoutChangingAssignmentSnapshotContract() throws Exception {
+        var member = new AgentGenerationRequest.MemberContext(
+                7L, ProjectMember.Role.LEADER, 1, json.createObjectNode(), 5, 10, "PART_TIME");
+
+        var requestJson = json.readTree(json.writeValueAsString(request(IntentLevel.CHANGE, List.of(member))));
+        var snapshot = json.readTree(provider.generate(request(IntentLevel.CHANGE, List.of(member))).content())
+                .path("assignments").get(0).path("workloadSnapshot");
+
+        assertThat(requestJson.path("assignableMembers").get(0).path("workloadRatio").asDouble()).isEqualTo(0.5d);
+        assertThat(snapshot.has("workloadRatio")).isFalse();
+    }
+
+    @Test
+    void keepsRatioSafeForMissingOrInvalidCapacityAndShowsOverload() {
+        var missingCapacity = new AgentGenerationRequest.MemberContext(
+                7L, ProjectMember.Role.MEMBER, 1, json.createObjectNode(), 5, null, "LIMITED");
+        var zeroCapacity = new AgentGenerationRequest.MemberContext(
+                8L, ProjectMember.Role.MEMBER, 1, json.createObjectNode(), 5, 0, "LIMITED");
+        var overloaded = new AgentGenerationRequest.MemberContext(
+                9L, ProjectMember.Role.MEMBER, 1, json.createObjectNode(), 15, 10, "LIMITED");
+
+        assertThat(missingCapacity.workloadRatio()).isZero();
+        assertThat(zeroCapacity.workloadRatio()).isZero();
+        assertThat(overloaded.workloadRatio()).isEqualTo(1.5d);
+    }
+
     private AgentGenerationRequest request(
             IntentLevel level, List<AgentGenerationRequest.MemberContext> members) {
         var context = new AgentGenerationRequest.CodeContextInput(3L, 2L, 1L,

@@ -47,7 +47,26 @@ public record AgentGenerationRequest(
             JsonNode profile,
             int openEffortPoints,
             Integer weeklyCapacityPoints,
-            String availability) {}
+            String availability,
+            double workloadRatio) {
+
+        /**
+         * Keeps callers that construct request fixtures compatible while exposing the
+         * derived load signal to the planning agent.
+         */
+        public MemberContext(Long userId, ProjectMember.Role projectRole, int profileVersion,
+                             JsonNode profile, int openEffortPoints, Integer weeklyCapacityPoints,
+                             String availability) {
+            this(userId, projectRole, profileVersion, profile, openEffortPoints,
+                    weeklyCapacityPoints, availability, calculateWorkloadRatio(openEffortPoints,
+                            weeklyCapacityPoints));
+        }
+
+        private static double calculateWorkloadRatio(int openEffortPoints, Integer weeklyCapacityPoints) {
+            if (weeklyCapacityPoints == null || weeklyCapacityPoints <= 0) return 0.0d;
+            return (double) Math.max(0, openEffortPoints) / weeklyCapacityPoints;
+        }
+    }
 
     public record DecisionContext(
             Long documentVersionId,
